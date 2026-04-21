@@ -302,6 +302,7 @@ body {
 body:has([data-popout="true"]) [data-annotation-panel="true"],
 body:has([data-popout="true"]) [data-sticky-header-lane="true"],
 body:has([data-popout="true"]) [data-app-header="true"],
+body:has([data-popout="true"]) [data-sidebar-tabs="true"],
 body:has([data-popout="true"]) .os-scrollbar {
   z-index: -1;
 }

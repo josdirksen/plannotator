@@ -32,7 +32,7 @@ interface TablePopoutProps {
 // Table expects for an accessor-based column definition.
 type Row = Record<string, string>;
 
-export const TablePopout: React.FC<TablePopoutProps> = ({
+const TablePopoutImpl: React.FC<TablePopoutProps> = ({
   block,
   open,
   onClose,
@@ -135,14 +135,31 @@ export const TablePopout: React.FC<TablePopoutProps> = ({
   const totalRows = data.length;
 
   return (
-    <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose(); }} modal={false}>
       <Dialog.Portal container={container ?? undefined}>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0" />
         <Dialog.Content
           className="fixed left-1/2 top-1/2 z-50 w-[calc(100vw-4rem)] max-w-[min(calc(100vw-4rem),1500px)] max-h-[calc(100vh-4rem)] -translate-x-1/2 -translate-y-1/2 bg-background border border-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
           data-block-id={block.id}
           data-popout="true"
+          aria-describedby={undefined}
           onOpenAutoFocus={(e) => e.preventDefault()}
+          onInteractOutside={(e) => {
+            // With modal={false}, Radix treats any click outside Dialog.Content
+            // as dismissal. Our annotation stack (toolbar, comment popover,
+            // quick-label picker) portals to document.body — clicks on them
+            // are outside the dialog DOM but logically part of this session.
+            // Keep the dialog open when the interaction lands on any of them.
+            const target = e.target as Node | null;
+            if (!target || !(target instanceof Element)) return;
+            if (
+              target.closest('.annotation-toolbar') ||
+              target.closest('[data-comment-popover="true"]') ||
+              target.closest('[data-floating-picker="true"]')
+            ) {
+              e.preventDefault();
+            }
+          }}
         >
           <Dialog.Title className="sr-only">Table</Dialog.Title>
           <Dialog.Close asChild>
@@ -265,6 +282,26 @@ export const TablePopout: React.FC<TablePopoutProps> = ({
     </Dialog.Root>
   );
 };
+
+// Memoize on meaningful props (block identity, content, open, container).
+// Upstream Viewer re-renders (annotation toolbar opening, selection change,
+// hover state shuffling) keep firing while the popout is mounted. Without
+// this memo, TanStack's flexRender re-evaluates every cell on every parent
+// re-render, which conflicts with web-highlighter's DOM mutations (the
+// library inserts <mark> tags into the live DOM) and React's reconciler
+// throws NotFoundError trying to remove nodes it doesn't own.
+// Callback identity is intentionally ignored — the behavior is stable even
+// if the parent hands us new function references.
+export const TablePopout = React.memo(
+  TablePopoutImpl,
+  (prev, next) =>
+    prev.block.id === next.block.id &&
+    prev.block.content === next.block.content &&
+    prev.open === next.open &&
+    prev.container === next.container &&
+    prev.imageBaseDir === next.imageBaseDir &&
+    prev.githubRepo === next.githubRepo,
+);
 
 const SortIndicator: React.FC<{ dir: false | 'asc' | 'desc' }> = ({ dir }) => {
   const activeUp = dir === 'asc';

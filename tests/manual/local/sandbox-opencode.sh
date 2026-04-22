@@ -19,9 +19,10 @@
 #   2. Builds the plugin (ensures latest code)
 #   3. Creates a temp directory with git repo
 #   4. Creates sample files with uncommitted changes (for /plannotator-review)
-#   5. Writes workflow-specific OpenCode config
-#   6. Sets up the local plugin
-#   6. Launches OpenCode in the sandbox
+#   5. Creates two minimal folders for reproducing folder-annotation draft collisions
+#   6. Writes workflow-specific OpenCode config
+#   7. Sets up the local plugin
+#   8. Launches OpenCode in the sandbox
 #
 # To test:
 #   - Plan mode behavior varies by --workflow
@@ -152,6 +153,7 @@ fi
 
 # Create initial project structure
 mkdir -p src/{api,components,hooks,utils,types}
+mkdir -p docs/folder-draft-a docs/folder-draft-b
 mkdir -p tests
 
 cat > package.json << 'EOF'
@@ -241,6 +243,21 @@ export async function fetchApi<T>(
 
   return response.json();
 }
+EOF
+
+# Minimal folder-annotation repro fixture
+cat > docs/folder-draft-a/spec.md << 'EOF'
+# Folder Draft A
+
+- This folder exists only to reproduce draft collisions.
+- Leave a draft here, then open folder B.
+EOF
+
+cat > docs/folder-draft-b/spec.md << 'EOF'
+# Folder Draft B
+
+- This folder exists only to reproduce draft collisions.
+- If the bug is present, it will show folder A's draft.
 EOF
 
 # Task API
@@ -1684,6 +1701,11 @@ esac
 if [ "$NO_GIT" = false ]; then
   echo "  3. Code review: Run /plannotator-review"
 fi
+echo "  4. Folder draft repro:"
+echo "     /plannotator-annotate docs/folder-draft-a"
+echo "     Type a draft in the browser, wait a few seconds, then close the tab without sending feedback"
+echo "     /plannotator-annotate docs/folder-draft-b"
+echo "     If the bug is present, folder B will show folder A's draft"
 echo ""
 echo "Launching OpenCode..."
 echo ""

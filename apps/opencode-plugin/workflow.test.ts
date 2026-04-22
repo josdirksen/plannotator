@@ -24,16 +24,16 @@ describe("normalizeWorkflowOptions", () => {
     expect(options.workflow).toBe("plan-agent");
   });
 
-  test("trims and deduplicates planning agents", () => {
+  test("always includes plan and adds trimmed unique planning agents", () => {
     const options = normalizeWorkflowOptions({
       workflow: "plan-agent",
-      planningAgents: [" plan ", "", "planner", "plan", 123],
+      planningAgents: [" planner ", "", "planner", 123],
     });
 
     expect(options.planningAgents).toEqual(["plan", "planner"]);
   });
 
-  test("uses the default planning agent when the configured list is empty", () => {
+  test("keeps the built-in plan agent when the configured list is empty", () => {
     const options = normalizeWorkflowOptions({
       workflow: "plan-agent",
       planningAgents: ["", "   "],
@@ -115,7 +115,7 @@ describe("applyWorkflowConfig", () => {
     expect(config.agent.build.permission.submit_plan).toBe("deny");
   });
 
-  test("plan-agent mode preserves user agent fields and existing permissions", () => {
+  test("plan-agent mode preserves user agent fields and adds custom planning agents", () => {
     const config: any = {
       agent: {
         planner: {
@@ -147,6 +147,24 @@ describe("applyWorkflowConfig", () => {
       "*": "deny",
       "*.md": "allow",
     });
+    expect(config.agent.plan.permission.submit_plan).toBe("allow");
+  });
+
+  test("plan-agent mode treats planningAgents as additive to built-in plan", () => {
+    const config: any = {};
+
+    applyWorkflowConfig(
+      config,
+      normalizeWorkflowOptions({
+        workflow: "plan-agent",
+        planningAgents: ["planner"],
+      }),
+      false,
+    );
+
+    expect(config.agent.plan.permission.submit_plan).toBe("allow");
+    expect(config.agent.planner.permission.submit_plan).toBe("allow");
+    expect(config.agent.build.permission.submit_plan).toBe("deny");
   });
 
   test("plan-agent mode denies user-configured non-planning primary agents", () => {

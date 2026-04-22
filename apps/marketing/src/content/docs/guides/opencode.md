@@ -14,7 +14,7 @@ If you are upgrading from an older OpenCode setup, read the [0.19.1 migration gu
 
 The OpenCode plugin (`@plannotator/opencode`) hooks into OpenCode's plugin system:
 
-1. The plugin registers a `submit_plan` tool for configured planning agents
+1. The plugin registers a `submit_plan` tool for OpenCode's built-in `plan` agent and any extra planning agents you configure
 2. When `submit_plan` is called with a plan, Plannotator starts a local server and opens the browser
 3. The user reviews and annotates the plan
 4. On approval, the plugin returns a success response to the agent
@@ -24,7 +24,7 @@ The OpenCode plugin (`@plannotator/opencode`) hooks into OpenCode's plugin syste
 
 OpenCode support has three explicit modes:
 
-- **`plan-agent`** (default): `submit_plan` is available to configured planning agents only. The default planning agent is `plan`.
+- **`plan-agent`** (default): `submit_plan` is available to OpenCode's built-in `plan` agent plus any extra agents listed in `planningAgents`.
 - **`manual`**: `submit_plan` is not registered. Use `/plannotator-last`, `/plannotator-annotate`, `/plannotator-review`, and `/plannotator-archive` when you want Plannotator.
 - **`all-agents`**: legacy broad behavior. Primary agents can see and call `submit_plan`.
 

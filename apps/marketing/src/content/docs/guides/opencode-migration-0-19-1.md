@@ -17,6 +17,7 @@ Starting in `0.19.1`, the default becomes `plan-agent`.
 If you already use `@plannotator/opencode` and upgrade to `0.19.1` without adding any new config:
 
 - `submit_plan` stays available to OpenCode's planning agent, default `plan`
+- any agents you list in `planningAgents` are added alongside `plan`
 - `build` and other non-planning primary agents stop seeing or calling `submit_plan` by default
 - the broad reminder that nudged non-plan primary agents toward `submit_plan` goes away
 - `/plannotator-last`, `/plannotator-annotate`, `/plannotator-review`, and `/plannotator-archive` still work
@@ -44,8 +45,8 @@ OpenCode feedback was consistent on two points:
 
 `plan-agent` is the compromise default:
 
-- it keeps OpenCode plan-mode integration
-- it narrows `submit_plan` access to planning agents
+- it keeps OpenCode plan-mode integration through the built-in `plan` agent
+- it narrows `submit_plan` access to `plan` plus any extra planning agents you configure
 - it avoids forcing everyone all the way into commands-only mode
 
 ## If you want the old behavior
@@ -121,7 +122,7 @@ No. Manual commands continue to work across all workflow modes.
 
 ### What if my planning agent is not named `plan`?
 
-Configure it explicitly:
+Add it explicitly. OpenCode's built-in `plan` agent stays enabled in `plan-agent` mode:
 
 ```json
 {

@@ -16,6 +16,7 @@ export interface NormalizedWorkflowOptions {
 const WORKFLOWS = new Set<WorkflowMode>(["manual", "plan-agent", "all-agents"]);
 const DEFAULT_WORKFLOW: WorkflowMode = "plan-agent";
 const DEFAULT_PLANNING_AGENTS = ["plan"];
+const BUILTIN_PLAN_AGENT = "plan";
 
 type AgentConfig = {
   mode?: string;
@@ -51,10 +52,12 @@ export function normalizeWorkflowOptions(
 }
 
 function normalizePlanningAgents(value: unknown): string[] {
-  if (!Array.isArray(value)) return DEFAULT_PLANNING_AGENTS;
-
   const seen = new Set<string>();
-  const agents: string[] = [];
+  const agents: string[] = [BUILTIN_PLAN_AGENT];
+  seen.add(BUILTIN_PLAN_AGENT);
+
+  if (!Array.isArray(value)) return agents;
+
   for (const item of value) {
     if (typeof item !== "string") continue;
     const trimmed = item.trim();
@@ -63,7 +66,7 @@ function normalizePlanningAgents(value: unknown): string[] {
     agents.push(trimmed);
   }
 
-  return agents.length > 0 ? agents : DEFAULT_PLANNING_AGENTS;
+  return agents;
 }
 
 export function isPlanningAgent(
@@ -180,4 +183,3 @@ function isPrimaryCapableAgent(agent: AgentConfig, allowSubagents: boolean): boo
   if (mode === "subagent") return allowSubagents;
   return mode === "primary" || mode === "all" || !agent.mode;
 }
-

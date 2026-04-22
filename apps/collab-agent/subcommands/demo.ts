@@ -47,7 +47,7 @@ const MAX_PAUSE_MS = 6_000;
 // comment subcommand because demo is time-boxed; if the server is
 // healthy an echo arrives in <100ms, and a full 10s wait on every
 // heading would dominate the demo's wall time when something is
-// genuinely wrong (e.g. the room is locked).
+// genuinely wrong (e.g. the room was deleted).
 const DEMO_ECHO_TIMEOUT_MS = 5_000;
 
 export async function runDemo(argv: readonly string[]): Promise<number> {
@@ -176,7 +176,7 @@ export async function runDemo(argv: readonly string[]): Promise<number> {
         // Subscribe before sending; await echo. Confirming per
         // heading means demo's exit code reflects whether every
         // comment actually posted, not just "we sent the bytes".
-        // A locked room, disconnect, or server-side rejection
+        // A deleted room, disconnect, or server-side rejection
         // arrives as a rejection here — we record the failure,
         // log it, and keep walking so the observer still sees
         // the tour complete. Final exit code reflects whether

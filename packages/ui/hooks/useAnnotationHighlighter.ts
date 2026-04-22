@@ -48,9 +48,9 @@ export interface UseAnnotationHighlighterOptions {
    * toolbar, comment popover, quick-label picker, mobile selection
    * bridge) while KEEPING existing annotations renderable via
    * applyAnnotations() and still forwarding `onSelectAnnotation` clicks
-   * for sidebar navigation. Used by locked rooms so the editor reads
-   * as read-only instead of exposing write affordances that no-op or
-   * leave stray local marks.
+   * for sidebar navigation. Currently dormant at every call site; kept
+   * as a structural gate for future read-only surfaces that want the
+   * editor chrome without the write affordances.
    */
   readOnly?: boolean;
   /**
@@ -141,10 +141,10 @@ export function useAnnotationHighlighter({
 
   // Transition into read-only: tear down any in-progress write
   // interaction. Without this, a user who had a toolbar/popover/picker
-  // open when the room locked would keep the underlying pending mark
-  // (pendingSourceRef) + the UI state alive — the Viewer hides the UI
-  // behind !readOnly but the local <mark> stays in the DOM as a ghost
-  // annotation the user thinks they created.
+  // open at the moment readOnly flips true would keep the underlying
+  // pending mark (pendingSourceRef) + the UI state alive — the Viewer
+  // hides the UI behind !readOnly but the local <mark> stays in the
+  // DOM as a ghost annotation the user thinks they created.
   useEffect(() => {
     if (!readOnly) return;
     const highlighter = highlighterRef.current;

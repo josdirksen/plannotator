@@ -76,28 +76,15 @@ describe('canonicalJson', () => {
 
   // Known-output test vectors — security-critical stability tests
   describe('test vectors', () => {
-    test('AdminCommand room.lock', () => {
-      expect(canonicalJson({ type: 'room.lock' })).toBe('{"type":"room.lock"}');
-    });
-
-    test('AdminCommand room.lock with snapshot', () => {
-      expect(canonicalJson({ type: 'room.lock', finalSnapshotCiphertext: 'abc' }))
-        .toBe('{"finalSnapshotCiphertext":"abc","type":"room.lock"}');
-    });
-
-    test('AdminCommand room.unlock', () => {
-      expect(canonicalJson({ type: 'room.unlock' })).toBe('{"type":"room.unlock"}');
-    });
-
     test('AdminCommand room.delete', () => {
       expect(canonicalJson({ type: 'room.delete' })).toBe('{"type":"room.delete"}');
     });
 
     test('same input always produces same output', () => {
-      const input = { type: 'room.lock', finalSnapshotCiphertext: 'data' };
+      const input = { type: 'room.delete', reason: 'final' };
       const first = canonicalJson(input);
       const second = canonicalJson(input);
-      const third = canonicalJson({ finalSnapshotCiphertext: 'data', type: 'room.lock' });
+      const third = canonicalJson({ reason: 'final', type: 'room.delete' });
       expect(first).toBe(second);
       expect(first).toBe(third);
     });

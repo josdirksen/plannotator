@@ -129,7 +129,7 @@ bun run agent:run comment --list-blocks \\
   --user ${userArg} --type claude
 \`\`\`
 
-\`comment\` waits for the server echo before exiting. Exit 0 = the comment appeared in everyone's view. Exit 1 = timeout or server rejection (e.g. the room is locked). Exit 2 = argv error.
+\`comment\` waits for the server echo before exiting. Exit 0 = the comment appeared in everyone's view. Exit 1 = timeout or server rejection (e.g. the room was deleted). Exit 2 = argv error.
 
 ## Staying visible while you work
 
@@ -151,7 +151,7 @@ Runs until SIGINT. Heartbeats presence every 10s so you stay in the avatar row. 
 - \`--comment-template <str>\` — body for each posted comment. \`{heading}\` and \`{level}\` are substituted. Default: \`"[demo] reviewing {heading}"\`.
 - \`--dry-run\` — walk the cursor without posting comments. Use this if the user explicitly wants a quiet cursor-only showcase.
 
-Demo confirms each comment's echo per heading and exits non-zero if any comment failed to land (e.g. room locked mid-tour). Streams \`demo.start\`, \`demo.visit\`, \`demo.comment\`, \`demo.comment.failed\`, and \`demo.end\` events as NDJSON so an invoking script can track progress.
+Demo confirms each comment's echo per heading and exits non-zero if any comment failed to land (e.g. room deleted mid-tour). Streams \`demo.start\`, \`demo.visit\`, \`demo.comment\`, \`demo.comment.failed\`, and \`demo.end\` events as NDJSON so an invoking script can track progress.
 
 ## Rules and limits
 

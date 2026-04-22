@@ -85,10 +85,10 @@ interface ViewerProps {
   /**
    * When true, annotation creation affordances (selection toolbar,
    * comment popover) and attachment controls are hidden. Existing
-   * annotation highlights remain visible for review. Used by the
-   * locked-room flow to make the editor read-only at the UI level
-   * instead of letting the user submit writes that the server or
-   * controller would reject.
+   * annotation highlights remain visible for review. Currently
+   * defaults to false at every call site; kept as a structural gate
+   * for future read-only surfaces that want the editor chrome without
+   * the write affordances.
    */
   readOnly?: boolean;
   /**
@@ -258,11 +258,11 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   // Viewer owns SEPARATE state for the global-comment popover, the
   // code-block comment popover (shared `viewerCommentPopover`), the
   // code-block quick-label picker, and the code-block hover toolbar.
-  // Without this effect those would be hidden-but-alive while locked
-  // and pop back on unlock — contradicting the hook's "cancel in
-  // progress on lock" contract. Clearing all of them (plus any in-
-  // flight hover timeout / exit animation) makes Viewer's lock
-  // response match the hook's.
+  // Without this effect those would be hidden-but-alive while
+  // read-only and pop back on exit — contradicting the hook's
+  // "cancel in progress" contract. Clearing all of them (plus any
+  // in-flight hover timeout / exit animation) keeps Viewer's
+  // read-only response consistent with the hook's.
   useEffect(() => {
     if (!readOnly) return;
     setViewerCommentPopover(null);
@@ -309,8 +309,8 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
     // Read-only gate inside the hook: existing annotations still
     // render via applyAnnotations, but selection-triggered marks,
     // toolbar/popover/quick-label states, and the mobile selection
-    // bridge are all suppressed. Keeps the locked-room editor
-    // readable + copyable without exposing write affordances.
+    // bridge are all suppressed. Keeps the editor readable + copyable
+    // without exposing write affordances.
     readOnly,
     authorOverride,
     onSurfaceReset: handleSurfaceReset,
@@ -453,9 +453,9 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
     isQuickLabel?: boolean,
     quickLabelTip?: string,
   ) => {
-    // Locked room / read-only: return before any DOM mutation. Without
-    // this early exit the code block would get a temporary local <mark>
-    // that isn't backed by a canonical annotation, misleading the user
+    // Read-only: return before any DOM mutation. Without this early
+    // exit the code block would get a temporary local <mark> that
+    // isn't backed by a canonical annotation, misleading the user
     // into thinking their annotation exists.
     if (readOnly) return;
 
@@ -713,7 +713,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
 
         {/* Text selection toolbar — defense-in-depth: the hook already
             suppresses toolbarState in readOnly, but render-gating here
-            too makes the locked-room invariant locally obvious. */}
+            too makes the read-only invariant locally obvious. */}
         {!readOnly && toolbarState && (
           <ToolbarErrorBoundary>
             <AnnotationToolbar

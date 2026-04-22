@@ -100,8 +100,4 @@ describe('useAnnotationController — local mode', () => {
     expect(result.current.discard).toBeUndefined();
   });
 
-  test('isLocked is undefined in local mode', () => {
-    const { result } = renderHook(() => useAnnotationController({}));
-    expect(result.current.isLocked).toBeUndefined();
-  });
 });

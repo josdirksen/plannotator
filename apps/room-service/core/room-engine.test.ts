@@ -122,7 +122,7 @@ describe('admin proof verification (end-to-end)', () => {
     const verifier = await computeAdminVerifier(adminKey, ROOM_ID);
     const challengeId = generateChallengeId();
     const nonce = generateNonce();
-    const command: AdminCommand = { type: 'room.lock' };
+    const command: AdminCommand = { type: 'room.delete' };
 
     const proof = await computeAdminProof(verifier, ROOM_ID, 'client-1', challengeId, nonce, command);
     const valid = await verifyAdminProof(verifier, ROOM_ID, 'client-1', challengeId, nonce, command, proof);
@@ -134,37 +134,26 @@ describe('admin proof verification (end-to-end)', () => {
     const verifier = await computeAdminVerifier(adminKey, ROOM_ID);
     const challengeId = generateChallengeId();
     const nonce = generateNonce();
-    const command: AdminCommand = { type: 'room.lock' };
+    const command: AdminCommand = { type: 'room.delete' };
 
     const valid = await verifyAdminProof(verifier, ROOM_ID, 'client-1', challengeId, nonce, command, 'garbage-proof');
     expect(valid).toBe(false);
   });
 
-  test('lock proof cannot verify as delete (command binding via canonicalJson)', async () => {
+  test('proof cannot verify against a different command shape (binding via canonicalJson)', async () => {
+    // V1 has a single AdminCommand shape, so we exercise the binding via
+    // an unsanctioned command — the proof must not verify for anything
+    // whose canonicalJson differs from what was signed.
     const adminKey = await deriveAdminKey(ADMIN_SECRET);
     const verifier = await computeAdminVerifier(adminKey, ROOM_ID);
     const challengeId = generateChallengeId();
     const nonce = generateNonce();
 
-    const lockCommand: AdminCommand = { type: 'room.lock' };
     const deleteCommand: AdminCommand = { type: 'room.delete' };
+    const otherCommand = { type: 'room.other' } as unknown as AdminCommand;
 
-    const proof = await computeAdminProof(verifier, ROOM_ID, 'client-1', challengeId, nonce, lockCommand);
-    const valid = await verifyAdminProof(verifier, ROOM_ID, 'client-1', challengeId, nonce, deleteCommand, proof);
-    expect(valid).toBe(false);
-  });
-
-  test('lock proof with snapshot is bound to snapshot content', async () => {
-    const adminKey = await deriveAdminKey(ADMIN_SECRET);
-    const verifier = await computeAdminVerifier(adminKey, ROOM_ID);
-    const challengeId = generateChallengeId();
-    const nonce = generateNonce();
-
-    const cmd1: AdminCommand = { type: 'room.lock', finalSnapshotCiphertext: 'aaa', finalSnapshotAtSeq: 5 };
-    const cmd2: AdminCommand = { type: 'room.lock', finalSnapshotCiphertext: 'bbb', finalSnapshotAtSeq: 5 };
-
-    const proof = await computeAdminProof(verifier, ROOM_ID, 'client-1', challengeId, nonce, cmd1);
-    const valid = await verifyAdminProof(verifier, ROOM_ID, 'client-1', challengeId, nonce, cmd2, proof);
+    const proof = await computeAdminProof(verifier, ROOM_ID, 'client-1', challengeId, nonce, deleteCommand);
+    const valid = await verifyAdminProof(verifier, ROOM_ID, 'client-1', challengeId, nonce, otherCommand, proof);
     expect(valid).toBe(false);
   });
 });

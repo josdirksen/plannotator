@@ -141,7 +141,7 @@ whole block, and put the phrase in prose.
 
 - `0` — comment echoed back from the server (confirmed posted).
 - `1` — snapshot / echo timeout, unknown block id, or server
-  rejected the op (e.g. the room is locked).
+  rejected the op (e.g. the room was deleted).
 - `2` — argv or usage error (missing flag, bad --type, etc.).
 
 ## 7. Demo mode

@@ -276,90 +276,9 @@ async function run(): Promise<void> {
   }
 
   // -----------------------------------------------------------------------
-  // 8. Admin lock
+  // 8. Admin delete
   // -----------------------------------------------------------------------
-  console.log('\n8. Admin lock');
-  client1.messages.length = 0;
-  client2b.messages.length = 0;
-
-  // Request admin challenge
-  client1.ws.send(JSON.stringify({ type: 'admin.challenge.request' }));
-  await wait(300);
-  const adminChallengeMsg = client1.messages.find(m => m.type === 'admin.challenge') as AdminChallenge | undefined;
-  assert(!!adminChallengeMsg, 'Received admin.challenge');
-
-  if (adminChallengeMsg) {
-    const lockCmd: AdminCommand = { type: 'room.lock' };
-    const adminProof = await computeAdminProof(
-      adminVerifier, roomId, client1.clientId,
-      adminChallengeMsg.challengeId, adminChallengeMsg.nonce, lockCmd,
-    );
-    client1.ws.send(JSON.stringify({
-      type: 'admin.command',
-      challengeId: adminChallengeMsg.challengeId,
-      clientId: client1.clientId,
-      command: lockCmd,
-      adminProof,
-    }));
-    await wait(300);
-
-    const statusMsgs1 = client1.messages.filter(m => m.type === 'room.status');
-    const statusMsgs2 = client2b.messages.filter(m => m.type === 'room.status');
-    assert(statusMsgs1.some(m => m.type === 'room.status' && m.status === 'locked'), 'Client1 receives room.status: locked');
-    assert(statusMsgs2.some(m => m.type === 'room.status' && m.status === 'locked'), 'Client2 receives room.status: locked');
-  }
-
-  // -----------------------------------------------------------------------
-  // 9. Locked room rejects events
-  // -----------------------------------------------------------------------
-  console.log('\n9. Locked room rejects events');
-  client1.messages.length = 0;
-
-  client1.ws.send(JSON.stringify({
-    clientId: client1.clientId,
-    opId: generateOpId(),
-    channel: 'event',
-    ciphertext: eventCiphertext,
-  }));
-  await wait(300);
-
-  const errorMsgs = client1.messages.filter(m => m.type === 'room.error');
-  assert(errorMsgs.length > 0, 'Locked room sends room.error for event');
-  assert(!client1.closed, 'Socket stays open after room.error');
-
-  // -----------------------------------------------------------------------
-  // 10. Admin unlock
-  // -----------------------------------------------------------------------
-  console.log('\n10. Admin unlock');
-  client1.messages.length = 0;
-  client2b.messages.length = 0;
-
-  client1.ws.send(JSON.stringify({ type: 'admin.challenge.request' }));
-  await wait(300);
-  const unlockChallenge = client1.messages.find(m => m.type === 'admin.challenge') as AdminChallenge | undefined;
-
-  if (unlockChallenge) {
-    const unlockCmd: AdminCommand = { type: 'room.unlock' };
-    const unlockProof = await computeAdminProof(
-      adminVerifier, roomId, client1.clientId,
-      unlockChallenge.challengeId, unlockChallenge.nonce, unlockCmd,
-    );
-    client1.ws.send(JSON.stringify({
-      type: 'admin.command',
-      challengeId: unlockChallenge.challengeId,
-      clientId: client1.clientId,
-      command: unlockCmd,
-      adminProof: unlockProof,
-    }));
-    await wait(300);
-
-    assert(client1.messages.some(m => m.type === 'room.status' && m.status === 'active'), 'Unlock broadcasts room.status: active');
-  }
-
-  // -----------------------------------------------------------------------
-  // 11. Admin delete
-  // -----------------------------------------------------------------------
-  console.log('\n11. Admin delete');
+  console.log('\n8. Admin delete');
   client1.messages.length = 0;
 
   client1.ws.send(JSON.stringify({ type: 'admin.challenge.request' }));
@@ -386,9 +305,9 @@ async function run(): Promise<void> {
   }
 
   // -----------------------------------------------------------------------
-  // 12. Deleted room rejects new joins
+  // 9. Deleted room rejects new joins
   // -----------------------------------------------------------------------
-  console.log('\n12. Deleted room rejects new joins');
+  console.log('\n9. Deleted room rejects new joins');
   try {
     const client3 = await connectAndAuth(roomId, roomVerifier);
     client3.ws.close();

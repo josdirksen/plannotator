@@ -168,18 +168,18 @@ describe('useRoomAnnotationController', () => {
       { initialProps: { room: m.room } },
     );
 
-    await act(async () => { result.current.add(makeAnn('locked-add')); });
-    expect(result.current.pending.has('locked-add')).toBe(true);
+    await act(async () => { result.current.add(makeAnn('failed-add')); });
+    expect(result.current.pending.has('failed-add')).toBe(true);
 
-    m.emitError('room_locked', 'Room is locked');
+    m.emitError('validation_error', 'Malformed annotation payload');
     await act(async () => { rerender({ room: m.room }); });
 
-    expect(result.current.pending.has('locked-add')).toBe(false);
-    const failure = result.current.failed.get('locked-add');
+    expect(result.current.pending.has('failed-add')).toBe(false);
+    const failure = result.current.failed.get('failed-add');
     expect(failure?.kind).toBe('add');
-    expect(failure?.error).toContain('room_locked');
+    expect(failure?.error).toContain('validation_error');
     // Row remains in pendingAdditions so Retry/Discard can render.
-    expect(result.current.pendingAdditions.has('locked-add')).toBe(true);
+    expect(result.current.pendingAdditions.has('failed-add')).toBe(true);
   });
 
   test('server-side rejection also catches update and remove', async () => {
@@ -245,7 +245,7 @@ describe('useRoomAnnotationController', () => {
     await act(async () => { result.current.add(makeAnn('ann-safe')); });
     expect(result.current.pending.has('ann-safe')).toBe(true);
 
-    m.emitError('lock_failed', 'admin lock rejected', 'admin');
+    m.emitError('delete_failed', 'admin delete rejected', 'admin');
     await act(async () => { rerender({ room: m.room }); });
 
     // Pending should STAY pending — admin error didn't reject the add.
@@ -266,7 +266,7 @@ describe('useRoomAnnotationController', () => {
     const first = makeAnn('first-add');
     await act(async () => { result.current.add(first); });
 
-    m.emitError('room_locked', 'locked', 'mutation');
+    m.emitError('validation_error', 'bad payload', 'mutation');
     await act(async () => { rerender({ room: m.room }); });
     expect(result.current.failed.has('first-add')).toBe(true);
 

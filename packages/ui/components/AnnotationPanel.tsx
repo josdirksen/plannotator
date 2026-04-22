@@ -186,12 +186,7 @@ export const AnnotationPanel: React.FC<PanelProps> = ({
                     isSelected={selectedId === ann.id}
                     isMe={isMe}
                     onSelect={() => onSelect(ann.id)}
-                    // Locked rooms: suppress delete/edit affordances so the
-                    // panel reads as read-only instead of offering buttons
-                    // that silently fail. Existing annotations stay visible
-                    // for review; locks block new writes, not reads.
-                    //
-                    // Pending / failed rows: also suppress normal edit/delete.
+                    // Pending / failed rows: suppress normal edit/delete.
                     // Room controller tracks at most one pending op per id;
                     // mutating while an add/update/remove is in flight (or
                     // already failed) would either overwrite the pending
@@ -353,7 +348,7 @@ const AnnotationCard: React.FC<{
    */
   isMe: (author: string | undefined) => boolean;
   onSelect: () => void;
-  /** Undefined = hide delete button (e.g. locked room / read-only). */
+  /** Undefined = hide delete button (e.g. pending/failed row, read-only context). */
   onDelete?: () => void;
   onEdit?: (updates: Partial<Annotation>) => void;
 }> = ({ annotation, isSelected, isMe, onSelect, onDelete, onEdit }) => {

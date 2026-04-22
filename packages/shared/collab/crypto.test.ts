@@ -190,41 +190,32 @@ describe('admin proof', () => {
   test('compute and verify round-trip', async () => {
     const adminKey = await deriveAdminKey(TEST_ADMIN_SECRET);
     const verifier = await computeAdminVerifier(adminKey, TEST_ROOM_ID);
-    const command: AdminCommand = { type: 'room.lock' };
+    const command: AdminCommand = { type: 'room.delete' };
 
     const proof = await computeAdminProof(verifier, TEST_ROOM_ID, 'client-1', 'ch_xyz', 'nonce456', command);
     const valid = await verifyAdminProof(verifier, TEST_ROOM_ID, 'client-1', 'ch_xyz', 'nonce456', command, proof);
     expect(valid).toBe(true);
   });
 
-  test('wrong command rejects (lock proof cannot be used as delete)', async () => {
+  test('wrong command rejects (proof is bound to canonicalJson(command))', async () => {
+    // V1 has a single AdminCommand shape (room.delete), so this exercises
+    // the binding via an unsanctioned command type — the proof must not
+    // verify for ANY command whose canonicalJson differs from what the
+    // proof was computed over.
     const adminKey = await deriveAdminKey(TEST_ADMIN_SECRET);
     const verifier = await computeAdminVerifier(adminKey, TEST_ROOM_ID);
-    const lockCommand: AdminCommand = { type: 'room.lock' };
     const deleteCommand: AdminCommand = { type: 'room.delete' };
+    const otherCommand = { type: 'room.other' } as unknown as AdminCommand;
 
-    const proof = await computeAdminProof(verifier, TEST_ROOM_ID, 'client-1', 'ch_xyz', 'nonce456', lockCommand);
-    const valid = await verifyAdminProof(verifier, TEST_ROOM_ID, 'client-1', 'ch_xyz', 'nonce456', deleteCommand, proof);
-    expect(valid).toBe(false);
-  });
-
-  test('proof is bound to canonicalJson(command)', async () => {
-    const adminKey = await deriveAdminKey(TEST_ADMIN_SECRET);
-    const verifier = await computeAdminVerifier(adminKey, TEST_ROOM_ID);
-
-    // Same command with finalSnapshotCiphertext
-    const cmd1: AdminCommand = { type: 'room.lock', finalSnapshotCiphertext: 'aaa' };
-    const cmd2: AdminCommand = { type: 'room.lock', finalSnapshotCiphertext: 'bbb' };
-
-    const proof = await computeAdminProof(verifier, TEST_ROOM_ID, 'client-1', 'ch_xyz', 'n', cmd1);
-    const valid = await verifyAdminProof(verifier, TEST_ROOM_ID, 'client-1', 'ch_xyz', 'n', cmd2, proof);
+    const proof = await computeAdminProof(verifier, TEST_ROOM_ID, 'client-1', 'ch_xyz', 'nonce456', deleteCommand);
+    const valid = await verifyAdminProof(verifier, TEST_ROOM_ID, 'client-1', 'ch_xyz', 'nonce456', otherCommand, proof);
     expect(valid).toBe(false);
   });
 
   test('malformed proof rejects without throwing', async () => {
     const adminKey = await deriveAdminKey(TEST_ADMIN_SECRET);
     const verifier = await computeAdminVerifier(adminKey, TEST_ROOM_ID);
-    const command: AdminCommand = { type: 'room.lock' };
+    const command: AdminCommand = { type: 'room.delete' };
 
     await expect(verifyAdminProof(verifier, TEST_ROOM_ID, 'client-1', 'ch_xyz', 'nonce456', command, 'A'))
       .resolves.toBe(false);

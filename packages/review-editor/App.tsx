@@ -1059,6 +1059,26 @@ const ReviewApp: React.FC = () => {
     setSelectedAnnotationId(id);
   }, [allAnnotations, files, handleFileSwitch]);
 
+  // Diff context bundled into local-mode feedback headers so the receiving
+  // agent knows which diff the annotations are anchored to. Uses committedBase
+  // (what the server actually computed) and activeDiffBase/activeWorktreePath
+  // (derived from the committed diffType). Skipped in PR mode — the PR header
+  // already carries the relevant context.
+  // Declared before reviewStateValue because both reviewStateValue and the
+  // feedbackMarkdown memo below read it; moving it below either would put it
+  // in the TDZ when those memos run on first render.
+  const feedbackDiffContext = useMemo(
+    () =>
+      prMetadata || !activeDiffBase
+        ? undefined
+        : {
+            mode: activeDiffBase,
+            base: committedBase ?? undefined,
+            worktreePath: activeWorktreePath,
+          },
+    [prMetadata, activeDiffBase, committedBase, activeWorktreePath],
+  );
+
   // Build ReviewState value for dock panel context
   const reviewStateValue = useMemo<ReviewState>(() => ({
     files,
@@ -1155,23 +1175,6 @@ const ReviewApp: React.FC = () => {
       setTimeout(() => setCopyRawDiffStatus('idle'), 2000);
     }
   }, [diffData]);
-
-  // Diff context bundled into local-mode feedback headers so the receiving
-  // agent knows which diff the annotations are anchored to. Uses committedBase
-  // (what the server actually computed) and activeDiffBase/activeWorktreePath
-  // (derived from the committed diffType). Skipped in PR mode — the PR header
-  // already carries the relevant context.
-  const feedbackDiffContext = useMemo(
-    () =>
-      prMetadata || !activeDiffBase
-        ? undefined
-        : {
-            mode: activeDiffBase,
-            base: committedBase ?? undefined,
-            worktreePath: activeWorktreePath,
-          },
-    [prMetadata, activeDiffBase, committedBase, activeWorktreePath],
-  );
 
   // Copy feedback markdown to clipboard
   const handleCopyFeedback = useCallback(async () => {

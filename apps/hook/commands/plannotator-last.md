@@ -10,4 +10,6 @@ disable-model-invocation: true
 
 ## Your task
 
-Address the annotation feedback above. The user has reviewed your last message and provided specific annotations and comments.
+If the output above is empty, the user closed the annotation session without providing feedback. Acknowledge with a single sentence ("Annotation session closed.") and stop. Do not begin any work.
+
+Otherwise, address the annotation feedback above. The user has reviewed your last message and provided specific annotations and comments.

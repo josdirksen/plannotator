@@ -124,6 +124,38 @@ const noJinaIdx = args.indexOf("--no-jina");
 const cliNoJina = noJinaIdx !== -1;
 if (cliNoJina) args.splice(noJinaIdx, 1);
 
+// Annotate review-gate flags (#570): --gate adds an Approve button,
+// --json switches stdout to structured decision output.
+const gateIdx = args.indexOf("--gate");
+const gateFlag = gateIdx !== -1;
+if (gateFlag) args.splice(gateIdx, 1);
+const jsonIdx = args.indexOf("--json");
+const jsonFlag = jsonIdx !== -1;
+if (jsonFlag) args.splice(jsonIdx, 1);
+
+// Stdout matrix for annotate / annotate-last / copilot annotate-last (#570).
+// Approve and Close both emit empty stdout in plaintext mode so naive PostToolUse
+// and Stop hooks (empty = allow, non-empty = block) work without parsing.
+// --json switches to structured output across all three decisions.
+function emitAnnotateOutcome(result: {
+  feedback: string;
+  exit?: boolean;
+  approved?: boolean;
+}): void {
+  if (jsonFlag) {
+    if (result.approved) {
+      console.log(JSON.stringify({ decision: "approved" }));
+    } else if (result.exit) {
+      console.log(JSON.stringify({ decision: "dismissed" }));
+    } else {
+      console.log(JSON.stringify({ decision: "annotated", feedback: result.feedback || "" }));
+    }
+    return;
+  }
+  if (result.approved || result.exit) return; // empty stdout
+  if (result.feedback) console.log(result.feedback);
+}
+
 if (isTopLevelHelpInvocation(args)) {
   console.log(formatTopLevelHelp());
   process.exit(0);
@@ -590,6 +622,7 @@ if (args[0] === "sessions") {
     sharingEnabled,
     shareBaseUrl,
     pasteApiUrl,
+    gate: gateFlag,
     htmlContent: planHtmlContent,
     onReady: async (url, isRemote, port) => {
       handleAnnotateServerReady(url, isRemote, port);
@@ -622,11 +655,7 @@ if (args[0] === "sessions") {
   server.stop();
 
   // Output feedback (captured by slash command)
-  if (result.exit) {
-    console.log("Annotation session closed without feedback.");
-  } else {
-    console.log(result.feedback || "No feedback provided.");
-  }
+  emitAnnotateOutcome(result);
   process.exit(0);
 
 } else if (args[0] === "annotate-last" || args[0] === "last") {
@@ -724,6 +753,7 @@ if (args[0] === "sessions") {
     sharingEnabled,
     shareBaseUrl,
     pasteApiUrl,
+    gate: gateFlag,
     htmlContent: planHtmlContent,
     onReady: async (url, isRemote, port) => {
       handleAnnotateServerReady(url, isRemote, port);
@@ -750,11 +780,7 @@ if (args[0] === "sessions") {
 
   server.stop();
 
-  if (result.exit) {
-    console.log("Annotation session closed without feedback.");
-  } else {
-    console.log(result.feedback || "No feedback provided.");
-  }
+  emitAnnotateOutcome(result);
   process.exit(0);
 
 } else if (args[0] === "archive") {
@@ -915,6 +941,7 @@ if (args[0] === "sessions") {
     mode: "annotate-last",
     sharingEnabled,
     shareBaseUrl,
+    gate: gateFlag,
     htmlContent: planHtmlContent,
     onReady: async (url, isRemote, port) => {
       handleAnnotateServerReady(url, isRemote, port);
@@ -939,11 +966,7 @@ if (args[0] === "sessions") {
   await Bun.sleep(1500);
   server.stop();
 
-  if (result.exit) {
-    console.log("Annotation session closed without feedback.");
-  } else {
-    console.log(result.feedback || "No feedback provided.");
-  }
+  emitAnnotateOutcome(result);
   process.exit(0);
 
 } else if (args[0] === "improve-context") {

@@ -51,8 +51,12 @@ export const ReviewDiffPanel: React.FC<IDockviewPanelProps> = (props) => {
     );
   }
 
+  // Keying on reviewBase forces a remount when the user picks a new base.
+  // Otherwise the file-content fetch for the new base can land before the new
+  // patch, and Pierre briefly reconciles old-patch + new-content → "trailing
+  // context mismatch" warnings in the console.
   return (
-    <div key={file.path} className="h-full relative">
+    <div key={`${file.path}:${state.reviewBase ?? ''}`} className="h-full relative">
       <DiffViewer
         patch={file.patch}
         filePath={file.path}

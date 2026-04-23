@@ -76,7 +76,7 @@ plannotator/
 │   │       ├── crypto.ts         # HKDF key derivation, HMAC proofs, AES-GCM payload encrypt/decrypt
 │   │       ├── ids.ts            # roomId/secret/opId/clientId generators
 │   │       ├── url.ts            # parseRoomUrl / buildRoomJoinUrl / buildAdminRoomUrl (client-only)
-│   │       ├── constants.ts      # ROOM_SECRET_LENGTH_BYTES, ADMIN_SECRET_LENGTH_BYTES, WS_CLOSE_ROOM_UNAVAILABLE, WS_CLOSE_REASON_ROOM_DELETED, WS_CLOSE_REASON_ROOM_EXPIRED
+│   │       ├── constants.ts      # ROOM_SECRET_LENGTH_BYTES, ADMIN_SECRET_LENGTH_BYTES, WS_CLOSE_ROOM_UNAVAILABLE, WS_CLOSE_REASON_ROOM_UNAVAILABLE
 │   │       ├── canonical-json.ts # canonicalJson for admin command proof binding
 │   │       ├── encoding.ts       # base64url helpers
 │   │       ├── strip-images.ts   # toRoomAnnotation, stripRoomAnnotationImages (image stripping for room snapshots)

@@ -205,19 +205,21 @@ export function RoomApp({
 
   // Terminal connect/auth failures: auth rejected, connect timeout,
   // room unavailable. These set connectionStatus='disconnected' with a
-  // non-null lastError whose scope='join'. Show a terminal screen
-  // matching the room-deleted/expired pattern. This branch fires even
-  // if we previously authenticated — e.g. an admin-rejected reconnect.
+  // non-null lastError whose scope='join'. room_unavailable routes to
+  // the shared terminal screen; auth/timeout keep their distinct copy
+  // since they're recoverable-ish user errors, not "link is dead."
   const connectionStatus = session.room?.connectionStatus ?? 'connecting';
   const joinError = session.room?.lastError;
   if (connectionStatus === 'disconnected' && joinError && joinError.scope === 'join') {
+    if (joinError.code === 'room_unavailable') {
+      return <RoomUnavailableScreen />;
+    }
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-background">
         <div className="text-center space-y-3 max-w-sm">
           <h2 className="text-lg font-semibold">
             {joinError.code === 'auth_rejected' ? 'Access denied' :
              joinError.code === 'connect_timeout' ? 'Connection timed out' :
-             joinError.code === 'room_unavailable' ? 'Room unavailable' :
              'Could not join room'}
           </h2>
           <p className="text-sm text-muted-foreground">{joinError.message}</p>

@@ -813,9 +813,19 @@ export class RoomDurableObject extends DurableObject<Env> {
     reason: 'expiry' | 'admin' | 'create-preempted-expired' | 'lifecycle-preempted-expired' | 'upgrade-preempted-expired',
     except?: WebSocket,
   ): Promise<void> {
-    // Close sockets first so connected peers see the terminal close
-    // immediately; storage work runs after. Any send failures during
-    // close are already swallowed by closeRoomSockets.
+    // Hard-delete the room record FIRST. Absence is what makes the room
+    // unreachable to any new connection — a concurrent WS upgrade or
+    // lifecycle check that lands mid-purge sees nothing and rejects.
+    // Closing sockets before this would leave a window where the room
+    // key still reads as present.
+    try {
+      await this.ctx.storage.delete('room');
+    } catch (e) {
+      safeLog('room:purge-delete-error', { reason, error: String(e) });
+      throw e;
+    }
+
+    // Now close connected peers so they see the terminal close.
     this.closeRoomSockets(WS_CLOSE_REASON_ROOM_UNAVAILABLE, except);
 
     // Best-effort: cancel the pending alarm in case the trigger wasn't
@@ -832,14 +842,6 @@ export class RoomDurableObject extends DurableObject<Env> {
       await this.purgeEventKeys();
     } catch (e) {
       safeLog('room:purge-event-keys-error', { reason, error: String(e) });
-    }
-
-    // Hard-delete the room record. Absence = gone.
-    try {
-      await this.ctx.storage.delete('room');
-    } catch (e) {
-      safeLog('room:purge-delete-error', { reason, error: String(e) });
-      throw e;
     }
 
     safeLog('room:purged', { reason });

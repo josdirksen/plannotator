@@ -213,7 +213,7 @@ export class CollabRoomClient {
   /**
    * Monotonic generation counter. Incremented every time openSocket()
    * installs a new WebSocket. Queued async handlers (room.snapshot,
-   * room.event, room.presence, room.status, room.error) capture the
+   * room.event, room.presence, room.error) capture the
    * generation at dispatch time and re-check it after any async decrypt
    * before mutating state — so a late decrypt from a retired socket can
    * never clobber the newer socket's state, even though the retired
@@ -748,10 +748,9 @@ export class CollabRoomClient {
     this.stopPresenceSweep();
 
     // Terminal close or user-initiated? Don't reconnect.
-    const isTerminal =
-      this.userDisconnected ||
-      code === WS_CLOSE_ROOM_UNAVAILABLE ||
-      this.roomUnavailable;
+    // (roomUnavailable is set above iff code === WS_CLOSE_ROOM_UNAVAILABLE,
+    // so checking the flag alone covers both.)
+    const isTerminal = this.userDisconnected || this.roomUnavailable;
 
     if (isTerminal) {
       // setStatus already emits `state` on a transition; no trailing emitState
@@ -1417,7 +1416,8 @@ export class CollabRoomClient {
         command: pending.command,
         adminProof: proof,
       }));
-      // Promise stays pending — resolves via room.status or socket close
+      // Promise stays pending — resolves when the server closes the socket
+      // with WS_CLOSE_ROOM_UNAVAILABLE (handled in handleSocketClose).
     } catch (err) {
       // Stale-identity drop: mirror the success-path guard. If the socket,
       // identity, or pending-admin slot rotated during the failed proof, the

@@ -400,7 +400,7 @@ describe('CollabRoomClient — admin', () => {
     client.disconnect();
   });
 
-  test('deleteRoom sends challenge.request, then admin.command with proof, resolves on room.status: deleted', async () => {
+  test('deleteRoom sends challenge.request, then admin.command with proof, resolves on terminal socket close', async () => {
     const { client, ws } = await setup({ withAdmin: true });
 
     const deletePromise = client.deleteRoom();
@@ -532,7 +532,7 @@ describe('CollabRoomClient — admin', () => {
     // command. But room.error is also used for event-channel failures
     // (validation_error, event_persist_failed). If one of those lands
     // while a delete command is in flight, we must NOT cancel the
-    // delete — its room.status: deleted may still be on the way.
+    // delete — its terminal socket-close may still be on the way.
     const { client, ws } = await setup({ withAdmin: true });
 
     const deletePromise = client.deleteRoom();

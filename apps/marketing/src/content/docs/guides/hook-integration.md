@@ -6,13 +6,12 @@ sidebar:
 section: "Guides"
 ---
 
-The `--gate`, `--json`, and `--silent-approve` flags on `plannotator annotate` and `plannotator annotate-last` turn annotation into a structured review decision. This guide shows how to wire them into agent hooks so a human can gate the agent at specific points in a workflow.
+The `--gate`, `--json`, and `--hook` flags on `plannotator annotate` and `plannotator annotate-last` turn annotation into a structured review decision. This guide shows how to wire them into agent hooks so a human can gate the agent at specific points in a workflow.
 
 See [Annotate → Flags](/docs/commands/annotate/#flags) for the full stdout matrix. The short version:
 
+- `--hook` emits hook-native JSON that works directly with Claude Code and Codex hook protocols. Implies `--gate`. Recommended for hook integrations.
 - `--gate` adds a three-button UX (Approve / Send Annotations / Close).
-- Plaintext default: Approve emits the line `The user approved.`, Close emits empty stdout, Send Annotations emits the feedback markdown. Three distinguishable outputs without parsing JSON.
-- `--silent-approve` collapses Approve to empty stdout, matching Close. Use this with naive "any stdout = block" hooks so silence means permission.
 - `--json` emits every decision as a structured `{ "decision": "approved" | "annotated" | "dismissed", "feedback": "..." }` object.
 
 ## Recipe 1: PostToolUse spec gate
@@ -48,21 +47,21 @@ Behavior:
 - **Send Annotations** → feedback markdown on stdout. Claude Code reports the feedback back.
 - **Close** → empty stdout. Claude Code proceeds silently.
 
-### Silence-is-permission (`--silent-approve`)
+### Hook-native mode (`--hook`)
 
-If your hook treats any non-empty stdout as a block signal (spec-kit and similar naive PostToolUse hooks), add `--silent-approve` so Approve also emits empty stdout:
+For direct hook integration without a wrapper script, use `--hook`. It emits the JSON protocol that Claude Code and Codex hooks expect natively:
 
 ```json
-"command": "plannotator annotate \"$CLAUDE_TOOL_INPUT_file_path\" --gate --silent-approve"
+"command": "plannotator annotate \"$CLAUDE_TOOL_INPUT_file_path\" --hook"
 ```
 
-Behavior with the flag:
+Behavior:
 
 - **Approve** → empty stdout → hook passes → agent proceeds.
 - **Close** → empty stdout → hook passes → agent proceeds.
-- **Send Annotations** → feedback on stdout → hook blocks with feedback as the reason.
+- **Send Annotations** → `{"decision":"block","reason":"<feedback>"}` → hook blocks with feedback.
 
-Approve and Close collapse into the same "silent = allow" cell, which is what this class of hook expects. Only Send Annotations carries content the agent needs to react to.
+`--hook` implies `--gate` (three-button UX). This is the recommended approach for both Claude Code PostToolUse hooks and Codex hooks.
 
 ### Structured (`--json`)
 
@@ -119,7 +118,7 @@ Behavior:
 - **Send Annotations** → feedback on stdout → Claude Code re-prompts with the feedback.
 - **Close** → empty stdout → turn ends.
 
-Add `--silent-approve` if your Stop hook treats any stdout as a re-prompt trigger — Approve then emits empty stdout too, so only Send Annotations re-fires the turn with feedback.
+Use `--hook` instead of `--gate` if you want hook-native JSON. Approve and Close emit empty stdout, Send Annotations emits `{"decision":"block","reason":"..."}` which prevents the stop and re-prompts with feedback.
 
 ### Structured
 
@@ -133,7 +132,7 @@ The same `--gate` flag works in OpenCode's `/plannotator-annotate` and Pi's `/pl
 /plannotator-annotate spec.md --gate
 ```
 
-On those harnesses there is no stdout channel back to the agent — the plugin writes back via `session.prompt` (OpenCode) or `sendUserMessage` (Pi). Approve and Close both result in no session injection; Send Annotations injects the feedback. `--json` and `--silent-approve` are accepted silently on these harnesses so recipes stay portable.
+On those harnesses there is no stdout channel back to the agent — the plugin writes back via `session.prompt` (OpenCode) or `sendUserMessage` (Pi). Approve and Close both result in no session injection; Send Annotations injects the feedback. `--json` and `--hook` are accepted silently on these harnesses so recipes stay portable.
 
 Third-party Pi or OpenCode plugins that want explicit decision routing can read `approved` directly from the server's decision object:
 

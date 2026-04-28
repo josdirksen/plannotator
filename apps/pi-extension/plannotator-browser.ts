@@ -433,7 +433,7 @@ export async function openLastMessageAnnotation(
 	lastText: string,
 	gate?: boolean,
 ): Promise<{ feedback: string; exit?: boolean; approved?: boolean }> {
-	return openMarkdownAnnotation(ctx, "last-message", lastText, "annotate-last", undefined, undefined, gate);
+	return openMarkdownAnnotation(ctx, "last-message", lastText, "annotate-last", undefined, undefined, undefined, gate);
 }
 
 export async function openArchiveBrowserAction(

@@ -152,6 +152,9 @@ const App: React.FC = () => {
   const [gate, setGate] = useState(false);
   const [annotateSource, setAnnotateSource] = useState<'file' | 'message' | 'folder' | null>(null);
   const [sourceInfo, setSourceInfo] = useState<string | undefined>();
+  /** True when the active document was converted from HTML/URL via Turndown/Jina —
+   *  used to caveat line numbers in exported feedback. */
+  const [sourceConverted, setSourceConverted] = useState(false);
   const [sourceFilePath, setSourceFilePath] = useState<string | undefined>();
   const [imageBaseDir, setImageBaseDir] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
@@ -306,7 +309,7 @@ const App: React.FC = () => {
   const linkedDocHook = useLinkedDoc({
     markdown, annotations, selectedAnnotationId, globalAttachments,
     setMarkdown, setAnnotations, setSelectedAnnotationId, setGlobalAttachments,
-    viewerRef, sidebar: linkedDocSidebar, sourceFilePath,
+    viewerRef, sidebar: linkedDocSidebar, sourceFilePath, sourceConverted,
   });
 
   // Archive browser
@@ -654,7 +657,7 @@ const App: React.FC = () => {
         if (!res.ok) throw new Error('Not in API mode');
         return res.json();
       })
-      .then((data: { plan: string; origin?: Origin; mode?: 'annotate' | 'annotate-last' | 'annotate-folder' | 'archive'; filePath?: string; sourceInfo?: string; gate?: boolean; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string; host?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; archivePlans?: ArchivedPlan[]; projectRoot?: string; isWSL?: boolean; serverConfig?: { displayName?: string; gitUser?: string } }) => {
+      .then((data: { plan: string; origin?: Origin; mode?: 'annotate' | 'annotate-last' | 'annotate-folder' | 'archive'; filePath?: string; sourceInfo?: string; sourceConverted?: boolean; gate?: boolean; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string; host?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; archivePlans?: ArchivedPlan[]; projectRoot?: string; isWSL?: boolean; serverConfig?: { displayName?: string; gitUser?: string } }) => {
         // Initialize config store with server-provided values (config file > cookie > default)
         configStore.init(data.serverConfig);
         // gitUser drives the "Use git name" button in Settings; stays undefined (button hidden) when unavailable
@@ -684,6 +687,7 @@ const App: React.FC = () => {
           setAnnotateSource(data.mode === 'annotate-last' ? 'message' : data.mode === 'annotate-folder' ? 'folder' : 'file');
         }
         setSourceInfo(data.sourceInfo ?? undefined);
+        setSourceConverted(!!data.sourceConverted);
         if (data.filePath) {
           setImageBaseDir(data.mode === 'annotate-folder' ? data.filePath : data.filePath.replace(/\/[^/]+$/, ''));
           if (data.mode === 'annotate') {
@@ -1187,11 +1191,27 @@ const App: React.FC = () => {
     }
 
     let output = hasPlanAnnotations
-      ? exportAnnotations(blocks, allAnnotations, globalAttachments, annotateSource === 'message' ? 'Message Feedback' : annotateSource === 'folder' ? 'Folder Feedback' : annotateSource === 'file' ? 'File Feedback' : 'Plan Feedback', annotateSource ?? 'plan')
+      ? exportAnnotations(
+          blocks,
+          allAnnotations,
+          globalAttachments,
+          annotateSource === 'message' ? 'Message Feedback' : annotateSource === 'folder' ? 'Folder Feedback' : annotateSource === 'file' ? 'File Feedback' : 'Plan Feedback',
+          annotateSource ?? 'plan',
+          { sourceConverted }
+        )
       : '';
 
     if (hasDocAnnotations) {
-      output += exportLinkedDocAnnotations(docAnnotations);
+      // Parse blocks for each linked doc's cached markdown so the exporter can
+      // attach source line numbers per annotation. Skip docs without cached
+      // markdown (defensive — older entries pre-dating the markdown field).
+      const enriched = new Map(docAnnotations);
+      for (const [filepath, entry] of enriched) {
+        if (entry.markdown) {
+          enriched.set(filepath, { ...entry, blocks: parseMarkdownToBlocks(entry.markdown) });
+        }
+      }
+      output += exportLinkedDocAnnotations(enriched);
     }
 
     if (hasEditorAnnotations) {
@@ -1199,7 +1219,7 @@ const App: React.FC = () => {
     }
 
     return output;
-  }, [blocks, allAnnotations, globalAttachments, linkedDocHook.getDocAnnotations, editorAnnotations]);
+  }, [blocks, allAnnotations, globalAttachments, linkedDocHook.getDocAnnotations, editorAnnotations, sourceConverted, annotateSource]);
 
   // Bot callback config — read once from URL search params (?cb=&ct=)
   const callbackConfig = React.useMemo(() => getCallbackConfig(), []);

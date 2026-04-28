@@ -447,7 +447,30 @@ export const computeListIndices = (blocks: Block[]): (number | null)[] => {
 export const wrapFeedbackForAgent = (feedback: string): string =>
   planDenyFeedback(feedback);
 
-export const exportAnnotations = (blocks: Block[], annotations: any[], globalAttachments: ImageAttachment[] = [], title: string = 'Plan Feedback', subject: string = 'plan'): string => {
+export interface ExportAnnotationsOptions {
+  /** True when the source markdown was converted from HTML/URL via Turndown/Jina.
+   *  When set, line numbers refer to the converted markdown — a caveat is added. */
+  sourceConverted?: boolean;
+}
+
+/** Resolve the source-line label for a single annotation. Returns null when no
+ *  meaningful line exists (global comment, diff-view annotation, missing block). */
+const lineLabelForAnnotation = (blocks: Block[], ann: any): string | null => {
+  if (!ann.blockId) return null;
+  if (typeof ann.blockId === 'string' && ann.blockId.startsWith('diff-block-')) return null;
+  const block = blocks.find(b => b.id === ann.blockId);
+  if (!block || typeof block.startLine !== 'number') return null;
+  return `line ${block.startLine}`;
+};
+
+export const exportAnnotations = (
+  blocks: Block[],
+  annotations: any[],
+  globalAttachments: ImageAttachment[] = [],
+  title: string = 'Plan Feedback',
+  subject: string = 'plan',
+  opts: ExportAnnotationsOptions = {}
+): string => {
   if (annotations.length === 0 && globalAttachments.length === 0) {
     return 'No changes detected.';
   }
@@ -461,6 +484,10 @@ export const exportAnnotations = (blocks: Block[], annotations: any[], globalAtt
   });
 
   let output = `# ${title}\n\n`;
+
+  if (opts.sourceConverted) {
+    output += `> Note: Line numbers below refer to the converted markdown, not the original HTML/URL source.\n\n`;
+  }
 
   // Add global reference images section if any
   if (globalAttachments.length > 0) {
@@ -477,13 +504,14 @@ export const exportAnnotations = (blocks: Block[], annotations: any[], globalAtt
   }
 
   sortedAnns.forEach((ann, index) => {
-    const block = blocks.find(b => b.id === ann.blockId);
-
     output += `## ${index + 1}. `;
 
     // Add diff context label if annotation was created in diff view
     if (ann.diffContext) {
       output += `[In diff content] `;
+    } else {
+      const lineLabel = lineLabelForAnnotation(blocks, ann);
+      if (lineLabel) output += `(${lineLabel}) `;
     }
 
     switch (ann.type) {
@@ -542,15 +570,24 @@ export const exportAnnotations = (blocks: Block[], annotations: any[], globalAtt
   return output;
 };
 
+export interface LinkedDocAnnotationEntry {
+  annotations: Annotation[];
+  globalAttachments: ImageAttachment[];
+  /** Parsed blocks for the doc — needed to map blockId → source line number. */
+  blocks?: Block[];
+  /** True when the doc was converted from HTML to markdown for display. */
+  isConverted?: boolean;
+}
+
 export const exportLinkedDocAnnotations = (
-  docAnnotations: Map<string, { annotations: Annotation[]; globalAttachments: ImageAttachment[] }>
+  docAnnotations: Map<string, LinkedDocAnnotationEntry>
 ): string => {
   let output = `\n# Linked Document Feedback\n\nThe following feedback is on documents referenced in the plan.\n\n`;
 
-  for (const [filepath, { annotations, globalAttachments }] of docAnnotations) {
+  for (const [filepath, { annotations, globalAttachments, blocks: docBlocks, isConverted }] of docAnnotations) {
     if (annotations.length === 0 && globalAttachments.length === 0) continue;
 
-    output += `## ${filepath}\n\n`;
+    output += `## ${filepath}${isConverted ? ' (converted from HTML — line numbers refer to converted markdown)' : ''}\n\n`;
 
     if (globalAttachments.length > 0) {
       output += `### Reference Images\n`;
@@ -571,6 +608,9 @@ export const exportLinkedDocAnnotations = (
 
     sortedAnns.forEach((ann, index) => {
       output += `### ${index + 1}. `;
+
+      const lineLabel = docBlocks ? lineLabelForAnnotation(docBlocks, ann) : null;
+      if (lineLabel) output += `(${lineLabel}) `;
 
       switch (ann.type) {
         case 'DELETION':

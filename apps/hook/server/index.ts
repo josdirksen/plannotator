@@ -559,6 +559,7 @@ if (args[0] === "sessions") {
   let folderPath: string | undefined;
   let annotateMode: "annotate" | "annotate-folder" = "annotate";
   let sourceInfo: string | undefined;
+  let sourceConverted = false;
 
   // --- URL annotation ---
   const isUrl = /^https?:\/\//i.test(filePath);
@@ -578,6 +579,7 @@ if (args[0] === "sessions") {
     }
     absolutePath = filePath; // Use URL as the "path" for display
     sourceInfo = filePath;   // Full URL for source attribution
+    sourceConverted = true;  // Markdown produced by Jina/Turndown — line numbers caveated
   } else {
     // Folder check with literal-@ fallback for scoped-package-style names.
     const folderCandidate = resolveAtReference(rawFilePath, (c) => {
@@ -615,6 +617,7 @@ if (args[0] === "sessions") {
         markdown = htmlToMarkdown(html);
         absolutePath = resolvedArg;
         sourceInfo = path.basename(resolvedArg);
+        sourceConverted = true; // Turndown conversion — line numbers caveated
         console.error(`Converted: ${absolutePath}`);
       } else {
         // Single markdown file annotation mode
@@ -653,6 +656,7 @@ if (args[0] === "sessions") {
     mode: annotateMode,
     folderPath,
     sourceInfo,
+    sourceConverted,
     sharingEnabled,
     shareBaseUrl,
     pasteApiUrl,

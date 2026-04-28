@@ -361,6 +361,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 			let folderPath: string | undefined;
 			let mode: "annotate" | "annotate-folder" | undefined;
 			let sourceInfo: string | undefined;
+			let sourceConverted = false;
 			let isFolder = false;
 
 			// --- URL annotation ---
@@ -378,6 +379,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 				}
 				absolutePath = filePath;
 				sourceInfo = filePath;
+				sourceConverted = true;
 			} else {
 				// Pick the interpretation of the user input that actually exists:
 				// stripped form first (reference-mode primary), literal as fallback
@@ -420,6 +422,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 					const html = readFileSync(absolutePath, "utf-8");
 					markdown = htmlToMarkdown(html);
 					sourceInfo = basename(absolutePath);
+					sourceConverted = true;
 					ctx.ui.notify(`Opening annotation UI for ${filePath}...`, "info");
 				} else {
 					markdown = readFileSync(absolutePath, "utf-8");
@@ -428,7 +431,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 			}
 
 			try {
-				const result = await openMarkdownAnnotation(ctx, absolutePath, markdown, mode ?? "annotate", folderPath, sourceInfo, gate);
+				const result = await openMarkdownAnnotation(ctx, absolutePath, markdown, mode ?? "annotate", folderPath, sourceInfo, gate, sourceConverted);
 				if (result.approved) {
 					ctx.ui.notify("Annotation approved.", "info");
 				} else if (result.exit) {

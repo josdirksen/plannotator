@@ -43,6 +43,9 @@ export async function startAnnotateServer(options: {
 	shareBaseUrl?: string;
 	pasteApiUrl?: string;
 	sourceInfo?: string;
+	/** True when `markdown` was converted from HTML/URL via Turndown/Jina —
+	 *  feedback line numbers won't match the original source. */
+	sourceConverted?: boolean;
 	gate?: boolean;
 }): Promise<AnnotateServerResult> {
 	const gitUser = detectGitUser();
@@ -92,6 +95,7 @@ export async function startAnnotateServer(options: {
 				mode: options.mode || "annotate",
 				filePath: options.filePath,
 				sourceInfo: options.sourceInfo,
+				sourceConverted: options.sourceConverted ?? false,
 				gate: options.gate ?? false,
 				sharingEnabled,
 				shareBaseUrl,

@@ -170,6 +170,7 @@ export async function handleAnnotateCommand(
   let folderPath: string | undefined;
   let annotateMode: "annotate" | "annotate-folder" = "annotate";
   let sourceInfo: string | undefined;
+  let sourceConverted = false;
 
   // --- URL annotation ---
   const isUrl = /^https?:\/\//i.test(filePath);
@@ -186,6 +187,7 @@ export async function handleAnnotateCommand(
     }
     absolutePath = filePath;
     sourceInfo = filePath;
+    sourceConverted = true;
   } else {
     const projectRoot = directory || process.cwd();
     const resolvedArg = resolveUserPath(filePath, projectRoot);
@@ -223,6 +225,7 @@ export async function handleAnnotateCommand(
       markdown = htmlToMarkdown(html);
       absolutePath = resolvedArg;
       sourceInfo = path.basename(resolvedArg);
+      sourceConverted = true;
       client.app.log({ level: "info", message: `Converted: ${absolutePath}` });
     } else {
       // Markdown file annotation
@@ -258,6 +261,7 @@ export async function handleAnnotateCommand(
     mode: annotateMode,
     folderPath,
     sourceInfo,
+    sourceConverted,
     sharingEnabled: await getSharingEnabled(),
     shareBaseUrl: getShareBaseUrl(),
     pasteApiUrl: getPasteApiUrl(),

@@ -377,6 +377,7 @@ export async function openMarkdownAnnotation(
 	folderPath?: string,
 	sourceInfo?: string,
 	gate?: boolean,
+	sourceConverted?: boolean,
 ): Promise<{ feedback: string; exit?: boolean; approved?: boolean }> {
 	if (!ctx.hasUI || !planHtmlContent) {
 		throw new Error("Plannotator annotation browser is unavailable in this session.");
@@ -401,6 +402,7 @@ export async function openMarkdownAnnotation(
 		mode,
 		folderPath,
 		sourceInfo,
+		sourceConverted,
 		gate,
 		htmlContent: planHtmlContent,
 		sharingEnabled: process.env.PLANNOTATOR_SHARE !== "disabled",

@@ -296,7 +296,7 @@ export async function handleAnnotateCommand(
             parts: [{
               type: "text",
               text: getAnnotateFileFeedbackPrompt("opencode", undefined, {
-                fileHeader: "File",
+                fileHeader: isFolder ? "Folder" : "File",
                 filePath: absolutePath,
                 feedback: result.feedback,
               }),

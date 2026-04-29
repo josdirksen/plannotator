@@ -82,7 +82,6 @@ import {
   getPlanDeniedPrompt,
   getPlanToolName,
   buildPlanFileRule,
-  getAnnotateApprovedPrompt,
 } from "@plannotator/shared/prompts";
 import { registerSession, unregisterSession, listSessions } from "@plannotator/server/sessions";
 import { openBrowser } from "@plannotator/server/browser";
@@ -159,7 +158,14 @@ if (hookFlag) gateFlag = true;
 //   Emits {"decision":"approved|dismissed|annotated","feedback":"..."}.
 //
 // Plaintext (default):
-//   Close → empty. Approve → configurable via getAnnotateApprovedPrompt(). Annotate → feedback.
+//   Close → empty. Approve → "The user approved." Annotate → feedback.
+//
+// TODO: The plaintext --gate approval sentinel must stay as the exact string
+// "The user approved." because slash command templates (plannotator-annotate.md,
+// plannotator-last.md) instruct the agent to match it literally. Making this
+// configurable requires updating those templates to accept dynamic values or
+// switching gate mode to structured output only.
+const APPROVED_PLAINTEXT_MARKER = "The user approved.";
 
 function emitAnnotateOutcome(result: {
   feedback: string;
@@ -185,7 +191,7 @@ function emitAnnotateOutcome(result: {
   }
   if (result.exit) return;
   if (result.approved) {
-    console.log(getAnnotateApprovedPrompt(detectedOrigin));
+    console.log(APPROVED_PLAINTEXT_MARKER);
     return;
   }
   if (result.feedback) console.log(result.feedback);

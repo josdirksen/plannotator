@@ -528,14 +528,14 @@ Use /plannotator-last or /plannotator-annotate for manual review, or set workflo
 
             if (result.feedback) {
               return getPlanApprovedWithNotesPrompt("opencode", undefined, {
-                planFilePath: "",
+                planFilePath: sourceFilePath,
                 doneMsg: result.savedPath ? `Saved to: ${result.savedPath}` : "",
                 feedback: result.feedback,
               });
             }
 
             return getPlanApprovedPrompt("opencode", undefined, {
-              planFilePath: "",
+              planFilePath: sourceFilePath,
               doneMsg: result.savedPath ? ` Saved to: ${result.savedPath}` : "",
             });
           } else {

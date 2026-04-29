@@ -398,12 +398,12 @@ describe("prompts integration (config from disk)", () => {
     expect(result).toContain("YOUR PLAN WAS NOT APPROVED");
   });
 
-  // ── planDenyFeedback backward compat through disk ────────────────────
+  // ── planDenyFeedback is browser-safe (no Node imports) ────────────────
 
-  test("planDenyFeedback() picks up config from disk", async () => {
+  test("planDenyFeedback() always uses hardcoded default (not config)", async () => {
     writeConfig({
       prompts: {
-        plan: { denied: "BLOCKED.\n\n{{feedback}}" },
+        plan: { denied: "CUSTOM.\n\n{{feedback}}" },
       },
     });
 
@@ -412,9 +412,10 @@ describe("prompts integration (config from disk)", () => {
       console.log(planDenyFeedback("Fix auth", "ExitPlanMode"));
     `);
 
-    // planDenyFeedback passes config=undefined → loadConfig() reads disk
-    // BUT: planDenyFeedback calls getPlanDeniedPrompt(null, undefined, ...)
-    // which means config=undefined → loadConfig() → should read our custom config
-    expect(result).toBe("BLOCKED.\n\nFix auth");
+    // planDenyFeedback is self-contained — it does NOT read config.json.
+    // This is intentional: it's imported by the browser SPA bundle, which
+    // cannot access Node APIs. Config-aware denials use getPlanDeniedPrompt().
+    expect(result).toContain("YOUR PLAN WAS NOT APPROVED");
+    expect(result).toContain("Fix auth");
   });
 });

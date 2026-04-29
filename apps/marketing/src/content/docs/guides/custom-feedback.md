@@ -49,7 +49,6 @@ These are sent when you annotate a file (`/plannotator-annotate`) or the last as
 |-----|---------------|-------------------|
 | `fileFeedback` | You annotate a file or folder | `{{fileHeader}}`, `{{filePath}}`, `{{feedback}}` |
 | `messageFeedback` | You annotate the last assistant message | `{{feedback}}` |
-| `approved` | You approve in gate mode (plaintext output) | none |
 
 ### Review feedback
 

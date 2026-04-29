@@ -73,9 +73,9 @@ interface PromptLookupOptions {
   runtimeFallbacks?: Partial<Record<PromptRuntime, string>>;
 }
 
-function normalizePrompt(prompt: string | undefined): string | undefined {
-  const trimmed = prompt?.trim();
-  return trimmed ? prompt : undefined;
+function normalizePrompt(prompt: unknown): string | undefined {
+  if (typeof prompt !== "string") return undefined;
+  return prompt.trim() ? prompt : undefined;
 }
 
 export function getConfiguredPrompt(options: PromptLookupOptions): string {

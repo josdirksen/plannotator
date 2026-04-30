@@ -1307,6 +1307,9 @@ const App: React.FC = () => {
   }, [blocks, allAnnotations, globalAttachments, linkedDocHook.getDocAnnotations, editorAnnotations, codeAnnotations, sourceConverted, annotateSource, linkedDocHook.isActive, linkedDocHook.filepath]);
 
   // Bot callback config — read once from URL search params (?cb=&ct=)
+  // TODO: bot callbacks post shareUrl which doesn't include code-file annotations.
+  // If a user adds code comments and hits the callback button, those comments are silently dropped.
+  // Fix: either disable callbacks when codeAnnotations exist, or include annotationsOutput in the payload.
   const callbackConfig = React.useMemo(() => getCallbackConfig(), []);
 
   const callCallback = React.useCallback(async (action: CallbackAction) => {

@@ -26,98 +26,51 @@
 
 ### Plan Review &nbsp; <a href="https://www.youtube.com/watch?v=a_AT7cEN_9I"><img src="https://img.shields.io/badge/▶_Watch_demo-red?style=flat-square&logo=youtube&logoColor=white" alt="Watch demo" /></a>
 
-<table>
-<tr>
-<td width="50%">
-
 When your agent proposes a plan, Plannotator intercepts the approval step and opens a review workspace. Annotate inline, mark deletions, write replacements, attach screenshots. Approve or deny with structured feedback.
 
 **Happens automatically** — hooks into your agent's plan mode. No command to run.
 
-</td>
-<td width="50%">
-
 <img src="apps/marketing/public/assets/plan-review.webp" alt="Plan review UI with inline annotations" width="100%" />
 
-</td>
-</tr>
-</table>
+---
 
 ### Code Review
-
-<table>
-<tr>
-<td width="50%">
-
-<img src="readme-assets/code-review-thumbnail.png" alt="Code review with file tree and side-by-side diff" width="100%" />
-
-</td>
-<td width="50%">
 
 Run `/plannotator-review` for a PR-style diff viewer. Side-by-side or unified diffs, file tree navigation, line-level annotations. Stage or unstage files before committing. Pass a GitHub or GitLab PR URL to review remote pull requests.
 
 Built-in AI assistant to ask questions about the diff as you review.
 
-</td>
-</tr>
-</table>
+<img src="readme-assets/code-review-thumbnail.png" alt="Code review with file tree and side-by-side diff" width="100%" />
+
+---
 
 ### Annotate Anything
-
-<table>
-<tr>
-<td width="50%">
 
 Run `/plannotator-annotate` on any markdown file, HTML page, URL, or folder. Annotate the agent's last message with `/plannotator-last`. Your annotations become structured feedback the agent can use.
 
 Supports `.md`, `.mdx`, `.html`, URLs (fetched via [Jina Reader](https://jina.ai/reader/)), and folder browsing.
 
-</td>
-<td width="50%">
-
 <img src="readme-assets/annotate.png" alt="Annotate mode with TOC sidebar and inline annotations" width="100%" />
 
-</td>
-</tr>
-</table>
+---
 
 ### Plan Diff
-
-<table>
-<tr>
-<td width="50%">
-
-<img src="readme-assets/plan-diff.png" alt="Plan diff showing changes between revisions" width="100%" />
-
-</td>
-<td width="50%">
 
 When you deny a plan and the agent resubmits, the UI shows exactly what changed. Color-coded rendered diff or raw git-style `+/-` view. Browse and compare any version from the sidebar.
 
 Every revision is saved automatically to version history.
 
-</td>
-</tr>
-</table>
+<img src="readme-assets/plan-diff.png" alt="Plan diff showing changes between revisions" width="100%" />
+
+---
 
 ### Sharing & Collaboration
-
-<table>
-<tr>
-<td width="50%">
 
 Share annotated plans with teammates via URL. A colleague can annotate a shared plan — import their feedback and send it straight to your agent.
 
 **Small plans** encode entirely in the URL hash — no server involved. **Large plans** use E2E encrypted paste (AES-256-GCM, zero-knowledge, [self-hostable](https://plannotator.ai/docs/guides/sharing-and-collaboration/)). Pastes auto-delete after 7 days.
 
-</td>
-<td width="50%">
-
 <img src="readme-assets/sharing.png" alt="Sharing portal for live review rooms" width="100%" />
-
-</td>
-</tr>
-</table>
 
 ---
 

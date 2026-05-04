@@ -56,8 +56,8 @@ plannotator/
 │   │   │   ├── core.ts           # Engine: parser, formatter, dispatcher, validator
 │   │   │   ├── runtime.ts        # Engine: useShortcutScope, useDoubleTapShortcuts hooks
 │   │   │   ├── index.ts          # Barrel — re-exports engine + scopes from both subfolders
-│   │   │   ├── plan-review/      # Scopes for plan-editor surfaces (annotationToolbar, commentPopover, imageAnnotator, inputMethod, viewer)
-│   │   │   └── code-review/      # Scopes for review-editor surfaces (annotationToolbar, fileTree)
+│   │   │   ├── plan-review/      # Scopes for plan-editor surfaces (annotationToolbar, annotationPanel, commentPopover, imageAnnotator, inputMethod, viewer)
+│   │   │   └── code-review/      # Scopes for review-editor surfaces (ai, allFilesDiff, annotationToolbar, fileTree, prComments, suggestionModal, tourDialog)
 │   │   ├── shortcuts.test.ts     # Registry unit tests (parser, dispatcher, validator)
 │   │   ├── utils/                # parser.ts, sharing.ts, storage.ts, planSave.ts, agentSwitch.ts, planDiffEngine.ts, planAgentInstructions.ts
 │   │   ├── hooks/                # useAnnotationHighlighter.ts, useSharing.ts, usePlanDiff.ts, useSidebar.ts, useLinkedDoc.ts, useAnnotationDraft.ts, useCodeAnnotationDraft.ts, useArchive.ts

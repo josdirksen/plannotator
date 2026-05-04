@@ -1,3 +1,5 @@
+import { isMac } from '../utils/platform';
+
 export type ShortcutPlatform = 'mac' | 'non-mac' | 'cross-platform';
 
 export interface ShortcutDefinition {
@@ -44,6 +46,12 @@ const NAMED_TOKENS = new Set([
   'Enter',
   'Escape',
   'Tab',
+  // TODO(migration): `matchesKeyToken` does not currently match `Space` —
+  // pressing Spacebar produces `event.key === ' '` (length 1), which the
+  // matcher uppercases to `' '` and then compares to the literal `'Space'`,
+  // always failing. Add a special case in `matchesKeyToken` (e.g.
+  // `if (token === 'Space') return event.key === ' ' || event.code === 'Space'`)
+  // before any scope binds Space.
   'Space',
   'Backspace',
   'Delete',
@@ -249,8 +257,7 @@ export function listRegistryShortcutSections(registry: ShortcutRegistry): Shortc
 }
 
 export function getShortcutPlatform(): Exclude<ShortcutPlatform, 'cross-platform'> {
-  if (typeof navigator === 'undefined') return 'non-mac';
-  return /Mac|iPhone|iPad/.test(navigator.platform) ? 'mac' : 'non-mac';
+  return isMac ? 'mac' : 'non-mac';
 }
 
 function formatKeycapToken(token: string, platform: Exclude<ShortcutPlatform, 'cross-platform'>): string {

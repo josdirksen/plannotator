@@ -22,7 +22,6 @@ export interface UseShortcutScopeOptions<TScope extends ShortcutScopeDefinition<
   handlers: ShortcutHandlers<TScope>;
   target?: ShortcutEventTarget;
   stopOnMatch?: boolean;
-  listenerOptions?: boolean | AddEventListenerOptions;
 }
 
 function normalizeShortcutHandler(handler: ShortcutHandler): ShortcutHandlerConfig {
@@ -33,6 +32,13 @@ function normalizeShortcutHandler(handler: ShortcutHandler): ShortcutHandlerConf
   return handler;
 }
 
+// TODO(migration): no cross-scope arbitration. When two scopes bind the
+// same key (e.g. `Escape` in both an outer editor scope and an inner
+// dialog scope), both `useShortcutScope` listeners fire on a single
+// keypress. Add `if (event.defaultPrevented) return false;` at the top
+// of this function once shortcut definitions consistently set
+// `preventDefault: true` (or once we flip the default). Until then,
+// callers must guard with `when` to prevent double-handling.
 export function dispatchShortcutEvent<TScope extends ShortcutScopeDefinition<any>>(
   scope: TScope,
   handlers: ShortcutHandlers<TScope>,
@@ -83,7 +89,6 @@ export function useShortcutScope<TScope extends ShortcutScopeDefinition<any>>({
   handlers,
   target = 'window',
   stopOnMatch = true,
-  listenerOptions,
 }: UseShortcutScopeOptions<TScope>) {
   const handlersRef = useRef(handlers);
 
@@ -99,11 +104,11 @@ export function useShortcutScope<TScope extends ShortcutScopeDefinition<any>>({
       dispatchShortcutEvent(scope, handlersRef.current, event as KeyboardEvent, { stopOnMatch });
     };
 
-    eventTarget.addEventListener('keydown', handleKeyDown as EventListener, listenerOptions);
+    eventTarget.addEventListener('keydown', handleKeyDown as EventListener);
     return () => {
-      eventTarget.removeEventListener('keydown', handleKeyDown as EventListener, listenerOptions);
+      eventTarget.removeEventListener('keydown', handleKeyDown as EventListener);
     };
-  }, [listenerOptions, scope, stopOnMatch, target]);
+  }, [scope, stopOnMatch, target]);
 }
 
 export function createShortcutScopeHook<TScope extends ShortcutScopeDefinition<any>>(scope: TScope) {

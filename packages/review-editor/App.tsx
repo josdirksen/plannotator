@@ -36,6 +36,8 @@ import { useAgentJobs } from '@plannotator/ui/hooks/useAgentJobs';
 import { exportEditorAnnotations } from '@plannotator/ui/utils/parser';
 import { ResizeHandle } from '@plannotator/ui/components/ResizeHandle';
 import { DockviewReact, type DockviewReadyEvent, type DockviewApi } from 'dockview-react';
+import { useIsMobile } from '@plannotator/ui/hooks/useIsMobile';
+import { MobileReviewView } from './components/MobileReviewView';
 import { ReviewHeaderMenu } from './components/ReviewHeaderMenu';
 import { ReviewSidebar } from './components/ReviewSidebar';
 import type { ReviewSidebarTab } from './components/ReviewSidebar';
@@ -129,6 +131,7 @@ function getFileTabTitle(filePath: string): string {
 }
 
 const ReviewApp: React.FC = () => {
+  const isMobile = useIsMobile();
   const { resolvedMode } = useTheme();
   const [diffData, setDiffData] = useState<DiffData | null>(null);
   const [files, setFiles] = useState<DiffFile[]>([]);
@@ -1697,6 +1700,27 @@ const ReviewApp: React.FC = () => {
         <div className="h-screen flex items-center justify-center bg-background">
           <div className="text-muted-foreground text-sm">Loading diff...</div>
         </div>
+      </ThemeProvider>
+    );
+  }
+
+  if (isMobile) {
+    return (
+      <ThemeProvider defaultTheme="dark">
+        <MobileReviewView
+          files={files}
+          annotations={allAnnotations}
+          prMetadata={prMetadata}
+          repoInfo={repoInfo}
+          onExit={handleExit}
+          isExiting={isExiting}
+        />
+        <CompletionOverlay
+          submitted={submitted === 'exited' ? 'exited' : false}
+          title="Session Closed"
+          subtitle="Review session closed."
+          agentLabel={getAgentName(origin)}
+        />
       </ThemeProvider>
     );
   }

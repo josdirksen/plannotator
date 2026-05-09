@@ -171,7 +171,7 @@ export async function startAnnotateServer(
               sourceInfo,
               sourceConverted: sourceConverted ?? false,
               gate,
-              renderAs: renderHtml ? 'html' as const : 'markdown' as const,
+              renderAs: renderHtml && rawHtml ? 'html' as const : 'markdown' as const,
               ...(renderHtml && rawHtml ? { rawHtml } : {}),
               sharingEnabled,
               shareBaseUrl,

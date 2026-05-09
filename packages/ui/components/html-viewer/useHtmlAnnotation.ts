@@ -183,24 +183,20 @@ export function useHtmlAnnotation({
   const handleAnnotate = useCallback(
     (type: AnnotationType) => {
       const text = pendingTextRef.current;
-      if (!text) return;
+      if (!text || type !== AnnotationType.DELETION) return;
 
       const id = `html-ann-${Date.now()}`;
-      const annType = type === AnnotationType.DELETION ? "deletion" : "comment";
-      postToIframe(iframeRef.current, { type: `${PREFIX}create-mark`, id, annotationType: annType });
-
-      if (type === AnnotationType.DELETION) {
-        onAddRef.current?.({
-          id,
-          blockId: "",
-          startOffset: 0,
-          endOffset: 0,
-          type: AnnotationType.DELETION,
-          originalText: text,
-          author: getIdentity(),
-          createdA: Date.now(),
-        });
-      }
+      postToIframe(iframeRef.current, { type: `${PREFIX}create-mark`, id, annotationType: "deletion" });
+      onAddRef.current?.({
+        id,
+        blockId: "",
+        startOffset: 0,
+        endOffset: 0,
+        type: AnnotationType.DELETION,
+        originalText: text,
+        author: getIdentity(),
+        createdA: Date.now(),
+      });
 
       setToolbarState(null);
       pendingTextRef.current = "";

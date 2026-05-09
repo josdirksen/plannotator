@@ -74,7 +74,6 @@ export interface HtmlViewerProps {
   globalAttachments?: ImageAttachment[];
   onAddGlobalAttachment?: (image: ImageAttachment) => void;
   onRemoveGlobalAttachment?: (path: string) => void;
-  sourceInfo?: string;
   maxWidth?: number | null;
 }
 

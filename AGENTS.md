@@ -32,6 +32,15 @@ plannotator/
 │       ├── bin/                   # Router scripts (open-in-vscode, xdg-open)
 │       ├── src/                   # extension.ts, cookie-proxy.ts, ipc-server.ts, panel-manager.ts, editor-annotations.ts, vscode-theme.ts
 │       └── package.json           # Extension manifest (publisher: backnotprop)
+│   └── skills/                      # Agent skills (agentskills.io format)
+│       ├── plannotator-review/          # Lightweight: opens review UI
+│       ├── plannotator-annotate/        # Lightweight: opens annotate UI
+│       ├── plannotator-last/            # Lightweight: annotates last message
+│       ├── plannotator-compound/        # Research analysis agent (map-reduce over denied plans)
+│       ├── plannotator-setup-goal/      # Goal package scaffolder for /goal workflows
+│       ├── plannotator-visual-plan/     # Visual HTML implementation plan generator
+│       ├── plannotator-pr-explainer/    # Visual HTML PR explainer generator
+│       └── plannotator-visual-explainer/ # Nico visual-explainer wrapper with Plannotator theming
 ├── packages/
 │   ├── server/                   # Shared server implementation
 │   │   ├── index.ts              # startPlannotatorServer(), handleServerReady()
@@ -77,14 +86,6 @@ plannotator/
 │       ├── dock/                 # Dockview center panel infrastructure
 │       ├── demoData.ts           # Demo diff for standalone mode
 │       └── index.css             # Review-specific styles
-├── skills/                          # Agent skills (agentskills.io format, `npx skills add` compatible)
-│   ├── plannotator-review/          # Lightweight: opens review UI
-│   ├── plannotator-annotate/        # Lightweight: opens annotate UI
-│   ├── plannotator-last/            # Lightweight: annotates last message
-│   ├── plannotator-compound/        # Research analysis agent (map-reduce over denied plans)
-│   ├── plannotator-setup-goal/      # Goal package scaffolder for /goal workflows
-│   ├── plannotator-visual-plan/      # Visual HTML implementation plan generator
-│   └── plannotator-pr-explainer/    # Visual HTML PR explainer generator
 ├── .claude-plugin/marketplace.json  # For marketplace install
 └── legacy/                       # Old pre-monorepo code (reference only)
 ```

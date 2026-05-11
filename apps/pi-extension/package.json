@@ -37,7 +37,7 @@
     "skills/"
   ],
   "scripts": {
-    "build": "cp ../hook/dist/index.html plannotator.html && cp ../hook/dist/review.html review-editor.html && rm -rf skills && cp -r ../../skills skills && bash vendor.sh",
+    "build": "cp ../hook/dist/index.html plannotator.html && cp ../hook/dist/review.html review-editor.html && rm -rf skills && cp -r ../skills skills && bash vendor.sh",
     "prepublishOnly": "cd ../.. && bun run build:pi"
   },
   "dependencies": {

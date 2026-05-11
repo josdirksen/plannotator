@@ -81,9 +81,44 @@ All of these come from visual-explainer — read them there, don't reinvent them
 - Quality checks (squint test, swap test, overflow protection)
 - Animation guidelines (staggered entrance, reduced-motion support)
 
+## Plan-specific guidance
+
+When the output is an implementation plan, design doc, or proposal:
+
+**Adapt the visual vocabulary to the task:**
+- **Backend/API work**: Lead with data flow diagrams, schemas, API signatures
+- **Frontend/UI work**: Lead with mockups, component hierarchy, state flow
+- **Infrastructure/DevOps**: Lead with architecture diagrams, deployment flow
+- **Refactoring**: Lead with before/after diagrams showing structural change
+- **Cross-cutting features**: Lead with a system map showing all touchpoints
+
+**Section menu — pick what fits:**
+Solution overview, architecture/data flow diagram, UI mockups, key code, integration points, risks & mitigations, open questions, considerations & rationale, reusability & code quality. Not every plan needs every section — choose what serves the content.
+
+**What NOT to include in plans:**
+- Time estimates (timelines showing sequence are fine, hour/day estimates are not)
+- Boilerplate sections that would just say "N/A"
+- Exhaustive file lists — show the important files, not every file touched
+
+**Quality bar for plans:** The plan should answer "what are we building, why, and how" within 30 seconds of reading.
+
+## PR explainer guidance
+
+When the output is a PR walkthrough, diff review, or code change explainer:
+
+- **TL;DR first** — a bordered card summarizing what the PR does and why, so readers who skim get the gist
+- **Risk map** — visual chips showing which files need careful review vs. which are mechanical
+- **Inline diffs** — use the diff rendering pattern from `references/extended-patterns.md` for important hunks (not every hunk)
+- **File-by-file commentary** — collapsible cards per file with a "why" paragraph explaining the purpose of changes
+- **"Where to focus"** — numbered callouts telling reviewers exactly what to look at and why
+- **Before/after comparison** — two-column grid for behavior changes
+
+See `references/extended-patterns.md` for diff rendering, review comment bubbles, and file badge patterns.
+
 ## What this skill adds
 
 - Plannotator theme tokens (colors, typography, radii) — see `references/theme-override.md`
 - Extended component patterns (timelines, code blocks, risk tables, SVG diagrams, open questions) — see `references/extended-patterns.md`
+- Plan-specific guidance (section menu, adaptation by task type, quality bar)
 - `--render-html` delivery with annotation support and theme inheritance
 - Design philosophy emphasizing spatial layout, breathing room, and visual hierarchy

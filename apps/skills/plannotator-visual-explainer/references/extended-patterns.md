@@ -526,3 +526,87 @@ Small inline labels for categorizing items:
   color: var(--primary);
 }
 ```
+
+## Diff Rendering (for PR reviews)
+
+Three-column grid: line number | +/- marker | code. Use for inline diffs in PR explainers.
+
+```css
+.diff {
+  background: var(--code-bg);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+  overflow-x: auto;
+  border-radius: var(--radius);
+  border: 1.5px solid var(--border);
+}
+
+.diff-row {
+  display: grid;
+  grid-template-columns: 48px 18px 1fr;
+  align-items: baseline;
+  padding: 0 14px 0 0;
+  white-space: pre;
+}
+
+.diff-row .ln { text-align: right; padding-right: 14px; color: var(--muted-foreground); user-select: none; opacity: 0.5; }
+.diff-row .mark { text-align: center; color: var(--muted-foreground); }
+.diff-row .code { color: var(--foreground); }
+.diff-row.ctx .code { opacity: 0.6; }
+.diff-row.add { background: color-mix(in oklab, var(--success) 12%, transparent); }
+.diff-row.add .mark { color: var(--success); }
+.diff-row.del { background: color-mix(in oklab, var(--destructive) 12%, transparent); }
+.diff-row.del .mark { color: var(--destructive); }
+.diff-row.hunk { background: color-mix(in oklab, var(--muted) 30%, transparent); color: var(--muted-foreground); }
+```
+
+## Review Comment Bubbles (for PR reviews)
+
+Speech bubbles with severity-coded left borders.
+
+```css
+.bubble {
+  position: relative;
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  padding: 12px 14px 12px 16px;
+  max-width: 680px;
+}
+
+.bubble.blocking { border-left-color: var(--primary); }
+.bubble.nit { border-left-color: var(--border); }
+.bubble.suggestion { border-left-color: var(--success); }
+
+.bubble .severity {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.bubble.blocking .severity { color: var(--primary); }
+.bubble.nit .severity { color: var(--muted-foreground); }
+.bubble.suggestion .severity { color: var(--success); }
+```
+
+## File Badges (for PR reviews)
+
+```css
+.file-badge {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.file-badge.new { background: color-mix(in oklab, var(--success) 15%, transparent); color: var(--success); }
+.file-badge.mod { background: color-mix(in oklab, var(--warning) 15%, transparent); color: var(--warning); }
+.file-badge.del { background: color-mix(in oklab, var(--destructive) 15%, transparent); color: var(--destructive); }
+```

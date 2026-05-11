@@ -38,9 +38,7 @@ plannotator/
 │       ├── plannotator-last/            # Lightweight: annotates last message
 │       ├── plannotator-compound/        # Research analysis agent (map-reduce over denied plans)
 │       ├── plannotator-setup-goal/      # Goal package scaffolder for /goal workflows
-│       ├── plannotator-visual-plan/     # Visual HTML implementation plan generator
-│       ├── plannotator-pr-explainer/    # Visual HTML PR explainer generator
-│       └── plannotator-visual-explainer/ # Nico visual-explainer wrapper with Plannotator theming
+│       └── plannotator-visual-explainer/ # Visual HTML generator (plans, diagrams, PR explainers) with Plannotator theming
 ├── packages/
 │   ├── server/                   # Shared server implementation
 │   │   ├── index.ts              # startPlannotatorServer(), handleServerReady()

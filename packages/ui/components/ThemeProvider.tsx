@@ -46,7 +46,8 @@ function applyThemeClasses(themeId: string, effectiveMode: 'dark' | 'light'): vo
   const themeClass = `theme-${themeId}`;
   const wantLight = resolveThemeClasses(themeId, effectiveMode).includes(' light');
 
-  // Remove any existing theme-* class
+  if (el.classList.contains(themeClass) && el.classList.contains('light') === wantLight) return;
+
   for (const cls of Array.from(el.classList)) {
     if (cls.startsWith('theme-')) el.classList.remove(cls);
   }

@@ -160,6 +160,7 @@ export function useSharing(
 
           setPendingSharedAnnotations(restoredAnnotations);
           setIsSharedSession(true);
+          setShortShareUrl(window.location.href);
           onSharedLoad?.();
 
           // Remove the /p/<id> path from browser history so a refresh doesn't

@@ -120,7 +120,7 @@ export const HtmlViewer = forwardRef<ViewerHandle, HtmlViewerProps>(
     }, [rawHtml]);
 
     const handleResize = useCallback((height: number) => {
-      setIframeHeight(height + 32);
+      setIframeHeight(height);
     }, []);
 
     const hook = useHtmlAnnotation({

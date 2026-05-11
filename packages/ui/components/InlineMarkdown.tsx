@@ -80,16 +80,16 @@ const CodeSnippetPreview: React.FC<{
 
   return (
     <div
-      className="fixed z-[9999] rounded-lg border border-border bg-card shadow-xl overflow-hidden"
+      className="fixed z-[9999] rounded-lg border border-border bg-card shadow-xl flex flex-col"
       style={{ top, bottom, left, maxWidth: 'min(600px, 90vw)', maxHeight: '300px' }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      <div className="px-3 py-1.5 border-b border-border/50 text-[10px] text-muted-foreground font-mono flex items-center justify-between gap-4">
+      <div className="px-3 py-1.5 border-b border-border/50 text-[10px] text-muted-foreground font-mono flex items-center justify-between gap-4 flex-shrink-0">
         <span>{filepath.split('/').pop()}</span>
         <span className="opacity-60">{lineEnd && lineEnd !== line ? `lines ${line}–${lineEnd}` : `line ${line}`}</span>
       </div>
-      <div className="hljs overflow-auto text-[12px] leading-5" style={{ padding: 0, background: 'var(--color-muted, #1e293b)' }}>
+      <div className="hljs overflow-auto text-[12px] leading-5 min-h-0" style={{ padding: 0, background: 'var(--color-muted, #1e293b)' }}>
         <table className="border-collapse w-full">
           <tbody>
             {snippet.split('\n').map((_, i) => (

@@ -12,7 +12,7 @@ description: >
 
 # Plannotator Visual Explainer
 
-This skill wraps [visual-explainer](https://github.com/nicobailon/visual-explainer) by Nico Bailon with Plannotator theme integration. You follow visual-explainer's workflow, references, templates, and anti-slop rules — the only difference is the color and typography layer.
+This skill wraps [visual-explainer](https://github.com/nicobailon/visual-explainer) by Nico Bailon with Plannotator theme integration and additional component patterns. You follow visual-explainer's workflow, references, templates, and anti-slop rules — with Plannotator's color/typography tokens and extended patterns for plans and technical documents.
 
 ## Setup
 
@@ -32,17 +32,30 @@ Before generating, ensure `visual-explainer` is available:
 
 ## Theme Override
 
-The single override: instead of visual-explainer's custom palettes (terracotta/sage, teal/slate, etc.) and font pairings (DM Sans, Instrument Serif, etc.), use Plannotator's semantic theme tokens.
+Instead of visual-explainer's custom palettes and font pairings, use Plannotator's semantic theme tokens. Read `references/theme-override.md` for the exact CSS custom properties and mapping table. Apply these **after** reading visual-explainer's references — they replace only the color and typography layer.
 
-Read `references/theme-override.md` for the exact CSS custom properties to use. Apply these **after** reading visual-explainer's references — they replace only the color and typography layer, not the structural patterns, component layouts, or anti-slop rules.
+## Extended Patterns
+
+Plannotator adds component patterns that complement visual-explainer's toolkit. Read `references/extended-patterns.md` for timelines, inline SVG diagrams, code blocks with syntax highlighting, risk tables, and open question callouts. Use these alongside Nico's `.ve-card`, `.kpi-card`, `.pipeline` components — they share the same theme tokens.
+
+## Design Philosophy: Use the Power of HTML
+
+The point of generating HTML instead of markdown is spatial layout. Don't pack every piece of information into dense cards. Let the page breathe.
+
+- **Whitespace is a feature.** Generous padding, large section gaps, breathing room between cards. If a section feels cramped, it needs more space, not smaller text.
+- **One idea per viewport.** The reader should be able to absorb one concept at a time as they scroll. A hero section, then a diagram, then a detail grid — not all three crammed together.
+- **Visual weight signals importance.** Hero sections dominate (large type, accent-tinted backgrounds, more padding). Supporting details are compact and can collapse. Not everything deserves equal treatment.
+- **Show, don't describe.** A timeline shows sequencing. A diagram shows relationships. A before/after grid shows change. A code block shows the interface. Use the right visual element — don't describe things in prose that a component could show directly.
+- **Timelines show sequence without estimates.** Show the phases and their dependencies, but do not attach hour/day/week estimates. AI consistently misjudges timing. Showing phases in order communicates sequencing; attaching numbers communicates false precision.
 
 ## Workflow
 
 1. **Read** visual-explainer's SKILL.md (full workflow, diagram types, quality checks)
 2. **Read** the relevant visual-explainer references and templates for your content type
-3. **Read** `references/theme-override.md` from this skill
-4. **Generate** following visual-explainer's structure, component classes, and rules, but with Plannotator tokens. Use Nico's component classes (`.ve-card`, `.ve-card--hero`, `.kpi-card`, `.pipeline`, etc.) — do NOT fall back to other pattern sets.
-5. **Deliver** via Plannotator's annotation UI:
+3. **Read** `references/theme-override.md` for Plannotator color/typography tokens
+4. **Read** `references/extended-patterns.md` for additional components (timelines, code blocks, risk tables, SVG diagrams)
+5. **Generate** following visual-explainer's structure and rules, with Plannotator tokens and extended patterns. Use Nico's component classes (`.ve-card`, `.ve-card--hero`, `.kpi-card`, `.pipeline`, etc.) for cards and layout. Use the extended patterns for timelines, code blocks, risk tables, and SVG diagrams.
+6. **Deliver** via Plannotator's annotation UI:
 
 **If the output is a plan or proposal** (something the user should approve/deny):
 ```bash
@@ -61,7 +74,7 @@ Always use `--render-html` so the HTML renders as-is in the Plannotator UI with 
 All of these come from visual-explainer — read them there, don't reinvent them:
 - Diagram type routing (architecture, flowchart, sequence, ER, state, mind map, etc.)
 - Mermaid integration (theming, zoom controls, scaling, layout direction)
-- CSS structural patterns (cards, grids, connectors, depth tiers, collapsibles)
+- CSS structural patterns (ve-card, grids, connectors, depth tiers, collapsibles)
 - Slide deck mode (viewport-snapping presentations)
 - Data table patterns (sticky headers, status indicators, responsive scrolling)
 - Anti-slop rules (forbidden fonts, colors, animations, patterns)
@@ -70,6 +83,7 @@ All of these come from visual-explainer — read them there, don't reinvent them
 
 ## What this skill adds
 
-- Plannotator theme tokens (colors, typography, radii) that integrate with the 30+ Plannotator themes
-- Compatibility with `--render-html` annotation mode (theme tokens inherited when embedded)
-- Consistent styling with the Plannotator UI across all visual outputs
+- Plannotator theme tokens (colors, typography, radii) — see `references/theme-override.md`
+- Extended component patterns (timelines, code blocks, risk tables, SVG diagrams, open questions) — see `references/extended-patterns.md`
+- `--render-html` delivery with annotation support and theme inheritance
+- Design philosophy emphasizing spatial layout, breathing room, and visual hierarchy

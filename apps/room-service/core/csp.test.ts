@@ -21,13 +21,14 @@ describe('ROOM_CSP constant', () => {
     expect(ROOM_CSP).toContain("default-src 'self'");
   });
 
-  test("script-src allows 'self' and 'wasm-unsafe-eval' only", () => {
+  test("script-src allows 'self', 'wasm-unsafe-eval', and 'unsafe-inline'", () => {
     const tokens = directiveTokens(ROOM_CSP, 'script-src');
     expect(tokens).toContain("'self'");
     expect(tokens).toContain("'wasm-unsafe-eval'");
-    // Must NOT contain plain 'unsafe-eval' or 'unsafe-inline'.
+    // Must NOT contain plain 'unsafe-eval'.
     expect(tokens).not.toContain("'unsafe-eval'");
-    expect(tokens).not.toContain("'unsafe-inline'");
+    // 'unsafe-inline' is required for the HtmlViewer srcdoc bridge script.
+    expect(tokens).toContain("'unsafe-inline'");
   });
 
   test('blocks object embeds', () => {

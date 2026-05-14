@@ -21,7 +21,9 @@ export const BlockRenderer: React.FC<{
   headingAnchorId?: string;
   localDocLinksEnabled?: boolean;
   onNavigateAnchor?: (hash: string) => void;
-}> = ({ block, onOpenLinkedDoc, onOpenCodeFile, imageBaseDir, onImageClick, onToggleCheckbox, checkboxOverrides, orderedIndex, githubRepo, headingAnchorId, localDocLinksEnabled, onNavigateAnchor }) => {
+  availableDocs?: Set<string>;
+  currentDocPath?: string;
+}> = ({ block, onOpenLinkedDoc, onOpenCodeFile, imageBaseDir, onImageClick, onToggleCheckbox, checkboxOverrides, orderedIndex, githubRepo, headingAnchorId, localDocLinksEnabled, onNavigateAnchor, availableDocs, currentDocPath }) => {
   switch (block.type) {
     case 'heading': {
       const Tag = `h${block.level || 1}` as React.ElementType;
@@ -37,7 +39,7 @@ export const BlockRenderer: React.FC<{
           data-block-id={block.id}
           data-block-type="heading"
         >
-          <InlineMarkdown imageBaseDir={imageBaseDir} onImageClick={onImageClick} text={block.content} onOpenLinkedDoc={onOpenLinkedDoc} onOpenCodeFile={onOpenCodeFile} localDocLinksEnabled={localDocLinksEnabled} githubRepo={githubRepo} onNavigateAnchor={onNavigateAnchor} />
+          <InlineMarkdown imageBaseDir={imageBaseDir} onImageClick={onImageClick} text={block.content} onOpenLinkedDoc={onOpenLinkedDoc} onOpenCodeFile={onOpenCodeFile} localDocLinksEnabled={localDocLinksEnabled} githubRepo={githubRepo} onNavigateAnchor={onNavigateAnchor} availableDocs={availableDocs} currentDocPath={currentDocPath} />
         </Tag>
       );
     }
@@ -69,7 +71,7 @@ export const BlockRenderer: React.FC<{
         >
           {paragraphs.map((para, i) => (
             <p key={i} className={i > 0 ? 'mt-2' : ''}>
-              <InlineMarkdown imageBaseDir={imageBaseDir} onImageClick={onImageClick} text={para} onOpenLinkedDoc={onOpenLinkedDoc} onOpenCodeFile={onOpenCodeFile} localDocLinksEnabled={localDocLinksEnabled} githubRepo={githubRepo} onNavigateAnchor={onNavigateAnchor} />
+              <InlineMarkdown imageBaseDir={imageBaseDir} onImageClick={onImageClick} text={para} onOpenLinkedDoc={onOpenLinkedDoc} onOpenCodeFile={onOpenCodeFile} localDocLinksEnabled={localDocLinksEnabled} githubRepo={githubRepo} onNavigateAnchor={onNavigateAnchor} availableDocs={availableDocs} currentDocPath={currentDocPath} />
             </p>
           ))}
         </blockquote>
@@ -85,7 +87,7 @@ export const BlockRenderer: React.FC<{
       const isInteractive = isCheckbox && !!onToggleCheckbox;
       const textClass = `text-sm leading-relaxed ${isCheckbox && isChecked ? 'text-muted-foreground line-through' : 'text-foreground/90'}`;
       const paragraphs = block.content.split(/\n\n+/);
-      const inlineProps = { imageBaseDir, onImageClick, onOpenLinkedDoc, onOpenCodeFile, localDocLinksEnabled, githubRepo, onNavigateAnchor };
+      const inlineProps = { imageBaseDir, onImageClick, onOpenLinkedDoc, onOpenCodeFile, localDocLinksEnabled, githubRepo, onNavigateAnchor, availableDocs, currentDocPath };
       return (
         <div
           className="flex items-start gap-3 my-1.5"
@@ -138,7 +140,7 @@ export const BlockRenderer: React.FC<{
       return <hr className="border-border/30 my-8" data-block-id={block.id} />;
 
     case 'html':
-      return <HtmlBlock block={block} imageBaseDir={imageBaseDir} onOpenLinkedDoc={onOpenLinkedDoc} onOpenCodeFile={onOpenCodeFile} onNavigateAnchor={onNavigateAnchor} />;
+      return <HtmlBlock block={block} imageBaseDir={imageBaseDir} onOpenLinkedDoc={onOpenLinkedDoc} onOpenCodeFile={onOpenCodeFile} onNavigateAnchor={onNavigateAnchor} availableDocs={availableDocs} currentDocPath={currentDocPath} />;
 
     case 'directive': {
       const kind = block.directiveKind || 'note';
@@ -167,7 +169,7 @@ export const BlockRenderer: React.FC<{
           className="mb-4 leading-relaxed text-foreground/90 text-[15px]"
           data-block-id={block.id}
         >
-          <InlineMarkdown imageBaseDir={imageBaseDir} onImageClick={onImageClick} text={block.content} onOpenLinkedDoc={onOpenLinkedDoc} onOpenCodeFile={onOpenCodeFile} localDocLinksEnabled={localDocLinksEnabled} githubRepo={githubRepo} onNavigateAnchor={onNavigateAnchor} />
+          <InlineMarkdown imageBaseDir={imageBaseDir} onImageClick={onImageClick} text={block.content} onOpenLinkedDoc={onOpenLinkedDoc} onOpenCodeFile={onOpenCodeFile} localDocLinksEnabled={localDocLinksEnabled} githubRepo={githubRepo} onNavigateAnchor={onNavigateAnchor} availableDocs={availableDocs} currentDocPath={currentDocPath} />
         </p>
       );
   }

@@ -70,6 +70,7 @@ type InputMode = 'upload' | 'paste' | 'url';
 
 export function LandingPage(): React.ReactElement {
   const [markdown, setMarkdown] = useState('');
+  const [rawHtml, setRawHtml] = useState('');
   const [fileName, setFileName] = useState<string | null>(null);
   const [inputMode, setInputMode] = useState<InputMode>('upload');
   const [dragOver, setDragOver] = useState(false);
@@ -79,9 +80,9 @@ export function LandingPage(): React.ReactElement {
   const [fileError, setFileError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const hasContent = markdown.trim().length > 0;
+  const hasContent = markdown.trim().length > 0 || rawHtml.length > 0;
 
-  const { inFlight, error, handleCreate, handleCancel } = useLandingCreateRoom({ markdown });
+  const { inFlight, error, handleCreate, handleCancel } = useLandingCreateRoom({ markdown, rawHtml: rawHtml || undefined });
 
   const [urlInput, setUrlInput] = useState('');
   const [urlLoading, setUrlLoading] = useState(false);
@@ -103,10 +104,11 @@ export function LandingPage(): React.ReactElement {
     try {
       const text = await file.text();
       if (HTML_EXTENSIONS.has(ext)) {
-        const { htmlToMarkdown } = await import('@plannotator/shared/html-to-markdown');
-        setMarkdown(htmlToMarkdown(text));
+        setRawHtml(text);
+        setMarkdown('');
       } else {
         setMarkdown(text);
+        setRawHtml('');
       }
       setFileName(file.name);
     } catch {
@@ -128,6 +130,7 @@ export function LandingPage(): React.ReactElement {
         throw new Error(data.error || 'Failed to fetch URL');
       }
       setMarkdown(data.markdown);
+      setRawHtml('');
       setFileName(url);
     } catch (err) {
       setFileError(err instanceof Error ? err.message : 'Failed to fetch URL');
@@ -172,6 +175,7 @@ export function LandingPage(): React.ReactElement {
 
   const clearContent = useCallback(() => {
     setMarkdown('');
+    setRawHtml('');
     setFileName(null);
     setFileError('');
     setUrlInput('');
@@ -277,6 +281,7 @@ export function LandingPage(): React.ReactElement {
                               return r.text();
                             }).then(text => {
                               setMarkdown(text);
+                              setRawHtml('');
                               setFileName(demo.label);
                             }).catch(err => {
                               setFileError(err instanceof Error ? err.message : 'Failed to load demo');
@@ -329,7 +334,7 @@ export function LandingPage(): React.ReactElement {
                 {inputMode === 'paste' && (
                   <textarea
                     value={markdown}
-                    onChange={e => setMarkdown(e.target.value)}
+                    onChange={e => { setMarkdown(e.target.value); setRawHtml(''); }}
                     placeholder="Paste or type your markdown here..."
                     className="w-full h-32 px-3 py-2 bg-background border border-border rounded-lg text-sm font-mono resize-y focus:outline-none focus:ring-1 focus:ring-foreground/20"
                   />
@@ -365,6 +370,16 @@ export function LandingPage(): React.ReactElement {
                 {/* Compact preview with fade */}
                 {hasContent && (
                   <div className="relative rounded-lg border border-border overflow-y-auto max-h-32">
+                    {rawHtml ? (
+                      <div className="p-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-sm">
+                          <span className="text-muted-foreground">HTML file loaded</span>
+                          {fileName && <span className="text-xs text-muted-foreground/60">({fileName})</span>}
+                        </div>
+                        <button type="button" onClick={clearContent} className="text-xs text-muted-foreground hover:text-foreground">Clear</button>
+                      </div>
+                    ) : (
+                    <>
                     <Suspense fallback={null}>
                       <MarkdownPreview markdown={markdown} fileName={null} onClear={clearContent} />
                     </Suspense>
@@ -375,6 +390,8 @@ export function LandingPage(): React.ReactElement {
                         maskImage: 'linear-gradient(to top, white, transparent)',
                       }}
                     />
+                    </>
+                    )}
                   </div>
                 )}
 

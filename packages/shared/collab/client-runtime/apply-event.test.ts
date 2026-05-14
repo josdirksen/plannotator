@@ -62,32 +62,20 @@ describe('applyAnnotationEvent', () => {
     expect(stored.author).not.toBeUndefined();
   });
 
-  test('annotation.update rejects when merged final annotation violates cross-field invariants', () => {
-    // Inline annotations (COMMENT/DELETION) must have non-empty blockId. A
-    // patch that sets blockId: '' on a COMMENT passes the patch-level
-    // validator (blockId is just a string) but produces an invalid merged
-    // final annotation. The reducer must validate the merged state and
-    // refuse to store the invalid result.
+  test('annotation.update accepts empty blockId (HTML room annotations have no block structure)', () => {
     const map = new Map<string, RoomAnnotation>();
-    map.set('a1', makeAnnotation('a1'));  // COMMENT with blockId: 'b1'
-    const originalBlockId = map.get('a1')!.blockId;
-
+    map.set('a1', makeAnnotation('a1'));
     const event: RoomServerEvent = {
       type: 'annotation.update',
       id: 'a1',
       patch: { blockId: '' } as Partial<RoomAnnotation>,
     };
     const result = applyAnnotationEvent(map, event);
-    expect(result.applied).toBe(false);
-    expect(result.reason).toContain('failed shape validation');
-    // Stored annotation is untouched — blockId is still non-empty.
-    expect(map.get('a1')!.blockId).toBe(originalBlockId);
+    expect(result.applied).toBe(true);
+    expect(map.get('a1')!.blockId).toBe('');
   });
 
-  test('annotation.update rejects when patching type turns existing annotation into an invalid inline (empty blockId)', () => {
-    // A GLOBAL_COMMENT legitimately carries blockId: ''. Patching its type
-    // to COMMENT produces an invalid final state (inline requires non-empty
-    // blockId). Must reject.
+  test('annotation.update accepts type change to COMMENT on empty-blockId annotation', () => {
     const map = new Map<string, RoomAnnotation>();
     map.set('g1', makeAnnotation('g1', { type: 'GLOBAL_COMMENT', blockId: '' }));
     const event: RoomServerEvent = {
@@ -96,9 +84,8 @@ describe('applyAnnotationEvent', () => {
       patch: { type: 'COMMENT' },
     };
     const result = applyAnnotationEvent(map, event);
-    expect(result.applied).toBe(false);
-    // Stored annotation type is untouched.
-    expect(map.get('g1')!.type).toBe('GLOBAL_COMMENT');
+    expect(result.applied).toBe(true);
+    expect(map.get('g1')!.type).toBe('COMMENT');
   });
 
   test('annotation.update defensively preserves existing.id even if patch slipped in a mismatched id', () => {

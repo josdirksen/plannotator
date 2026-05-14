@@ -58,10 +58,23 @@ function getRoomBaseUrl(): string {
   return 'https://room.plannotator.ai';
 }
 
+export interface FolderRoomSession {
+  /** Folder root (absolute path) — stripped from snapshot paths. */
+  projectRoot: string;
+  /** All doc annotations keyed by absolute path. */
+  docAnnotations: Map<string, { annotations: Annotation[]; globalAttachments: ImageAttachment[]; markdown?: string }>;
+  /** Load content for files the user hasn't opened yet. */
+  loadFileContent: (absolutePath: string) => Promise<string>;
+  /** Which file the creator is currently viewing (used as primaryDoc). */
+  activeFilePath?: string;
+}
+
 export interface UseStartLiveRoomOptions {
   annotations: Annotation[];
   markdown: string;
   globalAttachments: ImageAttachment[];
+  renderAs?: 'markdown' | 'html';
+  rawHtml?: string;
   /**
    * True when the creator is in a shell that CAN host a live room
    * (local isApiMode editor, not room mode already). The hook uses
@@ -70,6 +83,8 @@ export interface UseStartLiveRoomOptions {
    * theoretically unreachable.
    */
   canStartLiveRoom: boolean;
+  /** Present when the user is in a folder annotation session. */
+  folderSession?: FolderRoomSession;
 }
 
 export interface UseStartLiveRoomReturn {
@@ -86,7 +101,10 @@ export function useStartLiveRoom({
   annotations,
   markdown,
   globalAttachments,
+  renderAs,
+  rawHtml,
   canStartLiveRoom,
+  folderSession,
 }: UseStartLiveRoomOptions): UseStartLiveRoomReturn {
   // Start-live-room modal state. The modal is the sole entry to the creator
   // flow — replaces the earlier inline hardcoded path (name/color/expiry
@@ -168,30 +186,87 @@ export function useStartLiveRoom({
       const { bytesToBase64url } = await import('@plannotator/shared/collab');
       const { storeAdminSecret } = await import('@plannotator/ui/utils/adminSecretStorage');
 
-      // `stripRoomAnnotationImages` returns a generic `Omit<T, 'images'>[]`.
-      // RoomAnnotation is defined as Annotation-without-images in the
-      // protocol, so the shape is compatible; we narrow explicitly instead
-      // of `as never` so future protocol drift surfaces as a type error.
-      // Pass globalAttachments so the helper's strippedCount matches the
-      // memoized imageAnnotationsToStrip used for the modal notice and
-      // `&stripped=N` URL handoff (single source of truth). `clean` is
-      // still annotation-shaped — globals are dropped entirely from
-      // room snapshots.
-      const { clean } = stripRoomAnnotationImages(annotations, globalAttachments);
-      const roomAnnotations: import('@plannotator/shared/collab').RoomAnnotation[] =
-        clean as unknown as import('@plannotator/shared/collab').RoomAnnotation[];
-
       const baseUrl = getRoomBaseUrl();
+      type RoomAnnotationType = import('@plannotator/shared/collab').RoomAnnotation;
+      type RoomSnapshotType = import('@plannotator/shared/collab').RoomSnapshot;
+
+      let initialSnapshot: RoomSnapshotType;
+      let actualStrippedCount = 0;
+
+      if (submit.selectedPaths && folderSession) {
+        // Multi-doc folder room
+        const docs: Record<string, string> = {};
+        const allRoomAnnotations: RoomAnnotationType[] = [];
+        const htmlDocPaths: string[] = [];
+
+        for (const selectedPath of submit.selectedPaths) {
+          const absolutePath = selectedPath.startsWith('/')
+            ? selectedPath
+            : `${folderSession.projectRoot}/${selectedPath}`;
+          const relativePath = absolutePath.startsWith(folderSession.projectRoot + '/')
+            ? absolutePath.slice(folderSession.projectRoot.length + 1)
+            : selectedPath;
+
+          const isHtml = /\.html?$/i.test(relativePath);
+          const cached = folderSession.docAnnotations.get(absolutePath);
+
+          const content = isHtml
+            ? await folderSession.loadFileContent(absolutePath)
+            : (cached?.markdown ?? await folderSession.loadFileContent(absolutePath));
+          docs[relativePath] = content;
+
+          if (isHtml) htmlDocPaths.push(relativePath);
+
+          if (cached) {
+            const { clean, strippedCount } = stripRoomAnnotationImages(cached.annotations, cached.globalAttachments);
+            actualStrippedCount += strippedCount;
+            for (const ann of clean) {
+              allRoomAnnotations.push({
+                ...ann,
+                docPath: relativePath,
+                ...(isHtml ? { blockId: '' } : {}),
+              } as unknown as RoomAnnotationType);
+            }
+          }
+        }
+
+        const activeRelative = folderSession.activeFilePath
+          ? (folderSession.activeFilePath.startsWith(folderSession.projectRoot + '/')
+              ? folderSession.activeFilePath.slice(folderSession.projectRoot.length + 1)
+              : undefined)
+          : undefined;
+        const primaryDoc = activeRelative && activeRelative in docs
+          ? activeRelative
+          : Object.keys(docs).sort()[0];
+
+        initialSnapshot = {
+          versionId: 'v1',
+          planMarkdown: '',
+          contentType: 'markdown-multi',
+          docs,
+          primaryDoc,
+          annotations: allRoomAnnotations,
+          ...(htmlDocPaths.length > 0 ? { htmlDocPaths } : {}),
+        };
+      } else {
+        // Single-doc room (existing path)
+        const { clean, strippedCount } = stripRoomAnnotationImages(annotations, globalAttachments);
+        actualStrippedCount = strippedCount;
+        const roomAnnotations = clean as unknown as RoomAnnotationType[];
+
+        initialSnapshot = {
+          versionId: 'v1',
+          planMarkdown: renderAs === 'html' ? '' : markdown,
+          annotations: roomAnnotations,
+          ...(renderAs === 'html' && rawHtml ? { contentType: 'html' as const, rawHtml } : {}),
+        };
+      }
 
       const result = await createRoom({
         baseUrl,
         expiresInDays: submit.expiresInDays,
         signal: ctrl.signal,
-        initialSnapshot: {
-          versionId: 'v1',  // RoomSnapshot contract pins versionId to 'v1' in V1
-          planMarkdown: markdown,
-          annotations: roomAnnotations,
-        },
+        initialSnapshot,
         user: {
           id: crypto.randomUUID(),
           name: submit.displayName,
@@ -237,10 +312,10 @@ export function useStartLiveRoom({
       const appendFragmentParam = (url: string, param: string): string =>
         `${url}${url.includes('#') ? '&' : '#'}${param}`;
       let creatorUrl = result.adminUrl;
-      if (imageAnnotationsToStrip > 0) {
+      if (actualStrippedCount > 0) {
         creatorUrl = appendFragmentParam(
           creatorUrl,
-          `stripped=${imageAnnotationsToStrip}`,
+          `stripped=${actualStrippedCount}`,
         );
       }
       if (submit.displayName) {
@@ -289,7 +364,7 @@ export function useStartLiveRoom({
     } finally {
       if (startRoomAbortRef.current === ctrl) startRoomAbortRef.current = null;
     }
-  }, [annotations, markdown, imageAnnotationsToStrip, globalAttachments]);
+  }, [annotations, markdown, renderAs, rawHtml, imageAnnotationsToStrip, globalAttachments, folderSession]);
 
   return {
     showStartRoomModal,

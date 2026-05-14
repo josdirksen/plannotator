@@ -162,9 +162,11 @@ export async function handleRequest(
  */
 export const ROOM_CSP = [
   "default-src 'self'",
-  // 'wasm-unsafe-eval' needed for @viz-js/viz (Graphviz WASM build).
-  // NOT 'unsafe-eval' — only WebAssembly compilation is allowed.
-  "script-src 'self' 'wasm-unsafe-eval'",
+  // 'wasm-unsafe-eval': @viz-js/viz Graphviz WASM build.
+  // 'unsafe-inline': required for HtmlViewer's srcdoc iframe bridge
+  // script. The bridge is trusted code we inject; the iframe is
+  // sandboxed with allow-scripts only (no forms/navigation/popups).
+  "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   // Remote markdown document images (e.g. `![diagram](https://example/a.png)`)

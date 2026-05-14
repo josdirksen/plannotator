@@ -148,7 +148,9 @@ function AppRootContent(): React.ReactElement {
     <RoomApp
       roomId={mode.roomId}
       url={mode.url}
-      renderEditor={({ roomSession }) => <App roomSession={roomSession} />}
+      renderEditor={({ roomSession, activeDoc, setActiveDoc }) => (
+        <App roomSession={roomSession} activeDoc={activeDoc} setActiveDoc={setActiveDoc} />
+      )}
     />
   );
 }

@@ -39,7 +39,7 @@ import { preloadFile } from "@pierre/diffs/ssr";
 type Res = ServerResponse;
 
 /** Recursively walk a directory collecting files by extension, skipping ignored dirs. */
-function walkMarkdownFiles(dir: string, root: string, results: string[], extensions: RegExp = /\.(mdx?|html?)$/i): void {
+function walkMarkdownFiles(dir: string, root: string, results: string[], extensions: RegExp = /\.(mdx?|html?)$/i, sizes?: Map<string, number>): void {
 	let entries: Dirent[];
 	try {
 		entries = readdirSync(dir, { withFileTypes: true }) as Dirent[];
@@ -49,12 +49,27 @@ function walkMarkdownFiles(dir: string, root: string, results: string[], extensi
 	for (const entry of entries) {
 		if (entry.isDirectory()) {
 			if (FILE_BROWSER_EXCLUDED.includes(entry.name + "/")) continue;
-			walkMarkdownFiles(join(dir, entry.name), root, results, extensions);
+			walkMarkdownFiles(join(dir, entry.name), root, results, extensions, sizes);
 		} else if (entry.isFile() && extensions.test(entry.name)) {
-			const relative = join(dir, entry.name)
+			const fullPath = join(dir, entry.name);
+			const relative = fullPath
 				.slice(root.length + 1)
 				.replace(/\\/g, "/");
 			results.push(relative);
+			if (sizes) {
+				try { sizes.set(relative, statSync(fullPath).size); } catch { /* stat failure */ }
+			}
+		}
+	}
+}
+
+function attachFileSizes(nodes: VaultNode[], sizes: Map<string, number>): void {
+	for (const node of nodes) {
+		if (node.type === 'file') {
+			const s = sizes.get(node.path);
+			if (s !== undefined) node.sizeBytes = s;
+		} else if (node.children) {
+			attachFileSizes(node.children, sizes);
 		}
 	}
 }
@@ -106,8 +121,12 @@ export async function handleDocRequest(res: Res, url: URL): Promise<void> {
 		}
 		try {
 			if (existsSync(resolvedHtml)) {
-				const html = readFileSync(resolvedHtml, "utf-8");
-				json(res, { markdown: htmlToMarkdown(html), filepath: resolvedHtml, isConverted: true });
+				const content = readFileSync(resolvedHtml, "utf-8");
+				if (url.searchParams.get('raw') === 'true') {
+					json(res, { markdown: content, filepath: resolvedHtml });
+					return;
+				}
+				json(res, { markdown: htmlToMarkdown(content), filepath: resolvedHtml, isConverted: true });
 				return;
 			}
 		} catch { /* fall through to 404 */ }
@@ -353,9 +372,12 @@ export function handleFileBrowserRequest(res: Res, url: URL): void {
 	}
 	try {
 		const files: string[] = [];
-		walkMarkdownFiles(resolvedDir, resolvedDir, files);
+		const fileSizes = new Map<string, number>();
+		walkMarkdownFiles(resolvedDir, resolvedDir, files, undefined, fileSizes);
 		files.sort();
-		json(res, { tree: buildFileTree(files) });
+		const tree = buildFileTree(files);
+		attachFileSizes(tree, fileSizes);
+		json(res, { tree });
 	} catch {
 		json(res, { error: "Failed to list directory files" }, 500);
 	}

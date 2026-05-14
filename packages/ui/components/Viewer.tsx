@@ -122,6 +122,8 @@ interface ViewerProps {
    * Non-local links (http/https) are unaffected.
    */
   localDocLinksEnabled?: boolean;
+  availableDocs?: Set<string>;
+  currentDocPath?: string;
   /**
    * Notifies the parent that the internal highlight surface has been
    * (re)initialized or cleared. Fires once on initial highlighter
@@ -210,6 +212,8 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   authorOverride,
   attachmentsEnabled = true,
   localDocLinksEnabled = true,
+  availableDocs,
+  currentDocPath,
   onHighlightSurfaceReset,
 }, ref) => {
   const [copied, setCopied] = useState(false);
@@ -668,6 +672,8 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
                       onOpenLinkedDoc={onOpenLinkedDoc}
                       onOpenCodeFile={onOpenCodeFile}
                       localDocLinksEnabled={localDocLinksEnabled}
+                      availableDocs={availableDocs}
+                      currentDocPath={currentDocPath}
                       onToggleCheckbox={onToggleCheckbox}
                       checkboxOverrides={checkboxOverrides}
                       githubRepo={repoInfo?.display}
@@ -743,7 +749,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
               isHovered={inputMethod !== 'pinpoint' && hoveredCodeBlock?.block.id === group.block.id}
             />
           ) : (
-            <BlockRenderer imageBaseDir={imageBaseDir} onImageClick={(src, alt) => setLightbox({ src, alt })} key={group.block.id} block={group.block} onOpenLinkedDoc={onOpenLinkedDoc} onOpenCodeFile={onOpenCodeFile} localDocLinksEnabled={localDocLinksEnabled} onNavigateAnchor={scrollToAnchor} onToggleCheckbox={onToggleCheckbox} checkboxOverrides={checkboxOverrides} githubRepo={repoInfo?.display} headingAnchorId={headingSlugMap.get(group.block.id)} />
+            <BlockRenderer imageBaseDir={imageBaseDir} onImageClick={(src, alt) => setLightbox({ src, alt })} key={group.block.id} block={group.block} onOpenLinkedDoc={onOpenLinkedDoc} onOpenCodeFile={onOpenCodeFile} localDocLinksEnabled={localDocLinksEnabled} availableDocs={availableDocs} currentDocPath={currentDocPath} onNavigateAnchor={scrollToAnchor} onToggleCheckbox={onToggleCheckbox} checkboxOverrides={checkboxOverrides} githubRepo={repoInfo?.display} headingAnchorId={headingSlugMap.get(group.block.id)} />
           )
         )}
 

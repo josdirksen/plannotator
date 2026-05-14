@@ -45,6 +45,9 @@ export interface RoomAnnotation {
   diffContext?: 'added' | 'removed' | 'modified';
   startMeta?: { parentTagName: string; parentIndex: number; textOffset: number };
   endMeta?: { parentTagName: string; parentIndex: number; textOffset: number };
+  /** Relative path of the document this annotation belongs to. Present in
+   *  multi-doc rooms (`contentType: 'markdown-multi'`), absent in single-doc rooms. */
+  docPath?: string;
   images?: never;
 }
 
@@ -90,6 +93,7 @@ const ROOM_ANNOTATION_FIELD_VALIDATORS = {
   diffContext: (v) => v === 'added' || v === 'removed' || v === 'modified',
   startMeta: isAnnotationMeta,
   endMeta: isAnnotationMeta,
+  docPath: (v) => typeof v === 'string' && v.length > 0,
 } satisfies Record<Exclude<keyof RoomAnnotation, 'images'>, (v: unknown) => boolean>;
 
 const ROOM_ANNOTATION_KNOWN_FIELDS = new Set<string>([
@@ -111,7 +115,7 @@ const ROOM_ANNOTATION_REQUIRED_FIELD_SET = new Set<string>(ROOM_ANNOTATION_REQUI
  * Later removes/updates by the visible id would miss it. `images` is excluded
  * because V1 room annotations cannot carry images.
  */
-const ROOM_ANNOTATION_PATCH_FORBIDDEN_FIELDS = new Set(['id', 'images']);
+const ROOM_ANNOTATION_PATCH_FORBIDDEN_FIELDS = new Set(['id', 'images', 'docPath']);
 
 /**
  * Runtime validator for a decrypted RoomAnnotation. Encryption proves only
@@ -138,13 +142,6 @@ export function isRoomAnnotation(x: unknown): x is RoomAnnotation {
     } else if (a[field] !== undefined) {
       if (!validate(a[field])) return false;
     }
-  }
-  // Cross-field invariant: inline annotations (COMMENT, DELETION) must have a
-  // non-empty blockId — they attach to a block in the rendered plan. Only
-  // GLOBAL_COMMENT is allowed to carry blockId: '' (it's a top-level comment
-  // with no block anchor, matching the existing UI convention).
-  if ((a.type === 'COMMENT' || a.type === 'DELETION') && (a.blockId as string).length === 0) {
-    return false;
   }
   // images must be absent in V1 room annotations
   if ('images' in a && a.images !== undefined) return false;
@@ -199,6 +196,8 @@ export interface PresenceState {
   cursor: CursorState | null;
   activeAnnotationId?: string | null;
   idle?: boolean;
+  /** Which document the user is currently viewing in a multi-doc room. */
+  activeDoc?: string;
 }
 
 /**
@@ -207,7 +206,7 @@ export interface PresenceState {
  * a malicious participant could ship a valid-encrypted but malformed presence
  * and crash UI render code that assumes `user.name` is a string, etc.
  */
-const PRESENCE_STATE_KEYS = new Set(['user', 'cursor', 'activeAnnotationId', 'idle']);
+const PRESENCE_STATE_KEYS = new Set(['user', 'cursor', 'activeAnnotationId', 'idle', 'activeDoc']);
 const PRESENCE_USER_KEYS = new Set(['id', 'name', 'color']);
 const CURSOR_STATE_KEYS = new Set(['blockId', 'x', 'y', 'coordinateSpace']);
 
@@ -250,6 +249,7 @@ export function isPresenceState(x: unknown): x is PresenceState {
 
   if (p.activeAnnotationId !== undefined && p.activeAnnotationId !== null && typeof p.activeAnnotationId !== 'string') return false;
   if (p.idle !== undefined && typeof p.idle !== 'boolean') return false;
+  if (p.activeDoc !== undefined && typeof p.activeDoc !== 'string') return false;
 
   return true;
 }
@@ -363,30 +363,87 @@ export type RoomServerEvent =
 // Snapshot
 // ---------------------------------------------------------------------------
 
+export type RoomContentType = 'markdown' | 'html' | 'markdown-multi';
+
+/**
+ * Room snapshot — the initial state of a room.
+ *
+ * Single-doc rooms use `planMarkdown` + `annotations` (optionally with
+ * `contentType: 'html'` and `rawHtml` for HTML rooms).
+ *
+ * Multi-doc rooms set `contentType: 'markdown-multi'` and populate `docs`
+ * (relative path → markdown or raw HTML content) and optionally `primaryDoc` (the path
+ * to auto-open on join). In this mode `planMarkdown` is `''` and `annotations`
+ * carry `docPath` matching a key in `docs`.
+ */
 export interface RoomSnapshot {
   versionId: 'v1';
   planMarkdown: string;
   annotations: RoomAnnotation[];
+  contentType?: RoomContentType;
+  rawHtml?: string;
+  /** Multi-doc: relative path → content (markdown or raw HTML). */
+  docs?: Record<string, string>;
+  /** Multi-doc: path to auto-open on join (must be a key in `docs`). */
+  primaryDoc?: string;
+  /** Multi-doc: paths in `docs` whose content is raw HTML (rendered via HtmlViewer).
+   *  Absent paths are markdown. Omitted entirely when all docs are markdown. */
+  htmlDocPaths?: string[];
 }
 
-/**
- * Runtime validator for a decrypted RoomSnapshot. A malformed snapshot must
- * not enter client state — it clears and re-seeds the annotations map plus
- * planMarkdown, so garbage here corrupts the whole view.
- */
-const ROOM_SNAPSHOT_KEYS = new Set(['versionId', 'planMarkdown', 'annotations']);
+const ROOM_SNAPSHOT_KEYS = new Set([
+  'versionId', 'planMarkdown', 'annotations', 'contentType', 'rawHtml',
+  'docs', 'primaryDoc', 'htmlDocPaths',
+]);
+
+const VALID_CONTENT_TYPES = new Set<string>(['markdown', 'html', 'markdown-multi']);
 
 export function isRoomSnapshot(x: unknown): x is RoomSnapshot {
   if (x === null || typeof x !== 'object') return false;
   const s = x as Record<string, unknown>;
-  // Strict boundary: reject unknown keys so future protocol drift fails
-  // loudly instead of silently slipping fields past the validator.
   for (const key of Object.keys(s)) {
     if (!ROOM_SNAPSHOT_KEYS.has(key)) return false;
   }
   if (s.versionId !== 'v1') return false;
   if (typeof s.planMarkdown !== 'string') return false;
   if (!Array.isArray(s.annotations)) return false;
+  if (s.contentType !== undefined && (typeof s.contentType !== 'string' || !VALID_CONTENT_TYPES.has(s.contentType))) return false;
+  if (s.rawHtml !== undefined && typeof s.rawHtml !== 'string') return false;
+
+  // Multi-doc cross-field invariants
+  if (s.contentType === 'markdown-multi') {
+    if (s.docs === null || typeof s.docs !== 'object' || Array.isArray(s.docs)) return false;
+    const docs = s.docs as Record<string, unknown>;
+    const docKeys = Object.keys(docs);
+    if (docKeys.length === 0) return false;
+    for (const key of docKeys) {
+      if (key.length === 0) return false;
+    }
+    for (const val of Object.values(docs)) {
+      if (typeof val !== 'string') return false;
+    }
+    if (s.planMarkdown !== '') return false;
+    if (s.rawHtml !== undefined) return false;
+    const docKeySet = new Set(docKeys);
+    if (s.primaryDoc !== undefined) {
+      if (typeof s.primaryDoc !== 'string' || !docKeySet.has(s.primaryDoc)) return false;
+    }
+    if (s.htmlDocPaths !== undefined) {
+      if (!Array.isArray(s.htmlDocPaths)) return false;
+      for (const p of s.htmlDocPaths) {
+        if (typeof p !== 'string' || !docKeySet.has(p)) return false;
+      }
+    }
+    for (const ann of s.annotations as RoomAnnotation[]) {
+      if (!isRoomAnnotation(ann)) return false;
+      if (typeof ann.docPath !== 'string' || !docKeySet.has(ann.docPath)) return false;
+    }
+    return true;
+  }
+
+  // Single-doc: multi-doc fields must be absent
+  if (s.docs !== undefined || s.primaryDoc !== undefined || s.htmlDocPaths !== undefined) return false;
+
   return s.annotations.every(isRoomAnnotation);
 }
 

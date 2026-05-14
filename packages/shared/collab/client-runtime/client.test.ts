@@ -1307,10 +1307,9 @@ describe('CollabRoomClient — stale-seq and baseline-invalid guards (P2)', () =
     client.disconnect();
   });
 
-  test('reducer-rejected update (merged-annotation invalid) advances seq without mutating state or emitting event', async () => {
+  test('update to empty blockId is accepted (HTML room annotations have no block structure)', async () => {
     const { client, ws, eventKey } = await setup();
 
-    // Seed a COMMENT with a valid non-empty blockId.
     const seed: RoomAnnotation = {
       id: 'reducer-seed', blockId: 'b1', startOffset: 0, endOffset: 5,
       type: 'COMMENT', originalText: 'x', createdA: 1,
@@ -1321,28 +1320,72 @@ describe('CollabRoomClient — stale-seq and baseline-invalid guards (P2)', () =
       envelope: { clientId: 'other', opId: 'seed', channel: 'event', ciphertext: seedCipher },
     }));
     await waitFor(() => client.getState().annotations.length === 1, 1000);
-    const stored = client.getState().annotations[0];
 
-    // Patch passes op-level validation (blockId is a string per field rules)
-    // but the merged final annotation violates the cross-field invariant
-    // (COMMENT must have non-empty blockId). The reducer should reject.
-    let eventEmissions = 0;
-    client.on('event', () => { eventEmissions++; });
-
-    const badPatch = { type: 'annotation.update', id: 'reducer-seed', patch: { blockId: '' } };
-    const badCipher = await encryptEventOp(eventKey, badPatch as unknown as import('../types').RoomEventClientOp);
+    const patch = { type: 'annotation.update', id: 'reducer-seed', patch: { blockId: '' } };
+    const cipher = await encryptEventOp(eventKey, patch as unknown as import('../types').RoomEventClientOp);
     ws.peer.sendFromServer(JSON.stringify({
       type: 'room.event', seq: 2, receivedAt: Date.now(),
-      envelope: { clientId: 'other', opId: 'bad-patch', channel: 'event', ciphertext: badCipher },
+      envelope: { clientId: 'other', opId: 'empty-block', channel: 'event', ciphertext: cipher },
     }));
     await waitFor(() => client.getState().seq === 2, 1000);
 
-    // seq advanced for forward-progress, annotation untouched, lastError set,
-    // no `event` emitted.
-    const after = client.getState().annotations[0];
-    expect(after.blockId).toBe(stored.blockId);
-    expect(client.getState().lastError?.code).toBe('event_rejected_by_reducer');
-    expect(eventEmissions).toBe(0);
+    expect(client.getState().annotations[0].blockId).toBe('');
+    expect(client.getState().lastError).toBe(null);
+
+    client.disconnect();
+  });
+
+  test('multi-doc annotation.add rejects missing, unknown, or prototype-only docPath', async () => {
+    const { client, ws, eventKey } = await setup();
+
+    const multiSnapshot: RoomSnapshot = {
+      versionId: 'v1',
+      planMarkdown: '',
+      contentType: 'markdown-multi',
+      docs: { 'README.md': '# Plan' },
+      primaryDoc: 'README.md',
+      annotations: [],
+    };
+    const snapshotCiphertext = await encryptSnapshot(eventKey, multiSnapshot);
+    ws.peer.sendFromServer(JSON.stringify({
+      type: 'room.snapshot',
+      snapshotSeq: 1,
+      snapshotCiphertext,
+    }));
+    await waitFor(() => client.getState().contentType === 'markdown-multi', 1000);
+
+    const missingDocPath: RoomAnnotation = {
+      id: 'missing-doc', blockId: 'b1', startOffset: 0, endOffset: 5,
+      type: 'COMMENT', originalText: 'x', createdA: 1,
+    };
+    const missingCipher = await encryptEventOp(eventKey, {
+      type: 'annotation.add',
+      annotations: [missingDocPath],
+    });
+    ws.peer.sendFromServer(JSON.stringify({
+      type: 'room.event', seq: 2, receivedAt: Date.now(),
+      envelope: { clientId: 'other', opId: 'missing-docpath', channel: 'event', ciphertext: missingCipher },
+    }));
+    await waitFor(() => client.getState().seq === 2, 1000);
+    expect(client.getState().annotations).toHaveLength(0);
+    expect(client.getState().lastError?.code).toBe('event_rejected_invalid_docpath');
+
+    const prototypeDocPath: RoomAnnotation = {
+      ...missingDocPath,
+      id: 'prototype-doc',
+      docPath: 'toString',
+    };
+    const prototypeCipher = await encryptEventOp(eventKey, {
+      type: 'annotation.add',
+      annotations: [prototypeDocPath],
+    });
+    ws.peer.sendFromServer(JSON.stringify({
+      type: 'room.event', seq: 3, receivedAt: Date.now(),
+      envelope: { clientId: 'other', opId: 'prototype-docpath', channel: 'event', ciphertext: prototypeCipher },
+    }));
+    await waitFor(() => client.getState().seq === 3, 1000);
+    expect(client.getState().annotations).toHaveLength(0);
+    expect(client.getState().lastError?.code).toBe('event_rejected_invalid_docpath');
 
     client.disconnect();
   });

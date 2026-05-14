@@ -57,6 +57,7 @@ export function useHtmlAnnotation({
   const [quickLabelPicker, setQuickLabelPicker] = useState<QuickLabelPickerState | null>(null);
 
   const pendingTextRef = useRef<string>("");
+  const justCreatedRef = useRef<string | null>(null);
   const modeRef = useRef(mode);
   modeRef.current = mode;
 
@@ -109,6 +110,7 @@ export function useHtmlAnnotation({
 
         if (currentMode === "redline") {
           const id = `html-ann-${Date.now()}`;
+          justCreatedRef.current = id;
           postToIframe(iframeRef.current, { type: `${PREFIX}create-mark`, id, annotationType: "deletion" });
           onAddRef.current?.({
             id,
@@ -167,17 +169,21 @@ export function useHtmlAnnotation({
   }, [iframeRef, positionAnchor, onResize]);
 
   useEffect(() => {
+    if (selectedAnnotationId && justCreatedRef.current === selectedAnnotationId) {
+      justCreatedRef.current = null;
+      return;
+    }
+    justCreatedRef.current = null;
     if (selectedAnnotationId) {
       postToIframe(iframeRef.current, {
         type: `${PREFIX}scroll-to`,
         id: selectedAnnotationId,
       });
-    } else {
-      postToIframe(iframeRef.current, {
-        type: `${PREFIX}focus-mark`,
-        id: null,
-      });
     }
+    postToIframe(iframeRef.current, {
+      type: `${PREFIX}focus-mark`,
+      id: selectedAnnotationId,
+    });
   }, [selectedAnnotationId, iframeRef]);
 
   const handleAnnotate = useCallback(
@@ -186,6 +192,7 @@ export function useHtmlAnnotation({
       if (!text || type !== AnnotationType.DELETION) return;
 
       const id = `html-ann-${Date.now()}`;
+      justCreatedRef.current = id;
       postToIframe(iframeRef.current, { type: `${PREFIX}create-mark`, id, annotationType: "deletion" });
       onAddRef.current?.({
         id,
@@ -221,6 +228,7 @@ export function useHtmlAnnotation({
       if (!text) return;
 
       const id = `html-ann-${Date.now()}`;
+      justCreatedRef.current = id;
       postToIframe(iframeRef.current, { type: `${PREFIX}create-mark`, id, annotationType: "comment" });
       onAddRef.current?.({
         id,
@@ -256,6 +264,7 @@ export function useHtmlAnnotation({
       const text = pendingTextRef.current;
       if (!text) return;
       const id = `html-ann-${Date.now()}`;
+      justCreatedRef.current = id;
       postToIframe(iframeRef.current, { type: `${PREFIX}create-mark`, id, annotationType: "comment" });
       onAddRef.current?.({
         id,

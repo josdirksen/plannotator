@@ -346,6 +346,24 @@ Live-collaboration rooms for encrypted multi-user annotation. Zero-knowledge: th
 
 Protocol contract lives in `packages/shared/collab/`; the Worker/DO never imports client-only URL helpers.
 
+#### Multi-Document Rooms
+
+Rooms can carry multiple documents via `contentType: 'markdown-multi'`. The snapshot shape extends with:
+
+- `docs: Record<string, string>` — relative path → content (markdown or raw HTML).
+- `primaryDoc?: string` — path to auto-open on join (must be a key in `docs`).
+- `htmlDocPaths?: string[]` — paths in `docs` whose content is raw HTML (rendered via HtmlViewer). Absent paths are markdown.
+
+Each `RoomAnnotation` in a multi-doc room carries `docPath: string` matching a key in `docs`. The cross-field invariant is enforced in `isRoomSnapshot` (every annotation's `docPath` must resolve to a real doc) and at inbound-event time in `CollabRoomClient` (rejects `annotation.add` events with missing or unknown `docPath`). `docPath` is forbidden in annotation patches — annotations cannot be moved between documents.
+
+`PresenceState` carries `activeDoc?: string` so remote cursors are filtered per-document and the sidebar file list shows per-doc presence avatars.
+
+**Compression.** All room snapshots are deflate-compressed before encryption. The compressed plaintext is prefixed with `c1:` inside the encrypted envelope so `decryptSnapshot` knows to decompress. Legacy uncompressed rooms (no prefix) are supported permanently — never-expiring rooms created before compression can live indefinitely. Compression lives in `packages/shared/collab/crypto.ts` (`encryptSnapshot` / `decryptSnapshot`), reusing `compress` / `decompress` from `packages/shared/compress.ts`.
+
+**Size budget.** The picker enforces a 5 MB plaintext hard cap (submit disabled above it). The server's ciphertext hard cap is 1.5 MB (`MAX_SNAPSHOT_CIPHERTEXT_LENGTH` in `apps/room-service/core/validation.ts`), grounded in the Cloudflare SQLite-backed Durable Object 2 MB max row size. Compression bridges the gap — typical markdown compresses 3–5× and fits comfortably. Content that compresses poorly can still fail with a clean 413; the picker surfaces file-level guidance.
+
+**Server changes: none.** The Worker/DO only sees ciphertext. Multi-doc routing is entirely client-side.
+
 ## Plan Version History
 
 Every plan is automatically saved to `~/.plannotator/history/{project}/{slug}/` on arrival, before the user sees the UI. Versions are numbered sequentially (`001.md`, `002.md`, etc.). The slug is derived from the plan's first `# Heading` + today's date via `generateSlug()`, scoped by project name (git repo or cwd). Same heading on the same day = same slug = same plan being iterated on. Identical resubmissions are deduplicated (no new file if content matches the latest version).

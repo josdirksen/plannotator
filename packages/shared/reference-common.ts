@@ -34,6 +34,8 @@ export interface VaultNode {
 	path: string; // relative path within vault
 	type: "file" | "folder";
 	children?: VaultNode[];
+	/** File size in bytes. Populated by file-browser endpoints that stat files. */
+	sizeBytes?: number;
 }
 
 /**

@@ -47,6 +47,18 @@ Rooms expire automatically after the duration you choose (1, 7, or 30 days). Whe
 
 An admin secret (also in the creator's URL fragment) grants the ability to delete the room early. Like the room secret, it never reaches the server in plaintext.
 
+## Sharing folders
+
+When you annotate a folder (`plannotator annotate ~/project/docs/`), you can share the entire session as a single live room. Click **Start Live Room** and the modal shows a file picker listing every file in the folder.
+
+- **Annotated files** are pre-checked. Unannotated files can be opted in for context.
+- **The picker enforces a 5 MB plaintext budget.** Most markdown folders fit comfortably — the snapshot is compressed before encryption, so 5 MB of typical prose shrinks to well under the server limit. If your particular selection doesn't compress enough, room creation fails cleanly and you can deselect files and retry.
+- **HTML files** in the folder are included as raw HTML (not converted to markdown). They render in the room's HTML viewer and can be annotated just like standalone HTML rooms. Markdown files render in the standard plan viewer. Switching between them is seamless.
+- **Each file's annotations are scoped** — an annotation on `README.md` doesn't appear when you're viewing `design.md`. The sidebar file list shows per-file annotation counts and updates live as collaborators work.
+- **Internal links work across docs.** A link like `[design](./design.md)` switches to that file if it's in the room. Links to files not in the room are visually disabled so there's no confusion about what's available.
+
+The room protocol treats the folder as a single encrypted snapshot. The server doesn't know whether a room contains one document or twenty — it's all ciphertext. Compression, encryption, and decryption happen entirely in the browser.
+
 ## Agent participants
 
 AI agents can join rooms as first-class peers using the `collab-agent` CLI. They use the same encryption protocol as browsers. Agent cursors appear with a gear icon so human participants can distinguish them.

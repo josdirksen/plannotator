@@ -253,6 +253,11 @@ export class CollabRoomClient {
   private roomUnavailable: boolean = false;
   private seq: number = 0;
   private planMarkdown: string = '';
+  private contentType: 'markdown' | 'html' | 'markdown-multi' | undefined = undefined;
+  private rawHtml: string | undefined = undefined;
+  private docs: Record<string, string> | undefined = undefined;
+  private primaryDoc: string | undefined = undefined;
+  private htmlDocPaths: string[] | undefined = undefined;
   private annotations = new Map<string, RoomAnnotation>();
   private remotePresence = new Map<string, { presence: PresenceState; lastSeen: number }>();
   private lastError: { code: string; message: string; scope: 'mutation' | 'admin' | 'event' | 'presence' | 'snapshot' | 'join' } | null = null;
@@ -357,6 +362,11 @@ export class CollabRoomClient {
     // the client's internal annotations map.
     if (options.initialSnapshot) {
       this.planMarkdown = options.initialSnapshot.planMarkdown;
+      this.contentType = options.initialSnapshot.contentType;
+      this.rawHtml = options.initialSnapshot.rawHtml;
+      this.docs = options.initialSnapshot.docs ? { ...options.initialSnapshot.docs } : undefined;
+      this.primaryDoc = options.initialSnapshot.primaryDoc;
+      this.htmlDocPaths = options.initialSnapshot.htmlDocPaths ? [...options.initialSnapshot.htmlDocPaths] : undefined;
       for (const ann of options.initialSnapshot.annotations) {
         this.annotations.set(ann.id, cloneRoomAnnotation(ann));
       }
@@ -1069,6 +1079,11 @@ export class CollabRoomClient {
       // Valid snapshot — baseline is authoritative again.
       this.baselineInvalid = false;
       this.planMarkdown = snapshot.planMarkdown;
+      this.contentType = snapshot.contentType;
+      this.rawHtml = snapshot.rawHtml;
+      this.docs = snapshot.docs ? { ...snapshot.docs } : undefined;
+      this.primaryDoc = snapshot.primaryDoc;
+      this.htmlDocPaths = snapshot.htmlDocPaths ? [...snapshot.htmlDocPaths] : undefined;
       this.annotations.clear();
       // Defensive clone on store: the decrypted snapshot payload is untrusted
       // shape-wise AND is a freshly-allocated JSON object that we might also
@@ -1168,6 +1183,26 @@ export class CollabRoomClient {
         return;
       }
       const op = decrypted;
+      // Multi-doc rooms: every annotation in an add event must carry a docPath
+      // matching a known room document. Missing or unknown docPath means the
+      // annotation would enter state but never render in any file's filter.
+      if (this.docs && op.type === 'annotation.add') {
+        const bad = op.annotations.find(
+          a => typeof a.docPath !== 'string'
+            || !Object.prototype.hasOwnProperty.call(this.docs, a.docPath),
+        );
+        if (bad) {
+          const err = {
+            code: 'event_rejected_invalid_docpath',
+            message: `annotation.add at seq=${seq} has missing or unknown docPath: ${String(bad.docPath)}`,
+          };
+          this.setLastError(err.code, err.message, 'event');
+          this.emitter.emit('error', err);
+          this.seq = seq;
+          this.emitState();
+          return;
+        }
+      }
       const event = this.clientOpToServerEvent(op);
       const result = applyAnnotationEvent(this.annotations, event);
       // Consume the seq regardless — forward-progress (same rationale as the
@@ -1483,6 +1518,11 @@ export class CollabRoomClient {
       clientId: this.clientId,
       seq: this.seq,
       planMarkdown: this.planMarkdown,
+      contentType: this.contentType,
+      rawHtml: this.rawHtml,
+      docs: this.docs ? { ...this.docs } : undefined,
+      primaryDoc: this.primaryDoc,
+      htmlDocPaths: this.htmlDocPaths ? [...this.htmlDocPaths] : undefined,
       annotations: annotationsToArray(this.annotations).map(cloneRoomAnnotation),
       remotePresence: presence,
       hasAdminCapability: this.adminKey !== null,

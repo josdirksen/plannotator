@@ -100,17 +100,10 @@ describe('isRoomAnnotation', () => {
     expect(isRoomAnnotation({ ...GOOD_ANN, images: [{ path: '/t', name: 'n' }] })).toBe(false);
   });
 
-  test('inline annotations (COMMENT, DELETION) require non-empty blockId', () => {
-    expect(isRoomAnnotation({ ...GOOD_ANN, type: 'COMMENT', blockId: '' })).toBe(false);
-    expect(isRoomAnnotation({ ...GOOD_ANN, type: 'DELETION', blockId: '' })).toBe(false);
-  });
-
-  test('GLOBAL_COMMENT is allowed to carry blockId: "" (matches existing UI convention)', () => {
-    expect(isRoomAnnotation({
-      ...GOOD_ANN,
-      type: 'GLOBAL_COMMENT',
-      blockId: '',
-    })).toBe(true);
+  test('all annotation types accept empty blockId (HTML room annotations have no block structure)', () => {
+    expect(isRoomAnnotation({ ...GOOD_ANN, type: 'COMMENT', blockId: '' })).toBe(true);
+    expect(isRoomAnnotation({ ...GOOD_ANN, type: 'DELETION', blockId: '' })).toBe(true);
+    expect(isRoomAnnotation({ ...GOOD_ANN, type: 'GLOBAL_COMMENT', blockId: '' })).toBe(true);
   });
 });
 
@@ -351,5 +344,201 @@ describe('nested annotation meta — strict key allowlist', () => {
       startMeta: { parentTagName: 'p', parentIndex: 0, textOffset: 3 },
       endMeta: { parentTagName: 'p', parentIndex: 0, textOffset: 8 },
     })).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-Document Rooms
+// ---------------------------------------------------------------------------
+
+const GOOD_MULTI_ANN: RoomAnnotation = {
+  ...GOOD_ANN,
+  docPath: 'README.md',
+};
+
+describe('isRoomAnnotation — docPath', () => {
+  test('accepts annotation with valid docPath', () => {
+    expect(isRoomAnnotation({ ...GOOD_ANN, docPath: 'README.md' })).toBe(true);
+  });
+
+  test('accepts annotation without docPath (single-doc rooms)', () => {
+    expect(isRoomAnnotation(GOOD_ANN)).toBe(true);
+  });
+
+  test('rejects annotation with empty docPath', () => {
+    expect(isRoomAnnotation({ ...GOOD_ANN, docPath: '' })).toBe(false);
+  });
+
+  test('rejects annotation with non-string docPath', () => {
+    expect(isRoomAnnotation({ ...GOOD_ANN, docPath: 42 })).toBe(false);
+  });
+});
+
+describe('isRoomAnnotationPatch — docPath forbidden', () => {
+  test('rejects patch containing docPath', () => {
+    expect(isRoomAnnotationPatch({ docPath: 'other.md' })).toBe(false);
+  });
+
+  test('rejects patch containing docPath alongside valid fields', () => {
+    expect(isRoomAnnotationPatch({ text: 'updated', docPath: 'other.md' })).toBe(false);
+  });
+});
+
+describe('isRoomSnapshot — multi-doc', () => {
+  const MULTI_SNAPSHOT = {
+    versionId: 'v1' as const,
+    planMarkdown: '',
+    contentType: 'markdown-multi' as const,
+    docs: {
+      'README.md': '# Hello',
+      'design.md': '# Design',
+    },
+    primaryDoc: 'README.md',
+    annotations: [GOOD_MULTI_ANN],
+  };
+
+  test('accepts valid multi-doc snapshot', () => {
+    expect(isRoomSnapshot(MULTI_SNAPSHOT)).toBe(true);
+  });
+
+  test('accepts multi-doc snapshot without primaryDoc', () => {
+    const { primaryDoc: _, ...rest } = MULTI_SNAPSHOT;
+    expect(isRoomSnapshot(rest)).toBe(true);
+  });
+
+  test('accepts multi-doc snapshot with empty annotations', () => {
+    expect(isRoomSnapshot({ ...MULTI_SNAPSHOT, annotations: [] })).toBe(true);
+  });
+
+  test('rejects multi-doc snapshot with empty docs', () => {
+    expect(isRoomSnapshot({ ...MULTI_SNAPSHOT, docs: {} })).toBe(false);
+  });
+
+  test('rejects multi-doc snapshot with non-string doc value', () => {
+    expect(isRoomSnapshot({
+      ...MULTI_SNAPSHOT,
+      docs: { 'README.md': '# Hello', 'bad.md': 42 },
+    })).toBe(false);
+  });
+
+  test('rejects multi-doc snapshot with empty doc path', () => {
+    expect(isRoomSnapshot({
+      ...MULTI_SNAPSHOT,
+      docs: { '': '# Empty key', 'README.md': '# Hello' },
+    })).toBe(false);
+  });
+
+  test('rejects multi-doc snapshot when primaryDoc is not a key in docs', () => {
+    expect(isRoomSnapshot({
+      ...MULTI_SNAPSHOT,
+      primaryDoc: 'nonexistent.md',
+    })).toBe(false);
+  });
+
+  test('rejects multi-doc snapshot when primaryDoc only exists on object prototype', () => {
+    expect(isRoomSnapshot({
+      ...MULTI_SNAPSHOT,
+      primaryDoc: 'toString',
+    })).toBe(false);
+  });
+
+  test('rejects multi-doc snapshot with non-empty legacy planMarkdown', () => {
+    expect(isRoomSnapshot({
+      ...MULTI_SNAPSHOT,
+      planMarkdown: '# Should not be used',
+    })).toBe(false);
+  });
+
+  test('rejects multi-doc snapshot with rawHtml', () => {
+    expect(isRoomSnapshot({
+      ...MULTI_SNAPSHOT,
+      rawHtml: '<p>not markdown multi</p>',
+    })).toBe(false);
+  });
+
+  test('rejects multi-doc snapshot when annotation docPath is not in docs', () => {
+    expect(isRoomSnapshot({
+      ...MULTI_SNAPSHOT,
+      annotations: [{ ...GOOD_MULTI_ANN, docPath: 'unknown.md' }],
+    })).toBe(false);
+  });
+
+  test('rejects multi-doc snapshot when annotation is missing docPath', () => {
+    expect(isRoomSnapshot({
+      ...MULTI_SNAPSHOT,
+      annotations: [GOOD_ANN],
+    })).toBe(false);
+  });
+
+  test('rejects single-doc snapshot that has docs field', () => {
+    expect(isRoomSnapshot({
+      versionId: 'v1',
+      planMarkdown: '# Plan',
+      annotations: [],
+      docs: { 'README.md': '# Hello' },
+    })).toBe(false);
+  });
+
+  test('rejects single-doc snapshot that has primaryDoc field', () => {
+    expect(isRoomSnapshot({
+      versionId: 'v1',
+      planMarkdown: '# Plan',
+      annotations: [],
+      primaryDoc: 'README.md',
+    })).toBe(false);
+  });
+
+  test('accepts multi-doc snapshot with htmlDocPaths', () => {
+    expect(isRoomSnapshot({
+      ...MULTI_SNAPSHOT,
+      htmlDocPaths: ['design.md'],
+    })).toBe(true);
+  });
+
+  test('accepts multi-doc snapshot with empty htmlDocPaths', () => {
+    expect(isRoomSnapshot({
+      ...MULTI_SNAPSHOT,
+      htmlDocPaths: [],
+    })).toBe(true);
+  });
+
+  test('rejects multi-doc snapshot when htmlDocPaths entry is not in docs', () => {
+    expect(isRoomSnapshot({
+      ...MULTI_SNAPSHOT,
+      htmlDocPaths: ['nonexistent.html'],
+    })).toBe(false);
+  });
+
+  test('rejects single-doc snapshot with htmlDocPaths', () => {
+    expect(isRoomSnapshot({
+      versionId: 'v1',
+      planMarkdown: '# Plan',
+      annotations: [],
+      htmlDocPaths: ['file.html'],
+    })).toBe(false);
+  });
+
+  test('single-doc snapshots still validate unchanged', () => {
+    expect(isRoomSnapshot({
+      versionId: 'v1',
+      planMarkdown: '# Plan',
+      annotations: [GOOD_ANN],
+    })).toBe(true);
+  });
+});
+
+describe('isPresenceState — activeDoc', () => {
+  const BASE = { user: { id: 'u', name: 'a', color: '#f00' }, cursor: null };
+
+  test('accepts presence with activeDoc string', () => {
+    expect(isPresenceState({ ...BASE, activeDoc: 'README.md' })).toBe(true);
+  });
+
+  test('accepts presence without activeDoc', () => {
+    expect(isPresenceState(BASE)).toBe(true);
+  });
+
+  test('rejects presence with non-string activeDoc', () => {
+    expect(isPresenceState({ ...BASE, activeDoc: 42 })).toBe(false);
   });
 });

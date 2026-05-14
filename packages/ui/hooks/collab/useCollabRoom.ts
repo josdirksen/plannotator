@@ -67,6 +67,11 @@ export interface UseCollabRoomReturn {
   /** True once the server closed our socket with the terminal "room unavailable" signal. */
   roomUnavailable: boolean;
   planMarkdown: string;
+  contentType?: 'markdown' | 'html' | 'markdown-multi';
+  rawHtml?: string;
+  docs?: Record<string, string>;
+  primaryDoc?: string;
+  htmlDocPaths?: string[];
   annotations: RoomAnnotation[];
   /**
    * Last server seq applied locally. Advances monotonically for every
@@ -115,6 +120,11 @@ const DISCONNECTED_STATE: CollabRoomState = {
   clientId: '',
   seq: 0,
   planMarkdown: '',
+  contentType: undefined,
+  rawHtml: undefined,
+  docs: undefined,
+  primaryDoc: undefined,
+  htmlDocPaths: undefined,
   annotations: [],
   remotePresence: {},
   hasAdminCapability: false,
@@ -305,6 +315,11 @@ export function useCollabRoom(options: UseCollabRoomOptions): UseCollabRoomRetur
     connectionStatus: stateForRender.connectionStatus,
     roomUnavailable: stateForRender.roomUnavailable,
     planMarkdown: stateForRender.planMarkdown,
+    contentType: stateForRender.contentType,
+    rawHtml: stateForRender.rawHtml,
+    docs: stateForRender.docs,
+    primaryDoc: stateForRender.primaryDoc,
+    htmlDocPaths: stateForRender.htmlDocPaths,
     annotations: stateForRender.annotations,
     seq: stateForRender.seq,
     remotePresence: stateForRender.remotePresence,

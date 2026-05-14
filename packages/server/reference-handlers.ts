@@ -73,8 +73,11 @@ export async function handleDoc(req: Request): Promise<Response> {
 		try {
 			const file = Bun.file(resolvedHtml);
 			if (await file.exists()) {
-				const html = await file.text();
-				const markdown = htmlToMarkdown(html);
+				const content = await file.text();
+				if (url.searchParams.get('raw') === 'true') {
+					return Response.json({ markdown: content, filepath: resolvedHtml });
+				}
+				const markdown = htmlToMarkdown(content);
 				return Response.json({ markdown, filepath: resolvedHtml, isConverted: true });
 			}
 		} catch { /* fall through */ }
@@ -375,21 +378,38 @@ export async function handleFileBrowserFiles(req: Request): Promise<Response> {
 	try {
 		const glob = new Bun.Glob("**/*.{md,mdx,html,htm}");
 		const files: string[] = [];
+		const fileSizes = new Map<string, number>();
 		for await (const match of glob.scan({
 			cwd: resolvedDir,
 			onlyFiles: true,
 		})) {
 			if (FILE_BROWSER_EXCLUDED.some((dir) => match.includes(dir))) continue;
 			files.push(match);
+			try {
+				fileSizes.set(match, statSync(resolve(resolvedDir, match)).size);
+			} catch { /* stat failure — size stays unknown */ }
 		}
 		files.sort();
 
 		const tree = buildFileTree(files);
+		attachFileSizes(tree, fileSizes);
 		return Response.json({ tree });
 	} catch {
 		return Response.json(
 			{ error: "Failed to list directory files" },
 			{ status: 500 },
 		);
+	}
+}
+
+/** Walk the tree and attach sizeBytes from a pre-computed map. */
+function attachFileSizes(nodes: import("@plannotator/shared/reference-common").VaultNode[], sizes: Map<string, number>): void {
+	for (const node of nodes) {
+		if (node.type === 'file') {
+			const s = sizes.get(node.path);
+			if (s !== undefined) node.sizeBytes = s;
+		} else if (node.children) {
+			attachFileSizes(node.children, sizes);
+		}
 	}
 }

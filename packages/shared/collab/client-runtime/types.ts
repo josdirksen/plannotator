@@ -64,6 +64,14 @@ export interface CollabRoomState {
    */
   seq: number;
   planMarkdown: string;
+  contentType?: 'markdown' | 'html' | 'markdown-multi';
+  rawHtml?: string;
+  /** Multi-doc: relative path → content (markdown or raw HTML). */
+  docs?: Record<string, string>;
+  /** Multi-doc: path to auto-open on join. */
+  primaryDoc?: string;
+  /** Multi-doc: paths whose content is raw HTML (rendered via HtmlViewer). */
+  htmlDocPaths?: string[];
   /** Ordered view of internal annotations Map. */
   annotations: RoomAnnotation[];
   /** Keyed by sender clientId. Stale entries are pruned by lastSeen TTL. */

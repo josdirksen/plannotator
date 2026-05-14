@@ -94,8 +94,9 @@ const DEMO_PLAN_CONTENT = USE_DIFF_DEMO
   : DEFAULT_DEMO_PLAN_CONTENT;
 import { useCheckboxOverrides, derivePendingCheckboxBlockIds } from './hooks/useCheckboxOverrides';
 import { useAnnotationController } from '@plannotator/ui/hooks/useAnnotationController';
-import { StartRoomModal } from '@plannotator/ui/components/collab/StartRoomModal';
-import { useStartLiveRoom } from './hooks/collab/useStartLiveRoom';
+import { StartRoomModal, type FolderSessionInfo, type FolderFileEntry } from '@plannotator/ui/components/collab/StartRoomModal';
+import { RoomFileList } from '@plannotator/ui/components/collab/RoomFileList';
+import { useStartLiveRoom, type FolderRoomSession } from './hooks/collab/useStartLiveRoom';
 
 type NoteAutoSaveResults = {
   obsidian?: boolean;
@@ -105,10 +106,24 @@ type NoteAutoSaveResults = {
 
 export interface AppProps {
   roomSession?: import('@plannotator/ui/hooks/collab/useCollabRoomSession').UseCollabRoomSessionReturn;
+  activeDoc?: string;
+  setActiveDoc?: (path: string) => void;
 }
 
-const App: React.FC<AppProps> = ({ roomSession }) => {
+const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
   const roomModeActive = !!roomSession?.room;
+  const isHtmlRoom = roomModeActive && roomSession?.room?.contentType === 'html';
+  const isMultiDocRoom = roomModeActive && roomSession?.room?.contentType === 'markdown-multi';
+  const multiDocHtmlSet = useMemo(
+    () => roomSession?.room?.htmlDocPaths ? new Set(roomSession.room.htmlDocPaths) : undefined,
+    [roomSession?.room?.htmlDocPaths],
+  );
+  const multiDocAvailableSet = useMemo(
+    () => isMultiDocRoom && roomSession?.room?.docs ? new Set(Object.keys(roomSession.room.docs)) : undefined,
+    [isMultiDocRoom, roomSession?.room?.docs],
+  );
+  const isActiveDocHtml = !!(activeDoc && multiDocHtmlSet?.has(activeDoc));
+  const isHtmlSurface = isHtmlRoom || isActiveDocHtml;
   const [markdown, setMarkdown] = useState(
     roomModeActive ? '' : DEMO_PLAN_CONTENT,
   );
@@ -141,10 +156,29 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
 
   useEffect(() => {
     if (!roomSession?.room) return;
-    const plan = roomSession.room.planMarkdown;
-    if (plan && plan !== markdown) setMarkdown(plan);
+    if (roomSession.room.contentType === 'markdown-multi' && roomSession.room.docs && activeDoc) {
+      const content = roomSession.room.docs[activeDoc];
+      if (content === undefined) return;
+      const htmlPaths = roomSession.room.htmlDocPaths ? new Set(roomSession.room.htmlDocPaths) : undefined;
+      if (htmlPaths?.has(activeDoc)) {
+        setRenderAs('html');
+        setRawHtml(content);
+        setMarkdown('');
+      } else {
+        setRenderAs('markdown');
+        setRawHtml('');
+        setMarkdown(content);
+      }
+    } else if (roomSession.room.contentType === 'html' && roomSession.room.rawHtml) {
+      setRenderAs('html');
+      setRawHtml(roomSession.room.rawHtml);
+      setMarkdown('');
+    } else {
+      const plan = roomSession.room.planMarkdown;
+      if (plan && plan !== markdown) setMarkdown(plan);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomSession?.room?.planMarkdown]);
+  }, [roomSession?.room?.planMarkdown, roomSession?.room?.contentType, roomSession?.room?.rawHtml, roomSession?.room?.docs, activeDoc]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [selectedCodeAnnotationId, setSelectedCodeAnnotationId] = useState<string | null>(null);
   const frontmatter = useMemo(() => extractFrontmatter(markdown).frontmatter, [markdown]);
@@ -679,7 +713,12 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
   // the SSE stream to encrypted room ops so external annotations become
   // shared.
   const allAnnotations = useMemo(() => {
-    if (roomSession?.room) return annotations;
+    if (roomSession?.room) {
+      if (isMultiDocRoom && activeDoc) {
+        return annotations.filter(a => a.docPath === activeDoc);
+      }
+      return annotations;
+    }
     if (externalAnnotations.length === 0) return annotations;
 
     const local = annotations.filter(a => {
@@ -692,7 +731,7 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
     });
 
     return [...local, ...externalAnnotations];
-  }, [annotations, externalAnnotations, roomSession?.room]);
+  }, [annotations, externalAnnotations, roomSession?.room, isMultiDocRoom, activeDoc]);
 
   // Plan diff state — memoize filtered annotation lists to avoid new references per render
   const diffAnnotations = useMemo(() => allAnnotations.filter(a => !!a.diffContext), [allAnnotations]);
@@ -804,7 +843,7 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
   // content matches the canonical annotation.
   useAnnotationHighlightReconciler({
     viewerRef,
-    annotations,
+    annotations: isMultiDocRoom ? allAnnotations : annotations,
     enabled: roomModeActive,
     planKey: markdown,
     surfaceGeneration: highlightSurfaceGeneration,
@@ -1209,6 +1248,78 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
   // surfaces stay consistent.
   const canStartLiveRoom = isApiMode && !roomModeActive;
 
+  // Folder session detection: user invoked `plannotator annotate <folder>/`
+  const isFolderSession = annotateSource === 'folder' && projectRoot !== null;
+
+  // Build FolderSessionInfo for the modal picker and FolderRoomSession
+  // for the hook's multi-doc snapshot construction. Both derive from the
+  // same file browser tree + linked doc cache, just shaped differently.
+  const folderModalSession = useMemo<FolderSessionInfo | undefined>(() => {
+    if (!isFolderSession || !projectRoot) return undefined;
+    const root = projectRoot; // narrow for closure
+    const docAnnotations = linkedDocHook.getDocAnnotations();
+    const entries: FolderFileEntry[] = [];
+    const preselected = new Set<string>();
+    const counts = new Map<string, number>();
+    const imageCounts = new Map<string, number>();
+
+    function walkTree(nodes: import('@plannotator/ui/types').VaultNode[], dirPath: string) {
+      for (const node of nodes) {
+        if (node.type === 'folder') {
+          walkTree(node.children ?? [], dirPath);
+        } else {
+          const absolutePath = `${dirPath}/${node.path}`;
+          const relativePath = absolutePath.startsWith(root + '/')
+            ? absolutePath.slice(root.length + 1)
+            : node.path;
+          const cached = docAnnotations.get(absolutePath);
+          const sizeBytes = node.sizeBytes
+            ?? (cached?.markdown ? new Blob([cached.markdown]).size : 0);
+          entries.push({ path: relativePath, name: node.name, sizeBytes });
+          if (cached) {
+            const annCount = cached.annotations.length;
+            if (annCount > 0) {
+              preselected.add(relativePath);
+              counts.set(relativePath, annCount);
+            }
+            const withImages = cached.annotations.filter(a => a.images?.length).length
+              + cached.globalAttachments.filter(g => g.path).length;
+            if (withImages > 0) imageCounts.set(relativePath, withImages);
+          }
+        }
+      }
+    }
+    for (const dir of fileBrowser.dirs.filter(d => !d.isVault && d.path === root)) {
+      walkTree(dir.tree, dir.path);
+    }
+    entries.sort((a, b) => a.path.localeCompare(b.path));
+    return {
+      files: entries,
+      preselectedPaths: preselected,
+      annotationCounts: counts,
+      imageAnnotationCounts: imageCounts.size > 0 ? imageCounts : undefined,
+    };
+  }, [isFolderSession, projectRoot, fileBrowser.dirs, linkedDocHook]);
+
+  const folderRoomSession = useMemo<FolderRoomSession | undefined>(() => {
+    if (!isFolderSession || !projectRoot) return undefined;
+    return {
+      projectRoot,
+      docAnnotations: linkedDocHook.getDocAnnotations(),
+      loadFileContent: async (absolutePath: string) => {
+        const params = new URLSearchParams({ path: absolutePath, base: projectRoot! });
+        if (/\.html?$/i.test(absolutePath)) params.set('raw', 'true');
+        const res = await fetch(`/api/doc?${params}`);
+        if (!res.ok) throw new Error(`Failed to load ${absolutePath}: server returned ${res.status}`);
+        const data = await res.json() as { markdown?: string; error?: string };
+        if (data.error) throw new Error(`Failed to load ${absolutePath}: ${data.error}`);
+        if (typeof data.markdown !== 'string') throw new Error(`Failed to load ${absolutePath}: no content returned`);
+        return data.markdown;
+      },
+      activeFilePath: linkedDocHook.filepath ?? undefined,
+    };
+  }, [isFolderSession, projectRoot, linkedDocHook]);
+
   // Creator-side start-room flow. State, handlers, URL construction,
   // placeholder-tab pop-open, and the image-strip memo all live in
   // the hook; App.tsx consumes the return object and renders the
@@ -1225,7 +1336,10 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
     annotations,
     markdown,
     globalAttachments,
+    renderAs,
+    rawHtml,
     canStartLiveRoom,
+    folderSession: folderRoomSession,
   });
 
   // Note: the room admin action (delete) lives only in the Room
@@ -1349,7 +1463,8 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
   ]);
 
   const handleAddAnnotation = (ann: Annotation) => {
-    annotationController.add(ann);
+    const stamped = isMultiDocRoom && activeDoc ? { ...ann, docPath: activeDoc } : ann;
+    annotationController.add(stamped);
     setSelectedAnnotationId(ann.id);
     setSelectedCodeAnnotationId(null);
     if (wideModeType === null) {
@@ -1429,7 +1544,7 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
   // Interactive checkbox toggling with annotation tracking
   const checkbox = useCheckboxOverrides({
     blocks,
-    annotations,
+    annotations: isMultiDocRoom ? allAnnotations : annotations,
     addAnnotation: handleAddAnnotation,
     removeAnnotation,
     pendingBlockIds: pendingCheckboxBlockIds,
@@ -1512,7 +1627,7 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
     // feedback — approving with local-only image refs would ship paths
     // collaborators never saw. Out-of-room keeps existing behavior.
     const effectiveGlobalAttachments = roomModeActive ? [] : globalAttachments;
-    const hasPlanAnnotations = allAnnotations.length > 0 || effectiveGlobalAttachments.length > 0;
+    const hasPlanAnnotations = (isMultiDocRoom ? annotations.length : allAnnotations.length) > 0 || effectiveGlobalAttachments.length > 0;
     const hasEditorAnnotations = editorAnnotations.length > 0;
     const hasCodeAnnotations = codeAnnotations.length > 0;
 
@@ -1526,16 +1641,29 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
       ? (docAnnotations.get(linkedDocHook.filepath ?? '')?.isConverted ?? false)
       : sourceConverted;
 
-    let output = hasPlanAnnotations
-      ? exportAnnotations(
+    let output = '';
+
+    if (isMultiDocRoom && roomSession?.room?.docs) {
+      const roomDocs = roomSession.room.docs;
+      const roomAnns = annotations;
+      for (const docPath of Object.keys(roomDocs).sort()) {
+        const docAnns = roomAnns.filter(a => a.docPath === docPath);
+        if (docAnns.length === 0) continue;
+        const docBlocks = parseMarkdownToBlocks(roomDocs[docPath]);
+        output += `\n--- ${docPath} ---\n`;
+        output += exportAnnotations(docBlocks, docAnns, [], 'File Feedback', 'file');
+      }
+      output = output.trimStart();
+    } else if (hasPlanAnnotations) {
+      output = exportAnnotations(
           blocks,
           allAnnotations,
           effectiveGlobalAttachments,
           annotateSource === 'message' ? 'Message Feedback' : annotateSource === 'folder' ? 'Folder Feedback' : annotateSource === 'file' ? 'File Feedback' : 'Plan Feedback',
           annotateSource ?? 'plan',
           { sourceConverted: activeConverted },
-        )
-      : '';
+        );
+    }
 
     if (hasDocAnnotations) {
       // Parse blocks for each linked doc's cached markdown so the exporter
@@ -2052,7 +2180,17 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
                 linkedDocFilepath={linkedDocHook.filepath}
                 onLinkedDocBack={linkedDocHook.isActive ? handleLinkedDocBack : undefined}
                 backLabel={backLabel}
-                showFilesTab={showFilesTab && !archive.archiveMode}
+                showFilesTab={(showFilesTab || isMultiDocRoom) && !archive.archiveMode}
+                roomFileList={isMultiDocRoom && roomSession?.room?.docs && activeDoc && setActiveDoc ? (
+                  <RoomFileList
+                    docs={roomSession.room.docs}
+                    annotations={roomSession.room.annotations}
+                    activeDoc={activeDoc}
+                    onSelectDoc={setActiveDoc}
+                    remotePresence={roomSession.room.remotePresence}
+                    htmlDocPaths={roomSession.room.htmlDocPaths}
+                  />
+                ) : undefined}
                 fileAnnotationCounts={fileAnnotationCounts}
                 highlightedFiles={highlightedFiles}
                 fileBrowser={fileBrowser}
@@ -2085,7 +2223,7 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
           {/* Document Area */}
           <OverlayScrollArea
             element="main"
-            className={`flex-1 min-w-0 bg-grid ${!sidebar.isOpen && wideModeType === null ? 'lg:pl-[30px]' : ''}`}
+            className={`flex-1 min-w-0 ${isHtmlSurface ? 'bg-background' : `bg-grid ${!sidebar.isOpen && wideModeType === null ? 'lg:pl-[30px]' : ''}`}`}
             data-print-region="document"
             onViewportReady={handleViewportReady}
           >
@@ -2099,14 +2237,14 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
               cancelText="Dismiss"
               showCancel
             />
-            <div ref={planAreaRef} className="min-h-full flex flex-col items-center px-2 py-3 md:px-10 md:py-8 xl:px-16 relative z-10">
+            <div ref={planAreaRef} className={`${isHtmlSurface ? 'h-full flex flex-col' : 'min-h-full flex flex-col items-center px-2 py-3 md:px-10 md:py-8 xl:px-16'} relative z-10`}>
               {/* Sticky header lane — ghost bar that pins the toolstrip +
                   badges at top: 12px once the user scrolls. Invisible at top
                   of doc; original toolstrip/badges remain the source of
                   truth there. Hidden in plan diff or archive mode, or when
                   sticky actions are disabled. remountToken re-anchors the
                   ResizeObserver when Viewer swaps content (linked docs). */}
-              {!isPlanDiffActive && !archive.archiveMode && uiPrefs.stickyActionsEnabled && (
+              {!isPlanDiffActive && !archive.archiveMode && !isHtmlSurface && uiPrefs.stickyActionsEnabled && (
                 <StickyHeaderLane
                   inputMethod={inputMethod}
                   onInputMethodChange={handleInputMethodChange}
@@ -2124,8 +2262,8 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
                 />
               )}
 
-              {/* Annotation Toolstrip (hidden during plan diff and archive mode) */}
-              {!isPlanDiffActive && !archive.archiveMode && (
+              {/* Annotation Toolstrip (hidden during plan diff, archive mode, and HTML rooms) */}
+              {!isPlanDiffActive && !archive.archiveMode && !isHtmlSurface && (
                 <div data-print-hide className="w-full mb-3 md:mb-4 flex items-center justify-start" style={annotateReaderMaxWidth == null ? undefined : { maxWidth: annotateReaderMaxWidth }}>
                   <AnnotationToolstrip
                     inputMethod={inputMethod}
@@ -2168,8 +2306,8 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
                 </div>
               )}
               {/* Normal Plan View — always mounted, hidden during diff mode */}
-              <div className="w-full flex justify-center relative" style={{ display: (isPlanDiffActive && planDiff.diffBlocks) || (annotateSource === 'folder' && !markdown && !linkedDocHook.isActive) ? 'none' : undefined }}>
-                {canUseWideMode && !isPlanDiffActive && !archive.archiveMode && (
+              <div className={`w-full relative ${isHtmlSurface ? 'flex-1 flex flex-col' : 'flex justify-center'}`} style={{ display: (isPlanDiffActive && planDiff.diffBlocks) || (annotateSource === 'folder' && !markdown && !linkedDocHook.isActive) ? 'none' : undefined }}>
+                {canUseWideMode && !isPlanDiffActive && !archive.archiveMode && !isHtmlSurface && (
                   <div
                     data-print-hide
                     className="absolute -top-5 left-0 right-0 mx-auto w-full flex justify-end pointer-events-none"
@@ -2211,10 +2349,11 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
                     onSelectAnnotation={handleSelectAnnotation}
                     selectedAnnotationId={selectedAnnotationId}
                     mode={editorMode}
-                    globalAttachments={globalAttachments}
-                    onAddGlobalAttachment={handleAddGlobalAttachment}
-                    onRemoveGlobalAttachment={handleRemoveGlobalAttachment}
-                    maxWidth={annotateReaderMaxWidth}
+                    globalAttachments={roomModeActive ? [] : globalAttachments}
+                    onAddGlobalAttachment={roomModeActive ? undefined : handleAddGlobalAttachment}
+                    onRemoveGlobalAttachment={roomModeActive ? undefined : handleRemoveGlobalAttachment}
+                    maxWidth={isHtmlSurface ? null : annotateReaderMaxWidth}
+                    fullViewport={isHtmlSurface}
                   />
                 ) : (
                   <Viewer
@@ -2243,9 +2382,11 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
                     hasPreviousVersion={!linkedDocHook.isActive && planDiff.hasPreviousVersion}
                     showDemoBadge={!isApiMode && !isLoadingShared && !isSharedSession && !roomModeActive}
                     maxWidth={annotateReaderMaxWidth}
-                    onOpenLinkedDoc={roomModeActive ? undefined : handleOpenLinkedDoc}
+                    onOpenLinkedDoc={isMultiDocRoom && setActiveDoc ? setActiveDoc : roomModeActive ? undefined : handleOpenLinkedDoc}
                     onOpenCodeFile={codeFilePopout.open}
-                    localDocLinksEnabled={!roomModeActive}
+                    localDocLinksEnabled={!roomModeActive || isMultiDocRoom}
+                    availableDocs={multiDocAvailableSet}
+                    currentDocPath={isMultiDocRoom ? activeDoc : undefined}
                     linkedDocInfo={linkedDocHook.isActive ? { filepath: linkedDocHook.filepath!, onBack: handleLinkedDocBack, label: fileBrowser.dirs.find(d => d.path === fileBrowser.activeDirPath)?.isVault ? 'Vault File' : fileBrowser.activeFile ? 'File' : undefined, backLabel } : null}
                     imageBaseDir={imageBaseDir}
                     codePathBaseDir={activeDocBaseDir}
@@ -2372,6 +2513,7 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
             imageAnnotationsToStrip={imageAnnotationsToStrip}
             inFlight={startRoomInFlight}
             errorMessage={startRoomError || undefined}
+            folderSession={folderModalSession}
             onStart={handleConfirmStartRoom}
             onCancel={handleCancelStartRoom}
           />

@@ -344,4 +344,58 @@ describe('encryptSnapshot / decryptSnapshot', () => {
     expect(decrypted.versionId).toBe('v1');
     expect(decrypted.annotations.length).toBe(2);
   });
+
+  test('round-trip with multi-doc snapshot', async () => {
+    const { eventKey } = await deriveRoomKeys(TEST_SECRET);
+    const snapshot: RoomSnapshot = {
+      versionId: 'v1',
+      planMarkdown: '',
+      contentType: 'markdown-multi',
+      docs: {
+        'README.md': '# Hello World\n\nThis is the readme.',
+        'design.md': '# Design\n\nArchitectural notes here.',
+      },
+      primaryDoc: 'README.md',
+      annotations: [
+        {
+          id: 'ann-m1',
+          blockId: 'b1',
+          startOffset: 0,
+          endOffset: 5,
+          type: 'COMMENT',
+          text: 'good intro',
+          originalText: 'Hello',
+          createdA: 100,
+          docPath: 'README.md',
+        },
+      ],
+    };
+    const ciphertext = await encryptSnapshot(eventKey, snapshot);
+    const decrypted = await decryptSnapshot(eventKey, ciphertext);
+    expect(decrypted).toEqual(snapshot);
+  });
+
+  test('compressed ciphertext intermediate has c1: prefix', async () => {
+    const { eventKey } = await deriveRoomKeys(TEST_SECRET);
+    const snapshot: RoomSnapshot = {
+      versionId: 'v1',
+      planMarkdown: '# Test',
+      annotations: [],
+    };
+    const ciphertext = await encryptSnapshot(eventKey, snapshot);
+    const plaintext = await decryptPayload(eventKey, ciphertext);
+    expect(plaintext.startsWith('c1:')).toBe(true);
+  });
+
+  test('legacy uncompressed ciphertext still decrypts', async () => {
+    const { eventKey } = await deriveRoomKeys(TEST_SECRET);
+    const snapshot: RoomSnapshot = {
+      versionId: 'v1',
+      planMarkdown: '# Legacy Plan',
+      annotations: [],
+    };
+    const legacyCiphertext = await encryptPayload(eventKey, JSON.stringify(snapshot));
+    const decrypted = await decryptSnapshot(eventKey, legacyCiphertext);
+    expect(decrypted).toEqual(snapshot);
+  });
 });

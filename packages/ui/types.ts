@@ -40,6 +40,7 @@ export interface Annotation {
   isQuickLabel?: boolean; // true if created via quick label chip
   quickLabelTip?: string; // optional instruction tip from the label definition
   diffContext?: 'added' | 'removed' | 'modified'; // set when annotation created in plan diff view
+  docPath?: string; // relative path of the document this annotation belongs to (multi-doc rooms)
   // web-highlighter metadata for cross-element selections
   startMeta?: {
     parentTagName: string;
@@ -198,6 +199,7 @@ export interface VaultNode {
   path: string; // relative path within vault
   type: "file" | "folder";
   children?: VaultNode[];
+  sizeBytes?: number;
 }
 
 export type { EditorAnnotation } from '@plannotator/shared/types';

@@ -52,6 +52,8 @@ interface SidebarContainerProps {
   onFetchVersions: () => void;
   // Annotation indicators
   hasFileAnnotations?: boolean;
+  /** Slot for room-mode file list. When provided, replaces FileBrowser in the files tab. */
+  roomFileList?: React.ReactNode;
   // Archive Browser props
   showArchiveTab?: boolean;
   archivePlans: ArchivedPlan[];
@@ -92,6 +94,7 @@ export const SidebarContainer: React.FC<SidebarContainerProps> = ({
   fetchingVersion,
   onFetchVersions,
   hasFileAnnotations,
+  roomFileList,
   showArchiveTab,
   archivePlans,
   selectedArchiveFile,
@@ -243,7 +246,8 @@ export const SidebarContainer: React.FC<SidebarContainerProps> = ({
             onFetchVersions={onFetchVersions}
           />
         )}
-        {activeTab === "files" && showFilesTab && fileBrowser && (
+        {activeTab === "files" && showFilesTab && roomFileList}
+        {activeTab === "files" && showFilesTab && !roomFileList && fileBrowser && (
           <FileBrowser
             dirs={fileBrowser.dirs}
             expandedFolders={fileBrowser.expandedFolders}

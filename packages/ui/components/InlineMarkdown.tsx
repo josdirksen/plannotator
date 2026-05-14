@@ -385,6 +385,8 @@ function emitPlainTextWithBareUrls(
  * escapes. Plain-text chunks outside these patterns pass through
  * `transformPlainText` for emoji shortcodes + smart punctuation.
  */
+import { resolveDocLink } from "../utils/resolveDocLink";
+
 export const InlineMarkdown: React.FC<{
   text: string;
   onOpenLinkedDoc?: (path: string) => void;
@@ -394,7 +396,9 @@ export const InlineMarkdown: React.FC<{
   onImageClick?: (src: string, alt: string) => void;
   githubRepo?: string;
   localDocLinksEnabled?: boolean;
-}> = ({ text, onOpenLinkedDoc, onOpenCodeFile, onNavigateAnchor, imageBaseDir, onImageClick, githubRepo, localDocLinksEnabled = true }) => {
+  availableDocs?: Set<string>;
+  currentDocPath?: string;
+}> = ({ text, onOpenLinkedDoc, onOpenCodeFile, onNavigateAnchor, imageBaseDir, onImageClick, githubRepo, localDocLinksEnabled = true, availableDocs, currentDocPath }) => {
   const validation = useCodePathValidation();
   const parts: React.ReactNode[] = [];
   let remaining = text;
@@ -499,6 +503,8 @@ export const InlineMarkdown: React.FC<{
             onOpenLinkedDoc={onOpenLinkedDoc}
             onOpenCodeFile={onOpenCodeFile}
             localDocLinksEnabled={localDocLinksEnabled}
+            availableDocs={availableDocs}
+            currentDocPath={currentDocPath}
             onNavigateAnchor={onNavigateAnchor}
             githubRepo={githubRepo}
           />
@@ -522,6 +528,8 @@ export const InlineMarkdown: React.FC<{
               onOpenLinkedDoc={onOpenLinkedDoc}
               onOpenCodeFile={onOpenCodeFile}
               localDocLinksEnabled={localDocLinksEnabled}
+              availableDocs={availableDocs}
+              currentDocPath={currentDocPath}
               onNavigateAnchor={onNavigateAnchor}
               githubRepo={githubRepo}
             />
@@ -545,6 +553,8 @@ export const InlineMarkdown: React.FC<{
             onOpenLinkedDoc={onOpenLinkedDoc}
             onOpenCodeFile={onOpenCodeFile}
             localDocLinksEnabled={localDocLinksEnabled}
+            availableDocs={availableDocs}
+            currentDocPath={currentDocPath}
             onNavigateAnchor={onNavigateAnchor}
             githubRepo={githubRepo}
           />
@@ -567,6 +577,8 @@ export const InlineMarkdown: React.FC<{
             onOpenLinkedDoc={onOpenLinkedDoc}
             onOpenCodeFile={onOpenCodeFile}
             localDocLinksEnabled={localDocLinksEnabled}
+            availableDocs={availableDocs}
+            currentDocPath={currentDocPath}
             onNavigateAnchor={onNavigateAnchor}
             githubRepo={githubRepo}
           />
@@ -590,6 +602,8 @@ export const InlineMarkdown: React.FC<{
             onOpenLinkedDoc={onOpenLinkedDoc}
             onOpenCodeFile={onOpenCodeFile}
             localDocLinksEnabled={localDocLinksEnabled}
+            availableDocs={availableDocs}
+            currentDocPath={currentDocPath}
             onNavigateAnchor={onNavigateAnchor}
             githubRepo={githubRepo}
           />
@@ -727,11 +741,31 @@ export const InlineMarkdown: React.FC<{
         ? target
         : `${target}.md`;
 
-      // `localDocLinksEnabled === false` pins the wikilink to plain
-      // text regardless of handler presence — room mode uses this so
-      // a click doesn't attempt to resolve a local path on the room
-      // origin (which has no `/api/doc` or Obsidian endpoint).
-      if (onOpenLinkedDoc && localDocLinksEnabled) {
+      if (availableDocs) {
+        const resolved = resolveDocLink(targetPath, currentDocPath);
+        if (availableDocs.has(resolved)) {
+          parts.push(
+            <a
+              key={key++}
+              href={targetPath}
+              onClick={onOpenLinkedDoc ? (e) => { e.preventDefault(); onOpenLinkedDoc(resolved); } : undefined}
+              className="text-primary underline underline-offset-2 hover:text-primary/80 inline-flex items-center gap-1 cursor-pointer"
+              title={`Switch to: ${resolved}`}
+            >
+              {display}
+              <svg className="w-3 h-3 opacity-50 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+              </svg>
+            </a>,
+          );
+        } else {
+          parts.push(
+            <span key={key++} className="text-muted-foreground/50 cursor-not-allowed" title="Not part of this room">
+              {display}
+            </span>,
+          );
+        }
+      } else if (onOpenLinkedDoc && localDocLinksEnabled) {
         parts.push(
           <a
             key={key++}
@@ -869,6 +903,37 @@ export const InlineMarkdown: React.FC<{
             {linkText}
           </a>,
         );
+      } else if (isLocalDoc && availableDocs) {
+        const resolved = resolveDocLink(linkedDocPath, currentDocPath);
+        if (availableDocs.has(resolved)) {
+          parts.push(
+            <a
+              key={key++}
+              href={safeLinkUrl}
+              onClick={onOpenLinkedDoc ? (e) => {
+                e.preventDefault();
+                onOpenLinkedDoc(resolved);
+              } : undefined}
+              className="text-primary underline underline-offset-2 hover:text-primary/80 inline-flex items-center gap-1 cursor-pointer"
+              title={`Switch to: ${resolved}`}
+            >
+              {linkText}
+              <svg className="w-3 h-3 opacity-50 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+              </svg>
+            </a>,
+          );
+        } else {
+          parts.push(
+            <span
+              key={key++}
+              className="text-muted-foreground/50 cursor-not-allowed"
+              title="Not part of this room"
+            >
+              {linkText}
+            </span>,
+          );
+        }
       } else if (isLocalDoc && onOpenLinkedDoc && localDocLinksEnabled) {
         parts.push(
           <a
@@ -961,6 +1026,8 @@ export const InlineMarkdown: React.FC<{
             onOpenLinkedDoc={onOpenLinkedDoc}
             onOpenCodeFile={onOpenCodeFile}
             localDocLinksEnabled={localDocLinksEnabled}
+            availableDocs={availableDocs}
+            currentDocPath={currentDocPath}
             onNavigateAnchor={onNavigateAnchor}
             githubRepo={githubRepo}
             imageBaseDir={imageBaseDir}

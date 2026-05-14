@@ -10,6 +10,8 @@ interface HtmlBlockProps {
   onOpenLinkedDoc?: (path: string) => void;
   onOpenCodeFile?: (path: string) => void;
   onNavigateAnchor?: (hash: string) => void;
+  availableDocs?: Set<string>;
+  currentDocPath?: string;
 }
 
 // Walks the sanitized DOM and rewrites relative <img src> / <a href> so they
@@ -19,12 +21,16 @@ interface HtmlBlockProps {
 // - Relative .md / .mdx / .html links open in the linked-doc overlay when
 //   onOpenLinkedDoc is provided (same as [[wiki-links]] and [label](./x.md)).
 // Absolute http(s) URLs and mailto: are left untouched.
+import { resolveDocLink } from "../../utils/resolveDocLink";
+
 function rewriteRelativeRefs(
   root: HTMLElement,
   imageBaseDir?: string,
   onOpenLinkedDoc?: (path: string) => void,
   onOpenCodeFile?: (path: string) => void,
   onNavigateAnchor?: (hash: string) => void,
+  availableDocs?: Set<string>,
+  currentDocPath?: string,
 ): (() => void) {
   const cleanups: (() => void)[] = [];
 
@@ -68,13 +74,29 @@ function rewriteRelativeRefs(
       cleanups.push(() => a.removeEventListener('click', handler));
       return;
     }
-    if (onOpenLinkedDoc && /\.(mdx?|html?)(#.*)?$/i.test(href)) {
-      const handler = (e: Event) => {
-        e.preventDefault();
-        onOpenLinkedDoc(href.replace(/#.*$/, ''));
-      };
-      a.addEventListener('click', handler);
-      cleanups.push(() => a.removeEventListener('click', handler));
+    if (/\.(mdx?|html?)(#.*)?$/i.test(href)) {
+      const cleanHref = href.replace(/#.*$/, '');
+      if (availableDocs) {
+        const resolved = resolveDocLink(cleanHref, currentDocPath);
+        if (availableDocs.has(resolved)) {
+          if (onOpenLinkedDoc) {
+            const handler = (e: Event) => { e.preventDefault(); onOpenLinkedDoc(resolved); };
+            a.addEventListener('click', handler);
+            cleanups.push(() => a.removeEventListener('click', handler));
+          }
+        } else {
+          a.style.opacity = '0.5';
+          a.style.cursor = 'not-allowed';
+          a.title = 'Not part of this room';
+          const handler = (e: Event) => e.preventDefault();
+          a.addEventListener('click', handler);
+          cleanups.push(() => a.removeEventListener('click', handler));
+        }
+      } else if (onOpenLinkedDoc) {
+        const handler = (e: Event) => { e.preventDefault(); onOpenLinkedDoc(cleanHref); };
+        a.addEventListener('click', handler);
+        cleanups.push(() => a.removeEventListener('click', handler));
+      }
     }
   });
 
@@ -87,7 +109,7 @@ function rewriteRelativeRefs(
 // re-set on every parent re-render would collapse any open <details> the
 // user just opened. Paired with React.memo below so the component itself
 // stops re-rendering unless the block content actually changes.
-const HtmlBlockImpl: React.FC<HtmlBlockProps> = ({ block, imageBaseDir, onOpenLinkedDoc, onOpenCodeFile, onNavigateAnchor }) => {
+const HtmlBlockImpl: React.FC<HtmlBlockProps> = ({ block, imageBaseDir, onOpenLinkedDoc, onOpenCodeFile, onNavigateAnchor, availableDocs, currentDocPath }) => {
   const ref = useRef<HTMLDivElement>(null);
   const sanitized = React.useMemo(
     () => sanitizeBlockHtml(block.content),
@@ -98,9 +120,9 @@ const HtmlBlockImpl: React.FC<HtmlBlockProps> = ({ block, imageBaseDir, onOpenLi
     if (ref.current.innerHTML !== sanitized) {
       ref.current.innerHTML = sanitized;
     }
-    const cleanup = rewriteRelativeRefs(ref.current, imageBaseDir, onOpenLinkedDoc, onOpenCodeFile, onNavigateAnchor);
+    const cleanup = rewriteRelativeRefs(ref.current, imageBaseDir, onOpenLinkedDoc, onOpenCodeFile, onNavigateAnchor, availableDocs, currentDocPath);
     return cleanup;
-  }, [sanitized, imageBaseDir, onOpenLinkedDoc, onOpenCodeFile, onNavigateAnchor]);
+  }, [sanitized, imageBaseDir, onOpenLinkedDoc, onOpenCodeFile, onNavigateAnchor, availableDocs, currentDocPath]);
   return (
     <div
       ref={ref}
@@ -118,5 +140,7 @@ export const HtmlBlock = React.memo(
     prev.imageBaseDir === next.imageBaseDir &&
     prev.onOpenLinkedDoc === next.onOpenLinkedDoc &&
     prev.onOpenCodeFile === next.onOpenCodeFile &&
-    prev.onNavigateAnchor === next.onNavigateAnchor,
+    prev.onNavigateAnchor === next.onNavigateAnchor &&
+    prev.availableDocs === next.availableDocs &&
+    prev.currentDocPath === next.currentDocPath,
 );

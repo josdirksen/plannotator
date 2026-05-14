@@ -58,6 +58,8 @@ export interface RemoteCursorLayerProps {
   /** ParentNode to search within for block elements. Defaults to document. */
   root?: ParentNode;
   className?: string;
+  /** Multi-doc: only render cursors of users on the same activeDoc. */
+  activeDoc?: string;
 }
 
 interface CursorRenderState {
@@ -165,6 +167,7 @@ export function RemoteCursorLayer({
   containerRect,
   root = typeof document !== 'undefined' ? document : undefined as unknown as ParentNode,
   className = '',
+  activeDoc,
 }: RemoteCursorLayerProps): React.ReactElement | null {
   // Refs the rAF loop reads. React updates these on every prop change;
   // the loop picks up the latest values on its next frame without
@@ -301,11 +304,13 @@ export function RemoteCursorLayer({
   // and keeps the list stable in key order so React doesn't reorder
   // DOM nodes when presence iteration order shifts.
   const clientIds = useMemo(
-    () => Object.keys(remotePresence).sort(),
-    // `remotePresence` is a new object each state emit, but its key
-    // set changes rarely; depending on the whole object is fine given
-    // the sort is O(n log n) on tiny n.
-    [remotePresence],
+    () => Object.keys(remotePresence)
+      .filter(id => {
+        if (!activeDoc) return true;
+        return remotePresence[id].activeDoc === activeDoc;
+      })
+      .sort(),
+    [remotePresence, activeDoc],
   );
 
   if (clientIds.length === 0) return null;

@@ -44,10 +44,11 @@ import type { PresenceState, CursorState } from '@plannotator/shared/collab';
 export interface RoomAppProps {
   roomId: string;
   url: string;
-  /**
   /** Children = the existing <App> component; wrapped so it becomes room-aware via props. */
   renderEditor(args: {
     roomSession: ReturnType<typeof useCollabRoomSession>;
+    activeDoc: string | undefined;
+    setActiveDoc: (path: string) => void;
   }): React.ReactNode;
 }
 
@@ -290,16 +291,26 @@ function RoomAuthenticatedView({
   identity: CollabRoomUser;
   renderEditor: RoomAppProps['renderEditor'];
 }): React.ReactElement {
-  // Ref on the relative container so RemoteCursorLayer's coordinate
-  // translation reads the overlay's actual viewport position. Measuring
-  // `document.documentElement` would zero out the top/left and leave
-  // cursors offset whenever the room shell is not flush against the
-  // viewport edges (e.g. future layouts with a header/padding).
   const roomContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Multi-doc: active document state. Initialized from the snapshot's
+  // primaryDoc or the alphabetically first key. Undefined for single-doc rooms.
+  const [activeDoc, setActiveDoc] = useState<string | undefined>(() => {
+    if (!room.docs) return undefined;
+    return room.primaryDoc ?? Object.keys(room.docs).sort()[0];
+  });
+
+  useEffect(() => {
+    if (!room.docs) return;
+    setActiveDoc(prev => {
+      if (prev && prev in room.docs!) return prev;
+      return room.primaryDoc ?? Object.keys(room.docs!).sort()[0];
+    });
+  }, [room.docs, room.primaryDoc]);
 
   return (
     <div className="relative" data-testid="room-app" ref={roomContainerRef}>
-      {renderEditor({ roomSession: session })}
+      {renderEditor({ roomSession: session, activeDoc, setActiveDoc: setActiveDoc as (p: string) => void })}
 
       {/*
         Null-rendering sibling that owns the pointermove listener and
@@ -309,11 +320,13 @@ function RoomAuthenticatedView({
       <LocalPresenceEmitter
         identity={identity}
         sendPresence={room.updatePresence}
+        activeDoc={activeDoc}
       />
 
       <RemoteCursorLayerWithViewport
         remotePresence={room.remotePresence}
         containerRef={roomContainerRef}
+        activeDoc={activeDoc}
       />
     </div>
   );
@@ -331,9 +344,11 @@ function RoomAuthenticatedView({
 function RemoteCursorLayerWithViewport({
   remotePresence,
   containerRef,
+  activeDoc,
 }: {
   remotePresence: Record<string, import('@plannotator/shared/collab').PresenceState>;
   containerRef: React.RefObject<HTMLDivElement | null>;
+  activeDoc?: string;
 }): React.ReactElement {
   const [rect, setRect] = useState<DOMRect | null>(null);
   useEffect(() => {
@@ -374,6 +389,7 @@ function RemoteCursorLayerWithViewport({
     <RemoteCursorLayer
       remotePresence={remotePresence}
       containerRect={rect}
+      activeDoc={activeDoc}
     />
   );
 }
@@ -444,9 +460,11 @@ function RemoteCursorLayerWithViewport({
 function LocalPresenceEmitter({
   identity,
   sendPresence,
+  activeDoc,
 }: {
   identity: CollabRoomUser;
   sendPresence: (p: PresenceState) => Promise<void>;
+  activeDoc?: string;
 }): null {
   const [localCursor, setLocalCursor] = useState<CursorState | null>(null);
   // Sticky block anchor. Lives in a ref so the pointermove handler
@@ -548,8 +566,9 @@ function LocalPresenceEmitter({
     () => ({
       user: { id: identity.id, name: identity.name, color: identity.color },
       cursor: localCursor,
+      ...(activeDoc ? { activeDoc } : {}),
     }),
-    [identity.id, identity.name, identity.color, localCursor],
+    [identity.id, identity.name, identity.color, localCursor, activeDoc],
   );
 
   usePresenceThrottle(presenceState, sendPresence, 33);

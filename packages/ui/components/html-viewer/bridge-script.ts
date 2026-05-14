@@ -138,8 +138,6 @@ export const BRIDGE_SCRIPT = `(function() {
       var mark = document.querySelector('[data-bind-id="' + e.data.id + '"]');
       if (mark) {
         mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        mark.classList.add('focused');
-        setTimeout(function() { mark.classList.remove('focused'); }, 2000);
       }
     }
 
@@ -237,12 +235,23 @@ export const BRIDGE_SCRIPT = `(function() {
     }
   }
 
+  function isInsideMark(node) {
+    var p = node.parentNode;
+    while (p && p !== document.body) {
+      if (p.nodeName === 'MARK' && p.classList && p.classList.contains('annotation-highlight')) return true;
+      p = p.parentNode;
+    }
+    return false;
+  }
+
   function findTextAndMark(id, originalText, annType) {
+    if (document.querySelector('[data-bind-id="' + id + '"]')) return true;
+
     var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
     var buffer = '';
     var nodes = [];
     while (walker.nextNode()) {
-      nodes.push({ node: walker.currentNode, start: buffer.length });
+      nodes.push({ node: walker.currentNode, start: buffer.length, marked: isInsideMark(walker.currentNode) });
       buffer += walker.currentNode.textContent;
     }
     var idx = buffer.indexOf(originalText);
@@ -255,6 +264,7 @@ export const BRIDGE_SCRIPT = `(function() {
       var nodeEnd = entry.start + entry.node.length;
       if (nodeEnd <= idx) continue;
       if (entry.start >= endIdx) break;
+      if (entry.marked) continue;
 
       var start = Math.max(0, idx - entry.start);
       var end = Math.min(entry.node.length, endIdx - entry.start);

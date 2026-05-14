@@ -17,8 +17,17 @@
 
 import { bytesToBase64url, base64urlToBytes } from './encoding';
 import { canonicalJson } from './canonical-json';
+import { compress, decompress } from '../compress';
 import { ADMIN_SECRET_LENGTH_BYTES, ROOM_SECRET_LENGTH_BYTES } from './constants';
 import type { AdminCommand, PresenceState, RoomEventClientOp, RoomSnapshot } from './types';
+
+/**
+ * Prefix prepended to the compressed snapshot plaintext before encryption.
+ * On decrypt, its presence signals "decompress after stripping". Its absence
+ * means legacy uncompressed JSON (permanent path — never-expiring rooms
+ * created before compression can live indefinitely).
+ */
+const SNAPSHOT_COMPRESS_PREFIX = 'c1:';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -293,16 +302,30 @@ export async function decryptPresence(presenceKey: CryptoKey, ciphertext: string
   return JSON.parse(plaintext);
 }
 
-/** Encrypt a RoomSnapshot with the event key. */
+/**
+ * Encrypt a RoomSnapshot with the event key. The snapshot is deflate-compressed
+ * before encryption and tagged with a `c1:` prefix so the decrypt side knows to
+ * decompress. Compression is always-on — the cost on small snapshots is low,
+ * and for multi-doc rooms the 3–5× reduction is what makes 5 MB of normal
+ * markdown realistic under the 1.5 MB ciphertext cap.
+ */
 export async function encryptSnapshot(eventKey: CryptoKey, snapshot: RoomSnapshot): Promise<string> {
-  return encryptPayload(eventKey, JSON.stringify(snapshot));
+  const compressed = await compress(snapshot);
+  return encryptPayload(eventKey, SNAPSHOT_COMPRESS_PREFIX + compressed);
 }
 
 /**
  * Decrypt a snapshot ciphertext. Returns `unknown` — same reasoning as
  * decryptPresence. Callers MUST validate via isRoomSnapshot before use.
+ *
+ * Handles both compressed (prefixed with `c1:`) and legacy uncompressed
+ * (raw JSON) ciphertexts. The legacy path is permanent — never-expiring
+ * rooms created before compression was added can live indefinitely.
  */
 export async function decryptSnapshot(eventKey: CryptoKey, ciphertext: string): Promise<unknown> {
   const plaintext = await decryptPayload(eventKey, ciphertext);
+  if (plaintext.startsWith(SNAPSHOT_COMPRESS_PREFIX)) {
+    return decompress(plaintext.slice(SNAPSHOT_COMPRESS_PREFIX.length));
+  }
   return JSON.parse(plaintext);
 }

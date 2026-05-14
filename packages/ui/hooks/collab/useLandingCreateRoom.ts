@@ -8,6 +8,7 @@ export interface LandingCreateRoomSubmit {
 
 export interface UseLandingCreateRoomOptions {
   markdown: string;
+  rawHtml?: string;
 }
 
 export interface UseLandingCreateRoomReturn {
@@ -19,6 +20,7 @@ export interface UseLandingCreateRoomReturn {
 
 export function useLandingCreateRoom({
   markdown,
+  rawHtml,
 }: UseLandingCreateRoomOptions): UseLandingCreateRoomReturn {
   const [inFlight, setInFlight] = useState(false);
   const [error, setError] = useState('');
@@ -50,8 +52,9 @@ export function useLandingCreateRoom({
         signal: ctrl.signal,
         initialSnapshot: {
           versionId: 'v1',
-          planMarkdown: markdown,
+          planMarkdown: rawHtml ? '' : markdown,
           annotations: [],
+          ...(rawHtml ? { contentType: 'html' as const, rawHtml } : {}),
         },
         user: {
           id: crypto.randomUUID(),
@@ -88,7 +91,7 @@ export function useLandingCreateRoom({
     } finally {
       if (abortRef.current === ctrl) abortRef.current = null;
     }
-  }, [markdown]);
+  }, [markdown, rawHtml]);
 
   return { inFlight, error, handleCreate, handleCancel };
 }

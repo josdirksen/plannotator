@@ -75,6 +75,7 @@ export interface HtmlViewerProps {
   onAddGlobalAttachment?: (image: ImageAttachment) => void;
   onRemoveGlobalAttachment?: (path: string) => void;
   maxWidth?: number | null;
+  fullViewport?: boolean;
 }
 
 export const HtmlViewer = forwardRef<ViewerHandle, HtmlViewerProps>(
@@ -90,6 +91,7 @@ export const HtmlViewer = forwardRef<ViewerHandle, HtmlViewerProps>(
       onAddGlobalAttachment,
       onRemoveGlobalAttachment,
       maxWidth,
+      fullViewport,
     },
     ref,
   ) => {
@@ -196,10 +198,11 @@ export const HtmlViewer = forwardRef<ViewerHandle, HtmlViewerProps>(
     return (
       <>
         <div
-          className="relative w-full"
-          style={{ maxWidth: maxWidth ?? undefined }}
+          className={`relative w-full ${fullViewport ? 'h-full flex flex-col' : ''}`}
+          style={fullViewport ? undefined : { maxWidth: maxWidth ?? undefined }}
         >
           {/* Action bar — positioned above the iframe, outside overflow:hidden */}
+          {!fullViewport && (
           <div data-print-hide className="flex justify-end gap-1 md:gap-2 mb-2">
             {onAddGlobalAttachment && onRemoveGlobalAttachment && (
               <AttachmentsButton
@@ -226,10 +229,11 @@ export const HtmlViewer = forwardRef<ViewerHandle, HtmlViewerProps>(
               <span>Comment</span>
             </button>
           </div>
+          )}
 
           <article
             data-print-region="article"
-            className="relative bg-card rounded-xl shadow-xl overflow-hidden w-full"
+            className={`relative overflow-hidden w-full ${fullViewport ? 'flex-1' : 'bg-card rounded-xl shadow-xl'}`}
           >
             <iframe
             ref={iframeRef}
@@ -237,7 +241,7 @@ export const HtmlViewer = forwardRef<ViewerHandle, HtmlViewerProps>(
             sandbox="allow-scripts"
             style={{
               width: "100%",
-              height: `${iframeHeight}px`,
+              height: fullViewport ? '100%' : `${iframeHeight}px`,
               border: "none",
               display: "block",
               colorScheme: "auto",

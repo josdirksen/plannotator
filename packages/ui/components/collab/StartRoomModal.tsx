@@ -1,5 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { PRESENCE_SWATCHES } from '@plannotator/ui/utils/presenceColor';
+import { OverlayScrollArea } from '../OverlayScrollArea';
+import {
+  FileTree,
+  buildFileTree,
+  collectFilePaths,
+  collectFolderPaths,
+  sumFileCounts,
+} from '../file-tree/FileTree';
 
 /**
  * Pure create-room dialog. Collects display name, color, expiry, and
@@ -73,42 +81,9 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-const FilePickerRow: React.FC<{
-  file: FolderFileEntry;
-  checked: boolean;
-  annotationCount: number;
-  disabled: boolean;
-  onToggle: (path: string) => void;
-}> = ({ file, checked, annotationCount, disabled, onToggle }) => {
-  const depth = file.path.split('/').length - 1;
-  const paddingLeft = 8 + depth * 14;
-  return (
-    <label
-      className={`w-full flex items-center gap-2 py-1 text-[12px] transition-colors rounded-sm cursor-pointer hover:bg-muted/50 ${
-        disabled && !checked ? 'opacity-40' : ''
-      }`}
-      style={{ paddingLeft }}
-    >
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={() => onToggle(file.path)}
-        disabled={disabled && !checked}
-        className="rounded border-border accent-primary flex-shrink-0"
-      />
-      <svg className="w-3 h-3 flex-shrink-0 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-      </svg>
-      <span className="truncate flex-1">{file.name}</span>
-      <span className="text-[10px] text-muted-foreground/60 flex-shrink-0">{formatBytes(file.sizeBytes)}</span>
-      {annotationCount > 0 && (
-        <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full flex-shrink-0">
-          {annotationCount}
-        </span>
-      )}
-    </label>
-  );
-};
+// ---------------------------------------------------------------------------
+// FilePicker (composed tree)
+// ---------------------------------------------------------------------------
 
 const FilePicker: React.FC<{
   session: FolderSessionInfo;
@@ -119,6 +94,28 @@ const FilePicker: React.FC<{
   onClear: () => void;
   disabled: boolean;
 }> = ({ session, selected, onToggle, onSelectAnnotated, onSelectAll, onClear, disabled }) => {
+  const tree = useMemo(() => buildFileTree(session.files), [session.files]);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
+    () => new Set(collectFolderPaths(tree)),
+  );
+
+  useEffect(() => {
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      for (const path of collectFolderPaths(tree)) next.add(path);
+      return next;
+    });
+  }, [tree]);
+
+  const toggleFolder = (path: string) => {
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
+
   const selectedBytes = useMemo(
     () => session.files.filter(f => selected.has(f.path)).reduce((sum, f) => sum + f.sizeBytes, 0),
     [session.files, selected],
@@ -130,28 +127,68 @@ const FilePicker: React.FC<{
       <div className="flex items-center justify-between">
         <label className="text-xs font-medium uppercase text-muted-foreground">Files to share</label>
         <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-          <button type="button" onClick={onSelectAnnotated} disabled={disabled} className="hover:text-foreground">Annotated</button>
-          <span>·</span>
-          <button type="button" onClick={onSelectAll} disabled={disabled} className="hover:text-foreground">All</button>
-          <span>·</span>
-          <button type="button" onClick={onClear} disabled={disabled} className="hover:text-foreground">None</button>
+          <button type="button" onClick={onSelectAnnotated} disabled={disabled} className="hover:text-foreground transition-colors">Annotated</button>
+          <span className="opacity-30">|</span>
+          <button type="button" onClick={onSelectAll} disabled={disabled} className="hover:text-foreground transition-colors">All</button>
+          <span className="opacity-30">|</span>
+          <button type="button" onClick={onClear} disabled={disabled} className="hover:text-foreground transition-colors">None</button>
         </div>
       </div>
-      <div className="border border-border rounded max-h-[200px] overflow-y-auto">
-        {session.files.map(f => (
-          <FilePickerRow
-            key={f.path}
-            file={f}
-            checked={selected.has(f.path)}
-            annotationCount={session.annotationCounts.get(f.path) ?? 0}
-            disabled={disabled || (overBudget && !selected.has(f.path))}
-            onToggle={onToggle}
-          />
-        ))}
-      </div>
+      <OverlayScrollArea className="border border-border rounded-lg max-h-[240px]">
+        <FileTree
+          nodes={tree}
+          expandedFolders={expandedFolders}
+          onToggleFolder={(path) => toggleFolder(path)}
+          onSelectFile={(node) => onToggle(node.path)}
+          getFileDisplayName={(node) => node.name}
+          getFolderCount={(node) => sumFileCounts(node, session.annotationCounts)}
+          getFileCount={(node) => session.annotationCounts.get(node.path) ?? 0}
+          isFileDisabled={(node) => disabled || (overBudget && !selected.has(node.path))}
+          renderFolderControl={({ node }) => {
+            const childFiles = collectFilePaths(node);
+            const allChecked = childFiles.length > 0 && childFiles.every(p => selected.has(p));
+            const someChecked = !allChecked && childFiles.some(p => selected.has(p));
+            const folderDisabled = disabled || (overBudget && !childFiles.some(p => selected.has(p)));
+            const toggleFolderSelection = () => {
+              if (folderDisabled) return;
+              if (allChecked || someChecked) {
+                for (const p of childFiles) if (selected.has(p)) onToggle(p);
+              } else {
+                for (const p of childFiles) if (!selected.has(p)) onToggle(p);
+              }
+            };
+            return (
+              <input
+                type="checkbox"
+                checked={allChecked}
+                ref={el => { if (el) el.indeterminate = someChecked; }}
+                onChange={toggleFolderSelection}
+                disabled={folderDisabled}
+                className="rounded border-border accent-primary flex-shrink-0"
+                onClick={e => e.stopPropagation()}
+              />
+            );
+          }}
+          renderFileControl={({ node, disabled: fileDisabled }) => (
+            <input
+              type="checkbox"
+              checked={selected.has(node.path)}
+              onChange={() => onToggle(node.path)}
+              disabled={fileDisabled}
+              className="rounded border-border accent-primary flex-shrink-0"
+              onClick={e => e.stopPropagation()}
+            />
+          )}
+          renderFileMeta={({ node }) => (
+            <span className="text-[10px] text-muted-foreground/50 flex-shrink-0 tabular-nums">
+              {formatBytes(node.sizeBytes ?? 0)}
+            </span>
+          )}
+        />
+      </OverlayScrollArea>
       <div className={`text-[11px] flex items-center justify-between ${overBudget ? 'text-destructive' : 'text-muted-foreground'}`}>
         <span>{selected.size} file{selected.size === 1 ? '' : 's'} selected</span>
-        <span>{formatBytes(selectedBytes)} / {formatBytes(MAX_RAW_BYTES)}</span>
+        <span className="tabular-nums">{formatBytes(selectedBytes)} / {formatBytes(MAX_RAW_BYTES)}</span>
       </div>
       {overBudget && (
         <div className="text-[11px] text-destructive">

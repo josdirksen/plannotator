@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build:shell": "rm -rf public && vite build",
-    "dev": "bun run build:shell && wrangler dev",
+    "dev": "bun run build:shell && wrangler dev --port ${ROOM_SERVICE_PORT:-8787}",
     "deploy": "bun run build:shell && wrangler deploy",
     "test": "bun test"
   },

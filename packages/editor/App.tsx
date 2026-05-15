@@ -156,9 +156,20 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
 
   useEffect(() => {
     if (!roomSession?.room) return;
-    if (roomSession.room.contentType === 'markdown-multi' && roomSession.room.docs && activeDoc) {
+    if (roomSession.room.contentType === 'markdown-multi') {
+      if (!roomSession.room.docs || !activeDoc) {
+        setRenderAs('markdown');
+        setRawHtml('');
+        setMarkdown('');
+        return;
+      }
       const content = roomSession.room.docs[activeDoc];
-      if (content === undefined) return;
+      if (content === undefined) {
+        setRenderAs('markdown');
+        setRawHtml('');
+        setMarkdown('');
+        return;
+      }
       const htmlPaths = roomSession.room.htmlDocPaths ? new Set(roomSession.room.htmlDocPaths) : undefined;
       if (htmlPaths?.has(activeDoc)) {
         setRenderAs('html');
@@ -183,6 +194,35 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
   const [selectedCodeAnnotationId, setSelectedCodeAnnotationId] = useState<string | null>(null);
   const frontmatter = useMemo(() => extractFrontmatter(markdown).frontmatter, [markdown]);
   const blocks = useMemo(() => parseMarkdownToBlocks(markdown), [markdown]);
+  const multiDocRoomEmptyState = useMemo(() => {
+    if (!isMultiDocRoom) return null;
+    const docs = roomSession?.room?.docs;
+    if (!docs) {
+      return {
+        title: 'Loading room documents',
+        message: 'Waiting for the encrypted room snapshot.',
+      };
+    }
+    if (Object.keys(docs).length === 0) {
+      return {
+        title: 'No documents in this room',
+        message: 'The shared folder snapshot did not include any files.',
+      };
+    }
+    if (!activeDoc) {
+      return {
+        title: 'Select a document',
+        message: 'Choose a file from the sidebar to view it.',
+      };
+    }
+    if (!(activeDoc in docs)) {
+      return {
+        title: 'Document unavailable',
+        message: 'This file is no longer part of the room. Pick another file from the sidebar.',
+      };
+    }
+    return null;
+  }, [isMultiDocRoom, roomSession?.room?.docs, activeDoc]);
   const [showExport, setShowExport] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showFeedbackPrompt, setShowFeedbackPrompt] = useState(false);
@@ -537,6 +577,7 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
     () => !!projectRoot || isFileBrowserEnabled() || isVaultBrowserEnabled(),
     [projectRoot, uiPrefs]
   );
+  const hasFilesSurface = (showFilesTab || isMultiDocRoom) && !archive.archiveMode;
   const fileBrowserDirs = useMemo(() => {
     const projectDirs = projectRoot ? [projectRoot] : [];
     const userDirs = isFileBrowserEnabled()
@@ -642,6 +683,17 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
   }, [allAnnotationCounts, fileBrowser.dirs]);
 
   const hasFileAnnotations = fileAnnotationCounts.size > 0;
+  const roomFileAnnotationCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    if (!isMultiDocRoom) return counts;
+    for (const ann of roomSession?.room?.annotations ?? []) {
+      if (ann.docPath) counts.set(ann.docPath, (counts.get(ann.docPath) ?? 0) + 1);
+    }
+    return counts;
+  }, [isMultiDocRoom, roomSession?.room?.annotations]);
+  const hasFilesSurfaceAnnotations = isMultiDocRoom
+    ? roomFileAnnotationCounts.size > 0
+    : hasFileAnnotations;
 
   // Annotations in other files (not the current view) — for the right panel "+N" indicator
   const otherFileAnnotations = useMemo(() => {
@@ -714,9 +766,7 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
   // shared.
   const allAnnotations = useMemo(() => {
     if (roomSession?.room) {
-      if (isMultiDocRoom && activeDoc) {
-        return annotations.filter(a => a.docPath === activeDoc);
-      }
+      if (isMultiDocRoom) return activeDoc ? annotations.filter(a => a.docPath === activeDoc) : [];
       return annotations;
     }
     if (externalAnnotations.length === 0) return annotations;
@@ -1686,7 +1736,7 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
     }
 
     return output;
-  }, [blocks, allAnnotations, globalAttachments, roomModeActive, linkedDocHook.getDocAnnotations, editorAnnotations, codeAnnotations, sourceConverted, annotateSource, linkedDocHook.isActive, linkedDocHook.filepath]);
+  }, [blocks, allAnnotations, globalAttachments, roomModeActive, isMultiDocRoom, roomSession?.room?.docs, annotations, linkedDocHook.getDocAnnotations, editorAnnotations, codeAnnotations, sourceConverted, annotateSource, linkedDocHook.isActive, linkedDocHook.filepath]);
 
   // Bot callback config — read once from URL search params (?cb=&ct=)
   // TODO: bot callbacks post shareUrl which doesn't include code-file annotations.
@@ -2156,8 +2206,8 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
               onToggleTab={toggleSidebarTab}
               hasDiff={planDiff.hasPreviousVersion}
               showVersionsTab={versionInfo !== null && versionInfo.totalVersions > 1}
-              showFilesTab={showFilesTab && !archive.archiveMode}
-              hasFileAnnotations={hasFileAnnotations}
+              showFilesTab={hasFilesSurface}
+              hasFileAnnotations={hasFilesSurfaceAnnotations}
               className="hidden lg:flex absolute left-0 top-0 z-10"
             />
           )}
@@ -2174,14 +2224,14 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
                 onClose={sidebar.close}
                 width={tocResize.width}
                 blocks={blocks}
-                annotations={annotations}
+                annotations={allAnnotations}
                 activeSection={activeSection}
                 onTocNavigate={handleTocNavigate}
                 linkedDocFilepath={linkedDocHook.filepath}
                 onLinkedDocBack={linkedDocHook.isActive ? handleLinkedDocBack : undefined}
                 backLabel={backLabel}
-                showFilesTab={(showFilesTab || isMultiDocRoom) && !archive.archiveMode}
-                roomFileList={isMultiDocRoom && roomSession?.room?.docs && activeDoc && setActiveDoc ? (
+                showFilesTab={hasFilesSurface}
+                roomFileList={isMultiDocRoom && roomSession?.room?.docs && setActiveDoc ? (
                   <RoomFileList
                     docs={roomSession.room.docs}
                     annotations={roomSession.room.annotations}
@@ -2197,7 +2247,7 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
                 onFilesSelectFile={handleFileBrowserSelect}
                 onFilesFetchAll={() => fileBrowser.fetchAll(fileBrowserDirs)}
                 onFilesRetryVaultDir={(vaultPath) => fileBrowser.addVaultDir(vaultPath)}
-                hasFileAnnotations={hasFileAnnotations}
+                hasFileAnnotations={hasFilesSurfaceAnnotations}
                 showVersionsTab={versionInfo !== null && versionInfo.totalVersions > 1}
                 versionInfo={versionInfo}
                 versions={planDiff.versions}
@@ -2296,8 +2346,17 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
                   />
                 </div>
               )}
+              {/* Multi-document room empty state — shown while the snapshot/doc selection settles. */}
+              {multiDocRoomEmptyState && (
+                <div className="w-full flex justify-center">
+                  <div className="w-full max-w-3xl p-12 text-center text-muted-foreground">
+                    <p className="text-lg font-medium mb-2">{multiDocRoomEmptyState.title}</p>
+                    <p className="text-sm">{multiDocRoomEmptyState.message}</p>
+                  </div>
+                </div>
+              )}
               {/* Folder annotation empty state — shown before user picks a file */}
-              {annotateSource === 'folder' && !markdown && !linkedDocHook.isActive && (
+              {!multiDocRoomEmptyState && annotateSource === 'folder' && !markdown && !linkedDocHook.isActive && (
                 <div className="w-full flex justify-center">
                   <div className="w-full max-w-3xl p-12 text-center text-muted-foreground">
                     <p className="text-lg font-medium mb-2">Select a file to annotate</p>
@@ -2306,7 +2365,7 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
                 </div>
               )}
               {/* Normal Plan View — always mounted, hidden during diff mode */}
-              <div className={`w-full relative ${isHtmlSurface ? 'flex-1 flex flex-col' : 'flex justify-center'}`} style={{ display: (isPlanDiffActive && planDiff.diffBlocks) || (annotateSource === 'folder' && !markdown && !linkedDocHook.isActive) ? 'none' : undefined }}>
+              <div className={`w-full relative ${isHtmlSurface ? 'flex-1 flex flex-col' : 'flex justify-center'}`} style={{ display: multiDocRoomEmptyState || (isPlanDiffActive && planDiff.diffBlocks) || (annotateSource === 'folder' && !markdown && !linkedDocHook.isActive) ? 'none' : undefined }}>
                 {canUseWideMode && !isPlanDiffActive && !archive.archiveMode && !isHtmlSurface && (
                   <div
                     data-print-hide

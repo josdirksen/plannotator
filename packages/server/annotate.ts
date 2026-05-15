@@ -22,6 +22,7 @@ import { createExternalAnnotationHandler } from "./external-annotations";
 import { saveConfig, detectGitUser, getServerConfig } from "./config";
 import { dirname, resolve as resolvePath } from "path";
 import { isWSL } from "./browser";
+import { injectRuntimeConfig } from "./runtime-config";
 
 // Re-export utilities
 export { isRemoteSession, getServerPort } from "./remote";
@@ -118,6 +119,7 @@ export async function startAnnotateServer(
     renderHtml = false,
     onReady,
   } = options;
+  const servedHtmlContent = injectRuntimeConfig(htmlContent);
 
   const isRemote = isRemoteSession();
   const configuredPort = getServerPort();
@@ -302,7 +304,7 @@ export async function startAnnotateServer(
           if (url.pathname === "/favicon.svg") return handleFavicon();
 
           // Serve embedded HTML for all other routes (SPA)
-          return new Response(htmlContent, {
+          return new Response(servedHtmlContent, {
             headers: { "Content-Type": "text/html" },
           });
         },

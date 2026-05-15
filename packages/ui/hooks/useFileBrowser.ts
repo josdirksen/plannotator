@@ -9,6 +9,7 @@
 
 import { useState, useCallback } from "react";
 import type { VaultNode } from "../types";
+import { collectFolderPaths, type FileTreeNode } from "../components/file-tree/tree";
 
 export interface DirState {
   path: string;
@@ -84,9 +85,8 @@ export function useFileBrowser(): UseFileBrowserReturn {
         )
       );
 
-      const rootFolders = (data.tree as VaultNode[])
-        .filter((n) => n.type === "folder")
-        .map((n) => `${dirPath}:${n.path}`);
+      const rootFolders = collectFolderPaths(data.tree as FileTreeNode[])
+        .map((path) => `${dirPath}:${path}`);
       setExpandedFolders((prev) => {
         const next = new Set(prev);
         rootFolders.forEach((f) => next.add(f));
@@ -154,9 +154,8 @@ export function useFileBrowser(): UseFileBrowserReturn {
         )
       );
 
-      const rootFolders = (data.tree as VaultNode[])
-        .filter((n) => n.type === "folder")
-        .map((n) => `${vaultPath}:${n.path}`);
+      const rootFolders = collectFolderPaths(data.tree as FileTreeNode[])
+        .map((path) => `${vaultPath}:${path}`);
       setExpandedFolders((prev) => {
         const next = new Set(prev);
         rootFolders.forEach((f) => next.add(f));

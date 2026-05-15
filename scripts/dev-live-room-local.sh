@@ -2,12 +2,13 @@
 # Local manual E2E runner for Plannotator Live Rooms.
 #
 # Starts two long-running processes:
-#   - apps/room-service via `bun run dev:room` (wrangler dev on :8787).
+#   - apps/room-service via `bun run dev:room` (wrangler dev on :8787 by default).
 #   - apps/hook via `bun run dev:hook` (Vite on :3000) with
 #     VITE_ROOM_BASE_URL pointing at whichever room service the user
 #     wants the editor's `createRoom()` to target.
 #
 # Default target: http://localhost:8787 (the local wrangler dev above).
+# Use ROOM_PORT=8788 to run the local room service on a different port.
 # Tunnel / staging: pass ROOM_BASE_URL=<url> — generated participant
 # and admin links then carry that URL instead of localhost, so a
 # second machine can actually reach the room.
@@ -32,7 +33,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-ROOM_BASE_URL="${ROOM_BASE_URL:-http://localhost:8787}"
+ROOM_PORT="${ROOM_PORT:-8787}"
+ROOM_BASE_URL="${ROOM_BASE_URL:-http://localhost:${ROOM_PORT}}"
 
 # Child PIDs populated as services start; cleaned up on signal.
 ROOM_PID=""
@@ -55,7 +57,7 @@ trap cleanup EXIT INT TERM
 
 printf '\n'
 printf 'Plannotator editor: http://localhost:3000\n'
-printf 'Room service:       http://localhost:8787  (wrangler dev)\n'
+printf 'Room service:       http://localhost:%s  (wrangler dev)\n' "$ROOM_PORT"
 printf 'Editor targets:     %s\n' "$ROOM_BASE_URL"
 printf '\n'
 printf 'Open the editor, click Start live room.\n'
@@ -66,8 +68,33 @@ printf '\n'
 printf 'Ctrl-C to stop both services.\n'
 printf '\n'
 
-bun run dev:room &
+if lsof -nP -iTCP:"$ROOM_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  printf 'Error: port %s is already in use.\n' "$ROOM_PORT" >&2
+  printf 'Stop the old wrangler/dev:live-room process before starting a new one.\n' >&2
+  printf 'Listening processes:\n' >&2
+  lsof -nP -iTCP:"$ROOM_PORT" -sTCP:LISTEN >&2 || true
+  exit 1
+fi
+
+ROOM_SERVICE_PORT="$ROOM_PORT" bun run dev:room &
 ROOM_PID=$!
+
+printf 'Waiting for room service health check...\n'
+for _ in $(seq 1 120); do
+  if curl -fsS --max-time 1 "http://127.0.0.1:${ROOM_PORT}/health" >/dev/null 2>&1; then
+    break
+  fi
+  if ! kill -0 "$ROOM_PID" 2>/dev/null; then
+    wait "$ROOM_PID" 2>/dev/null || true
+    exit 1
+  fi
+  sleep 0.5
+done
+
+if ! curl -fsS --max-time 1 "http://127.0.0.1:${ROOM_PORT}/health" >/dev/null 2>&1; then
+  printf 'Error: room service did not become healthy on port %s.\n' "$ROOM_PORT" >&2
+  exit 1
+fi
 
 VITE_ROOM_BASE_URL="$ROOM_BASE_URL" bun run dev:hook &
 HOOK_PID=$!

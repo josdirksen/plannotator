@@ -52,6 +52,7 @@ import { warmFileListCache } from "@plannotator/shared/resolve-file";
 import { createEditorAnnotationHandler } from "./editor-annotations";
 import { createExternalAnnotationHandler } from "./external-annotations";
 import { isWSL } from "./browser";
+import { injectRuntimeConfig } from "./runtime-config";
 
 // Re-export utilities
 export { isRemoteSession, getServerPort } from "./remote";
@@ -127,6 +128,7 @@ export async function startPlannotatorServer(
   options: ServerOptions
 ): Promise<ServerResult> {
   const { plan, origin, htmlContent, permissionMode, sharingEnabled = true, shareBaseUrl, pasteApiUrl, onReady, mode, customPlanPath } = options;
+  const servedHtmlContent = injectRuntimeConfig(htmlContent);
 
   const isRemote = isRemoteSession();
   const configuredPort = getServerPort();
@@ -626,7 +628,7 @@ export async function startPlannotatorServer(
           if (url.pathname === "/favicon.svg") return handleFavicon();
 
           // Serve embedded HTML for all other routes (SPA)
-          return new Response(htmlContent, {
+          return new Response(servedHtmlContent, {
             headers: { "Content-Type": "text/html" },
           });
         },

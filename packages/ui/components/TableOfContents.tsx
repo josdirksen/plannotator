@@ -5,7 +5,7 @@ import {
   getAnnotationCountBySection,
   type TocItem,
 } from '../utils/annotationHelpers';
-import { CountBadge } from './sidebar/CountBadge';
+import { CountBadge } from './CountBadge';
 import { useScrollViewport } from '../hooks/useScrollViewport';
 
 interface TableOfContentsProps {

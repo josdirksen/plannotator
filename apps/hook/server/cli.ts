@@ -32,6 +32,7 @@ export function formatTopLevelHelp(): string {
     "  plannotator archive",
     "  plannotator sessions",
     "  plannotator improve-context",
+    "  plannotator plugin capabilities",
     "",
     "Note:",
     "  running 'plannotator' without arguments is for hook integration and expects JSON on stdin",
@@ -50,6 +51,7 @@ export function formatInteractiveNoArgClarification(): string {
     "  plannotator last",
     "  plannotator archive",
     "  plannotator sessions",
+    "  plannotator plugin capabilities",
     "",
     "Run 'plannotator --help' for top-level usage.",
   ].join("\n");

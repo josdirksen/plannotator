@@ -4,6 +4,7 @@ import ModeToggleIsland from './ModeToggleIsland.tsx';
 const currentPath = Astro.url.pathname;
 const isDocsActive = currentPath.startsWith('/docs/');
 const isBlogActive = currentPath.startsWith('/blog/');
+const isWorkspacesActive = currentPath.startsWith('/workspaces/');
 ---
 <nav class="fixed top-0 left-0 right-0 h-12 flex items-center justify-between px-6 bg-background/80 backdrop-blur-sm border-b border-border/30 z-50">
   <div class="flex items-center gap-2">
@@ -31,6 +32,17 @@ const isBlogActive = currentPath.startsWith('/blog/');
         ]}
       >
         Blog
+      </a>
+      <span class="text-muted-foreground/50">|</span>
+      <a
+        href="/workspaces/"
+        class:list={[
+          'transition-colors inline-flex items-center gap-1',
+          isWorkspacesActive ? 'text-foreground font-medium' : 'text-muted-foreground hover:text-foreground',
+        ]}
+      >
+        Workspaces
+        <span class="text-[0.6875rem] px-1 py-px rounded bg-primary/15 text-primary border border-primary/30 leading-none">soon</span>
       </a>
       <span class="text-muted-foreground/50">|</span>
       <a

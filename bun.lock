@@ -64,7 +64,7 @@
     },
     "apps/opencode-plugin": {
       "name": "@plannotator/opencode",
-      "version": "0.19.20",
+      "version": "0.19.21",
       "dependencies": {
         "@opencode-ai/plugin": "^1.1.10",
       },
@@ -86,7 +86,7 @@
     },
     "apps/pi-extension": {
       "name": "@plannotator/pi-extension",
-      "version": "0.19.20",
+      "version": "0.19.21",
       "dependencies": {
         "@joplin/turndown-plugin-gfm": "^1.0.64",
         "@pierre/diffs": "^1.1.12",
@@ -153,6 +153,14 @@
         "typescript": "^5.0.0",
       },
     },
+    "apps/waitlist-service": {
+      "name": "@plannotator/waitlist-service",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@cloudflare/workers-types": "^4.20241218.0",
+        "wrangler": "^3.99.0",
+      },
+    },
     "packages/ai": {
       "name": "@plannotator/ai",
       "version": "0.0.1",
@@ -193,7 +201,7 @@
     },
     "packages/server": {
       "name": "@plannotator/server",
-      "version": "0.19.20",
+      "version": "0.19.21",
       "dependencies": {
         "@pierre/diffs": "^1.1.12",
         "@plannotator/ai": "workspace:*",
@@ -704,6 +712,8 @@
     "@plannotator/shared": ["@plannotator/shared@workspace:packages/shared"],
 
     "@plannotator/ui": ["@plannotator/ui@workspace:packages/ui"],
+
+    "@plannotator/waitlist-service": ["@plannotator/waitlist-service@workspace:apps/waitlist-service"],
 
     "@plannotator/web-highlighter": ["@plannotator/web-highlighter@0.8.1", "", {}, "sha512-FlteNOwRj9iNSY/AhFMtqOnVS4FvsACvTw6IiOM1y8iDyhiU/WeZOgjURENvIY+wuUaiS9DDFmg0PrHMyuMR1Q=="],
 

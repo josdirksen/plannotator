@@ -19,8 +19,10 @@ import { spawnSync } from "node:child_process";
 import { join, dirname, basename } from "node:path";
 import { homedir } from "node:os";
 
-const DEFAULT_SESSIONS_DIR = join(homedir(), ".claude", "sessions");
-const DEFAULT_PROJECTS_DIR = join(homedir(), ".claude", "projects");
+const claudeConfigDir =
+  process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+const DEFAULT_SESSIONS_DIR = join(claudeConfigDir, "sessions");
+const DEFAULT_PROJECTS_DIR = join(claudeConfigDir, "projects");
 
 /**
  * Normalize a cwd for comparison. On Windows, filesystems are case-insensitive
@@ -432,12 +434,15 @@ export function resolveSessionLogByCwdScan(
  * Used as a fallback when session metadata resolution (PPID) is unavailable.
  * Stops at the filesystem root to avoid infinite loops.
  */
-export function findSessionLogsByAncestorWalk(cwd: string): string[] {
+export function findSessionLogsByAncestorWalk(
+  cwd: string,
+  projectsDirOverride?: string
+): string[] {
   let dir = dirname(cwd);
   if (dir === cwd) return [];
 
   while (true) {
-    const logs = findSessionLogsForCwd(dir);
+    const logs = findSessionLogsForCwd(dir, projectsDirOverride);
     if (logs.length > 0) return logs;
 
     const parent = dirname(dir);

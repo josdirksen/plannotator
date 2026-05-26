@@ -1,0 +1,500 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="100%" height="100%" role="img" aria-label="A macOS desktop showing a Light-theme Spec Editor on the left and an overlapping Dark-theme AI Terminal on the right summarizing technical review comments.">
+  <title>Engineering Spec Review with AI Co-Pilot</title>
+  <desc>A premium, high-fidelity design engineering illustration of a collaborative spec review workflow. The left window is a white document editor with active comments and inline edits; the right window is a dark terminal showing an AI agent summarizing the unresolved engineering decisions.</desc>
+
+  <defs>
+    <!-- Fonts import -->
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap');
+
+      /* General styling rules */
+      .bg-canvas { fill: url(#desktop-wallpaper); }
+      .text-sans { font-family: 'Inter', -apple-system, sans-serif; }
+      .text-mono { font-family: 'JetBrains Mono', monospace; }
+      
+      /* Dropshadows */
+      .window-shadow { filter: url(#window-dropshadow); }
+      .card-shadow { filter: url(#card-dropshadow); }
+      
+      /* macOS Window controls */
+      .win-close { fill: #FF5F56; }
+      .win-minimize { fill: #FFBD2E; }
+      .win-expand { fill: #27C93F; }
+      
+      /* Color utilities */
+      .fill-spec-bg { fill: #FFFFFF; }
+      .fill-spec-header { fill: #F5F4F8; }
+      .fill-spec-rail { fill: #F9F8FC; }
+      .fill-term-bg { fill: #050505; }
+      .fill-term-header { fill: #0D0D0F; }
+      
+      /* Text Colors */
+      .c-primary-light { fill: #2A121B; }
+      .c-secondary-light { fill: #532638; }
+      .c-tertiary-light { fill: #7E6672; }
+      
+      .c-primary-dark { fill: #FCF3D8; }
+      .c-secondary-dark { fill: rgba(252, 243, 216, 0.65); }
+      .c-tertiary-dark { fill: rgba(252, 243, 216, 0.4); }
+      
+      /* Diff markings */
+      .diff-yellow { fill: #FFEFA6; stroke: #D4A835; stroke-width: 1; }
+      .diff-red { fill: #FFD1D5; stroke: #FB6A76; stroke-width: 1; }
+      .diff-green { fill: #D1F9D4; stroke: #27E62B; stroke-width: 1; }
+      .diff-red-text { fill: #B31B2A; }
+      .diff-green-text { fill: #157F26; }
+      
+      /* Comment avatars */
+      .ava-ada { fill: #7C4DFF; }
+      .ava-bob { fill: #00B0FF; }
+      .ava-charlie { fill: #00E676; }
+      
+      /* Interactive UI elements */
+      .btn-accept { fill: #BE5133; transition: fill 0.2s ease; }
+      .btn-accept:hover { fill: #A34026; }
+
+      /* Animation Styles */
+      .win-left {
+        transform-origin: 350px 330px;
+        animation: anim-win-left 16s infinite ease-in-out;
+      }
+      .win-left-overlay {
+        transform-origin: 350px 330px;
+        animation: anim-win-left-overlay 16s infinite ease-in-out;
+      }
+      .win-right {
+        transform-origin: 260px 250px;
+        animation: anim-win-right 16s infinite ease-in-out;
+      }
+      .text-selection {
+        opacity: 0;
+        width: 0;
+        animation: anim-selection 16s infinite ease-in-out;
+      }
+      .btn-approve {
+        animation: anim-btn-approve 16s infinite ease-in-out;
+      }
+      .cursor-1 {
+        transform: translate(-150px, 300px);
+        opacity: 0;
+        animation: anim-cursor-1 16s infinite cubic-bezier(0.25, 1, 0.5, 1);
+      }
+      .cursor-2 {
+        transform: translate(800px, 450px);
+        opacity: 0;
+        animation: anim-cursor-2 16s infinite cubic-bezier(0.25, 1, 0.5, 1);
+      }
+      .loom-ring {
+        transform-origin: 0px 0px;
+        animation: anim-loom-pulse 2s infinite ease-in-out;
+      }
+      .click-ripple {
+        opacity: 0;
+        transform: scale(0);
+        transform-origin: 0px 0px;
+        animation: anim-ripple 16s infinite ease-in-out;
+      }
+      .term-scroll-container {
+        animation: anim-term-scroll 16s infinite ease-in-out;
+      }
+
+      @keyframes anim-win-left {
+        0%, 6% {
+          transform: translate(40px, 70px) scale(0.97);
+          opacity: 0.55;
+          filter: grayscale(15%) blur(0.5px);
+        }
+        10%, 38% {
+          transform: translate(60px, 60px) scale(1.02);
+          opacity: 1;
+          filter: grayscale(0%) blur(0px);
+        }
+        42%, 100% {
+          transform: translate(40px, 70px) scale(0.97);
+          opacity: 0.55;
+          filter: grayscale(15%) blur(0.5px);
+        }
+      }
+
+      @keyframes anim-win-left-overlay {
+        0%, 6% {
+          opacity: 0;
+          pointer-events: none;
+        }
+        10%, 38% {
+          opacity: 1;
+          pointer-events: auto;
+        }
+        42%, 100% {
+          opacity: 0;
+          pointer-events: none;
+        }
+      }
+
+      @keyframes anim-win-right {
+        0%, 6% {
+          transform: translate(620px, 180px) scale(1.02);
+          opacity: 1;
+          filter: drop-shadow(0 15px 25px rgba(0,0,0,0.4));
+        }
+        10%, 38% {
+          transform: translate(640px, 200px) scale(0.95);
+          opacity: 0.4;
+          filter: drop-shadow(0 2px 5px rgba(0,0,0,0.1));
+        }
+        42%, 100% {
+          transform: translate(620px, 180px) scale(1.02);
+          opacity: 1;
+          filter: drop-shadow(0 15px 25px rgba(0,0,0,0.4));
+        }
+      }
+
+      @keyframes anim-selection {
+        0%, 14% { width: 0; opacity: 0; }
+        18%, 38% { width: 280px; opacity: 0.85; }
+        40%, 100% { width: 0; opacity: 0; }
+      }
+
+      @keyframes anim-btn-approve {
+        0%, 30% { fill: #30D158; y: 0; }
+        31%, 32% { fill: #248A3D; y: 1px; }
+        33%, 100% { fill: #30D158; y: 0; }
+      }
+
+      @keyframes anim-cursor-1 {
+        0%, 10% { transform: translate(-150px, 300px); opacity: 0; }
+        12% { transform: translate(32px, 522px); opacity: 1; }
+        15%, 19% { transform: translate(312px, 522px); opacity: 1; }
+        21% { transform: translate(312px, 522px); opacity: 1; }
+        23%, 100% { transform: translate(200px, 750px); opacity: 0; }
+      }
+
+      @keyframes anim-cursor-2 {
+        0%, 22% { transform: translate(800px, 450px); opacity: 0; }
+        24% { transform: translate(615px, 45px); opacity: 1; }
+        26%, 30% { transform: translate(632px, 66px); opacity: 1; }
+        31% { transform: translate(634px, 68px); opacity: 1; }
+        32% { transform: translate(632px, 66px); opacity: 1; }
+        35%, 100% { transform: translate(800px, -100px); opacity: 0; }
+      }
+
+      @keyframes anim-loom-pulse {
+        0%, 100% { transform: scale(1); opacity: 0.35; }
+        50% { transform: scale(1.25); opacity: 0.2; }
+      }
+
+      @keyframes anim-ripple {
+        0%, 30% { transform: scale(0); opacity: 0; }
+        31% { transform: scale(0.2); opacity: 0.8; }
+        34% { transform: scale(2); opacity: 0; }
+        35%, 100% { transform: scale(0); opacity: 0; }
+      }
+
+      @keyframes anim-term-scroll {
+        0%, 42% { transform: translateY(0px); }
+        48%, 100% { transform: translateY(-170px); }
+      }
+    </style>
+
+
+
+    <!-- Drop Shadows -->
+    <filter id="window-dropshadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#000000" flood-opacity="0.45" />
+    </filter>
+    <filter id="card-dropshadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000000" flood-opacity="0.15" />
+    </filter>
+
+    <!-- Strikethrough Pattern -->
+    <pattern id="strikethrough-pattern" width="10" height="10" patternUnits="userSpaceOnUse">
+      <line x1="0" y1="10" x2="10" y2="0" stroke="#FB6A76" stroke-width="1.5" />
+    </pattern>
+
+    <!-- Terminal scroll clipping mask -->
+    <clipPath id="terminal-content-clip">
+      <rect x="-24" y="-28" width="520" height="358" />
+    </clipPath>
+  </defs>
+
+
+
+
+  <!-- ==================== LEFT WINDOW: SPEC EDITOR (LIGHT THEME) ==================== -->
+  <g id="base-win-left" class="window-shadow win-left">
+    <!-- Window Frame -->
+    <rect width="700" height="660" rx="16" class="fill-spec-bg" />
+    <rect width="700" height="660" rx="16" fill="none" stroke="rgba(83, 38, 56, 0.12)" stroke-width="1" />
+
+    <!-- Window Title Bar -->
+    <path d="M 0,16 A 16,16 0 0 1 16,0 L 684,0 A 16,16 0 0 1 700,16 L 700,48 L 0,48 Z" class="fill-spec-header" />
+    <line x1="0" y1="48" x2="700" y2="48" stroke="rgba(83, 38, 56, 0.08)" stroke-width="1" />
+    
+    <!-- macOS Window Controls -->
+    <circle cx="24" cy="24" r="6" class="win-close" />
+    <circle cx="44" cy="24" r="6" class="win-minimize" />
+    <circle cx="64" cy="24" r="6" class="win-expand" />
+    
+    <!-- Window Title -->
+    <text x="350" y="29" text-anchor="middle" class="text-sans c-primary-light" font-size="14" font-weight="600" letter-spacing="-0.01em">Plannotator</text>
+    
+    <!-- Editor Tab / Breadcrumb Bar -->
+    <rect y="48" width="700" height="36" fill="#FAF9FC" />
+    <line x1="0" y1="84" x2="700" y2="84" stroke="rgba(83, 38, 56, 0.06)" stroke-width="1" />
+    <g transform="translate(24, 58)">
+      <!-- Breadcrumb text -->
+      <text x="0" y="11" class="text-sans c-tertiary-light" font-size="12" font-weight="500">docs</text>
+      <text x="32" y="11" class="text-sans c-tertiary-light" font-size="12" font-weight="500">/</text>
+      <text x="44" y="11" class="text-sans c-tertiary-light" font-size="12" font-weight="500">specs</text>
+      <text x="82" y="11" class="text-sans c-tertiary-light" font-size="12" font-weight="500">/</text>
+      <text x="94" y="11" class="text-sans c-primary-light" font-size="12" font-weight="600">plan.md</text>
+    </g>
+
+    <!-- Actions Block inline with the path of the doc -->
+    <g transform="translate(466, 52)">
+      <!-- Red: Feedback -->
+      <rect width="104" height="28" rx="6" fill="#FF453A" />
+      <text x="52" y="18" text-anchor="middle" class="text-sans" font-size="11" font-weight="600" fill="#FFFFFF">Feedback</text>
+
+      <!-- Green: Approve -->
+      <rect x="114" width="104" height="28" rx="6" fill="#30D158" class="btn-approve" />
+      <text x="166" y="18" text-anchor="middle" class="text-sans" font-size="11" font-weight="600" fill="#FFFFFF">Approve</text>
+    </g>
+
+    <!-- ==================== DOCUMENT BODY (Left Column) ==================== -->
+    <g transform="translate(32, 110)">
+      <!-- Document Title -->
+      <text x="0" y="32" class="text-sans c-primary-light" font-size="28" font-weight="800" letter-spacing="-0.02em">Plan</text>
+      
+      <!-- Section 1: Problem -->
+      <g transform="translate(0, 60)">
+        <text x="0" y="16" class="text-sans c-primary-light" font-size="15" font-weight="700">1. Problem Statement</text>
+        <text x="0" y="38" class="text-sans c-secondary-light" font-size="13" font-weight="400" line-height="1.5">
+          Incremental writes must be robust against intermittent network
+        </text>
+        <text x="0" y="56" class="text-sans c-secondary-light" font-size="13" font-weight="400">
+          outages. Standard operations run the risk of data duplication if
+        </text>
+        <!-- Yellow Highlight: "idempotent writes" -->
+        <g transform="translate(0, 68)">
+          <rect x="0" y="2" width="128" height="18" rx="3" class="diff-yellow" />
+          <text x="6" y="15" class="text-sans" font-size="13" font-weight="600" fill="#8A6D00">idempotent writes</text>
+          <text x="134" y="15" class="text-sans c-secondary-light" font-size="13" font-weight="400">are not strictly enforced across the client-</text>
+        </g>
+        <text x="0" y="104" class="text-sans c-secondary-light" font-size="13" font-weight="400">server synchronization boundaries.</text>
+      </g>
+
+      <!-- Section 2: API Contract -->
+      <g transform="translate(0, 196)">
+        <text x="0" y="16" class="text-sans c-primary-light" font-size="15" font-weight="700">2. API Contract</text>
+        <text x="0" y="36" class="text-sans c-secondary-light" font-size="13" font-weight="400">The synchronization endpoint must accept payload state hashes:</text>
+        
+        <!-- Mock Code Block -->
+        <g transform="translate(0, 48)">
+          <rect width="380" height="64" rx="8" fill="#F6F5F9" stroke="rgba(83, 38, 56, 0.05)" stroke-width="1" />
+          <text x="16" y="26" class="text-mono" font-size="11" font-weight="500" fill="#BE5133">async def</text>
+          <text x="86" y="26" class="text-mono" font-size="11" font-weight="500" fill="#2A121B">sync_delta(</text>
+          <text x="162" y="26" class="text-mono" font-size="11" font-weight="500" fill="#532638">delta: Delta) -&gt; Result:</text>
+          <text x="32" y="46" class="text-mono" font-size="11" font-weight="500" fill="#7E6672"># Verify state fingerprint prior to transaction</text>
+        </g>
+      </g>
+
+      <!-- Section 3: Failure Modes & Edits -->
+      <g transform="translate(0, 336)">
+        <text x="0" y="16" class="text-sans c-primary-light" font-size="15" font-weight="700">3. Failure Modes &amp; Retries</text>
+        <text x="0" y="38" class="text-sans c-secondary-light" font-size="13" font-weight="400">On database lock or connection drop, the connector executes a</text>
+        
+        <!-- Red struck-through technical edit -->
+        <g transform="translate(0, 48)">
+          <rect x="0" y="2" width="116" height="18" rx="3" class="diff-red" />
+          <text x="6" y="15" class="text-sans diff-red-text" font-size="13" font-weight="600" text-decoration="line-through">best-effort retry</text>
+          <text x="122" y="15" class="text-sans c-secondary-light" font-size="13" font-weight="400">protocol immediately.</text>
+        </g>
+        
+        <!-- Green replacement edit -->
+        <g transform="translate(0, 94)">
+          <path d="M -8,11 L -2,11 M -5,8 L -5,14" stroke="#27E62B" stroke-width="2" stroke-linecap="round" />
+          <rect x="0" y="2" width="280" height="18" rx="3" class="diff-green" />
+          <rect x="0" y="2" height="18" rx="3" fill="#B3D7FF" class="text-selection" />
+          <text x="6" y="15" class="text-sans diff-green-text" font-size="13" font-weight="600">bounded exponential backoff with jitter</text>
+        </g>
+        
+        <text x="0" y="146" class="text-sans c-secondary-light" font-size="13" font-weight="400">This ensures server instances avoid thunderous herd crashes</text>
+        <text x="0" y="164" class="text-sans c-secondary-light" font-size="13" font-weight="400">during standard recovery sequences.</text>
+      </g>
+    </g>
+
+    <!-- Vertical separator to Comment Rail -->
+    <line x1="450" y1="84" x2="450" y2="660" stroke="rgba(83, 38, 56, 0.08)" stroke-width="1" />
+    <rect x="451" y="85" width="248" height="574" class="fill-spec-rail" rx="12" />
+
+    <!-- ==================== SPEC COMMENT RAIL (Right Column) ==================== -->
+    <g transform="translate(466, 100)">
+      
+      <!-- ADA'S COMMENT -->
+      <g transform="translate(0, 0)" class="card-shadow">
+        <!-- Comment Card BG -->
+        <rect width="218" height="84" rx="8" fill="#FFFFFF" stroke="rgba(83, 38, 56, 0.06)" stroke-width="1" />
+        <!-- Avatar -->
+        <circle cx="20" cy="20" r="10" class="ava-ada" />
+        <text x="20" y="23" text-anchor="middle" class="text-sans" font-size="10" font-weight="700" fill="#FFFFFF">A</text>
+        <!-- Name & Metadata -->
+        <text x="36" y="18" class="text-sans c-primary-light" font-size="11" font-weight="700">Ada</text>
+        <text x="36" y="30" class="text-sans c-tertiary-light" font-size="9" font-weight="500">2h ago · Line 128</text>
+        <!-- Comment Text -->
+        <text x="12" y="48" class="text-sans c-secondary-light" font-size="11" font-weight="400">Should we explicitly define the</text>
+        <text x="12" y="62" class="text-sans c-secondary-light" font-size="11" font-weight="400">upper-bound timeout for retries?</text>
+      </g>
+
+      <!-- BOB'S COMMENT -->
+      <g transform="translate(0, 96)" class="card-shadow">
+        <rect width="218" height="84" rx="8" fill="#FFFFFF" stroke="rgba(83, 38, 56, 0.06)" stroke-width="1" />
+        <circle cx="20" cy="20" r="10" class="ava-bob" />
+        <text x="20" y="23" text-anchor="middle" class="text-sans" font-size="10" font-weight="700" fill="#FFFFFF">B</text>
+        <text x="36" y="18" class="text-sans c-primary-light" font-size="11" font-weight="700">Bob</text>
+        <text x="36" y="30" class="text-sans c-tertiary-light" font-size="9" font-weight="500">1h ago · Line 134</text>
+        <text x="12" y="48" class="text-sans c-secondary-light" font-size="11" font-weight="400">Muted responses (like 400) shouldn't</text>
+        <text x="12" y="62" class="text-sans c-secondary-light" font-size="11" font-weight="400">trigger backoffs. Muted in my PR #82.</text>
+      </g>
+
+      <!-- CHARLIE'S COMMENT -->
+      <g transform="translate(0, 192)" class="card-shadow">
+        <rect width="218" height="72" rx="8" fill="#FFFFFF" stroke="rgba(83, 38, 56, 0.06)" stroke-width="1" />
+        <circle cx="20" cy="20" r="10" class="ava-charlie" />
+        <text x="20" y="23" text-anchor="middle" class="text-sans" font-size="10" font-weight="700" fill="#FFFFFF">C</text>
+        <text x="36" y="18" class="text-sans c-primary-light" font-size="11" font-weight="700">Charlie</text>
+        <text x="36" y="30" class="text-sans c-tertiary-light" font-size="9" font-weight="500">30m ago · Line 140</text>
+        <text x="12" y="48" class="text-sans c-secondary-light" font-size="11" font-weight="400">The backoff formula looks clean. LGTM!</text>
+      </g>
+    </g>
+
+    <!-- Animated Cursor 1 (Bob - Blue) -->
+    <g class="cursor-1">
+      <circle cx="0" cy="0" r="16" fill="#00B0FF" opacity="0.3" class="loom-ring" />
+      <!-- Name Badge -->
+      <g transform="translate(18, 12)">
+        <rect width="36" height="16" rx="4" fill="#00B0FF" />
+        <text x="18" y="11" text-anchor="middle" class="text-sans" font-size="9" font-weight="700" fill="#FFFFFF">Bob</text>
+      </g>
+      <!-- Cursor Pointer -->
+      <g transform="scale(1.6)">
+        <path d="M0,0 L0,16 L4.5,12 L9,21 L12,19.5 L7.5,11 L13,11 Z" fill="#00B0FF" stroke="#FFFFFF" stroke-width="1.2" stroke-linejoin="round" />
+      </g>
+    </g>
+
+    <!-- Animated Cursor 2 (Ada - Purple) -->
+    <g class="cursor-2">
+      <circle cx="0" cy="0" r="16" fill="#7C4DFF" opacity="0.3" class="loom-ring" />
+      <!-- Click Ripple Ring -->
+      <circle cx="0" cy="0" r="12" fill="none" stroke="#30D158" stroke-width="2" class="click-ripple" />
+      <!-- Name Badge -->
+      <g transform="translate(18, 12)">
+        <rect width="36" height="16" rx="4" fill="#7C4DFF" />
+        <text x="18" y="11" text-anchor="middle" class="text-sans" font-size="9" font-weight="700" fill="#FFFFFF">Ada</text>
+      </g>
+      <!-- Cursor Pointer -->
+      <g transform="scale(1.6)">
+        <path d="M0,0 L0,16 L4.5,12 L9,21 L12,19.5 L7.5,11 L13,11 Z" fill="#7C4DFF" stroke="#FFFFFF" stroke-width="1.2" stroke-linejoin="round" />
+      </g>
+    </g>
+  </g>
+
+
+  <!-- ==================== RIGHT WINDOW: TERMINAL / AI AGENT (DARK THEME) ==================== -->
+  <!-- Overlaps Left Window partially (starts at X=610, which covers the comment rail) -->
+  <g class="win-right">
+    <!-- Window Frame (Eggplant/Charcoal Glassmorphism) -->
+    <rect width="520" height="500" rx="16" class="fill-term-bg" />
+    <rect width="520" height="500" rx="16" fill="none" stroke="#242426" stroke-width="1.5" />
+
+    <!-- Window Title Bar -->
+    <path d="M 0,16 A 16,16 0 0 1 16,0 L 504,0 A 16,16 0 0 1 520,16 L 520,44 L 0,44 Z" class="fill-term-header" />
+    <line x1="0" y1="44" x2="520" y2="44" stroke="rgba(252, 243, 216, 0.08)" stroke-width="1" />
+
+    <!-- macOS Window Controls -->
+    <circle cx="24" cy="22" r="6" class="win-close" />
+    <circle cx="44" cy="22" r="6" class="win-minimize" />
+    <circle cx="64" cy="22" r="6" class="win-expand" />
+
+    <!-- Window Title -->
+    <text x="260" y="27" text-anchor="middle" class="text-mono" font-size="12" font-weight="600" fill="#8E8E93">AI Agent — plannotator-cli</text>
+
+    <!-- Terminal Content Area -->
+    <g transform="translate(24, 72)">
+      <!-- Scroll container with clipping path -->
+      <g clip-path="url(#terminal-content-clip)">
+        <g class="term-scroll-container">
+          <!-- OLD LOGS -->
+          <!-- User input command matching the gray horizontal bar in the screenshot -->
+          <rect x="-10" y="4" width="488" height="24" rx="4" fill="#1C1C1E" stroke="#2C2C2E" stroke-width="0.8" />
+          <text x="0" y="20" class="text-mono" font-size="11" fill="#E5E5EA">&gt; how is exponential backoff configured in the plan?</text>
+
+          <!-- Muted Status Updates matching the asterisk items -->
+          <text x="0" y="46" class="text-sans" font-size="11" fill="#8E8E93">* Searched for 1 pattern, read 1 file (ctrl+o to expand)</text>
+
+          <!-- Main bullet point -->
+          <circle cx="6" cy="68" r="3.5" fill="#FFD60A" />
+          <text x="18" y="72" class="text-sans" font-size="12" font-weight="600" fill="#E5E5EA">The sync backoff logic is defined as a hook in plannotator:</text>
+
+          <!-- Numbered list inspired by the screenshot's spacing -->
+          <g transform="translate(18, 92)">
+            <text x="0" y="16" class="text-sans" font-size="11" fill="#E5E5EA">1. Primary spec: <tspan fill="#38BDF8">~/.plannotator/specs/sync/exponential-backoff.txt</tspan></text>
+            <text x="0" y="36" class="text-sans" font-size="11" fill="#8E8E93">2. Fallback config: <tspan fill="#8E8E93">~/.plannotator/specs/sync/default-backoff.txt</tspan></text>
+          </g>
+
+          <text x="0" y="162" class="text-sans" font-size="11" fill="#E5E5EA">The full specification and active review comments are viewable directly</text>
+          <text x="0" y="178" class="text-sans" font-size="11" fill="#E5E5EA">inside the <tspan font-weight="700" fill="#30D158">Plannotator UI</tspan> under the active sync-engine branch.</text>
+
+          <text x="0" y="204" class="text-sans" font-size="11" fill="#8E8E93">* Sautéed for 2s</text>
+
+          <!-- Second User Command Bar -->
+          <rect x="-10" y="218" width="488" height="24" rx="4" fill="#1C1C1E" stroke="#2C2C2E" stroke-width="0.8" />
+          <text x="0" y="234" class="text-mono" font-size="11" fill="#E5E5EA">&gt; use plannotator to share the plan with others</text>
+
+          <!-- Output for remaining decision -->
+          <circle cx="6" cy="262" r="3.5" fill="#FFD60A" />
+          <text x="18" y="266" class="text-sans" font-size="12" font-weight="600" fill="#E5E5EA">Link created: <tspan fill="#38BDF8">plannotator.ai/s/sync-spec</tspan>. Others can add annotations,</text>
+          <text x="18" y="284" class="text-sans" font-size="12" font-weight="600" fill="#8E8E93">and all feedback and plan updates will sync back to this CLI context.</text>
+
+          <text x="0" y="310" class="text-sans" font-size="11" fill="#8E8E93">* Cogitated for 1s</text>
+
+          <!-- NEW LOGS (appear after approval click) -->
+          <g transform="translate(0, 340)">
+            <rect x="-10" y="0" width="488" height="24" rx="4" fill="#1C1C1E" stroke="#2C2C2E" stroke-width="0.8" />
+            <text x="0" y="16" class="text-mono" font-size="11" fill="#E5E5EA">&gt; plannotator sync --branch feat/jitter-backoff</text>
+            
+            <circle cx="6" cy="46" r="3.5" fill="#30D158" />
+            <text x="18" y="50" class="text-sans" font-size="12" font-weight="600" fill="#E5E5EA">Plan plan.md APPROVED by Ada.</text>
+            
+            <g transform="translate(18, 70)">
+              <text x="0" y="14" class="text-sans" font-size="11" fill="#30D158" font-weight="600">✓ All 3 review comments successfully resolved</text>
+              <text x="0" y="32" class="text-sans" font-size="11" fill="#8E8E93">✓ Addressing comments in implementation</text>
+              <text x="0" y="50" class="text-sans" font-size="11" fill="#8E8E93">✓ Workspace sync complete.</text>
+            </g>
+            
+            <text x="0" y="148" class="text-sans" font-size="11" fill="#8E8E93">* Synced in 1.2s</text>
+          </g>
+        </g>
+      </g>
+
+      <!-- Input box with upper and lower boundary lines -->
+      <line x1="-24" y1="338" x2="496" y2="338" stroke="#2C2C2E" stroke-width="1" />
+      <g transform="translate(0, 350)">
+        <text x="0" y="14" class="text-mono" font-size="12" font-weight="700" fill="#30D158">❯</text>
+        <!-- blinking cursor -->
+        <rect x="16" y="2" width="8" height="14" fill="#E5E5EA">
+          <animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite" />
+        </rect>
+      </g>
+      <line x1="-24" y1="382" x2="496" y2="382" stroke="#2C2C2E" stroke-width="1" />
+
+      <!-- Bottom Status Block matching the screenshot details -->
+      <g transform="translate(0, 406)">
+        <text x="0" y="0" class="text-mono" font-size="11" fill="#8E8E93">[Agent 3.5 (spec context)] <tspan fill="#30D158">~/work/sync-spec (feat/jitter-backoff)</tspan></text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Left Window Overlay Reference for perfect, dynamic layering above CLI -->
+  <use href="#base-win-left" class="win-left-overlay" />
+</svg>

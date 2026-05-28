@@ -298,6 +298,10 @@ chmod +x "$INSTALL_DIR/plannotator"
 echo ""
 echo "plannotator ${latest_tag} installed to ${INSTALL_DIR}/plannotator"
 
+# Start the daemon so hooks work immediately (e.g. improve-context fires
+# before any session exists and needs a running daemon to talk to).
+"$INSTALL_DIR/plannotator" daemon start >/dev/null 2>&1 &
+
 if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
     echo ""
     echo "${INSTALL_DIR} is not in your PATH. Add it with:"

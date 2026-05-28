@@ -229,6 +229,10 @@ Move-Item -Force $tmpFile "$installDir\plannotator.exe"
 Write-Host ""
 Write-Host "plannotator $latestTag installed to $installDir\plannotator.exe"
 
+# Start the daemon so hooks work immediately (e.g. improve-context fires
+# before any session exists and needs a running daemon to talk to).
+Start-Process -FilePath "$installDir\plannotator.exe" -ArgumentList "daemon","start" -WindowStyle Hidden -ErrorAction SilentlyContinue
+
 # Add to PATH if not already there
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if ($userPath -notlike "*$installDir*") {

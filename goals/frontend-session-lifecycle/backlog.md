@@ -54,10 +54,9 @@ Fixed in `99d1aec6`. The daemon now serves the production frontend HTML at `/s/:
 
 ---
 
-## 6. Smart session opening (daemon-driven)
+## ~~6. Smart session opening (daemon-driven)~~ DONE
 
-**Priority:** High — core UX for the new app model
-**Size:** Medium
+Already implemented: `presentSession()` in `packages/server/daemon/runtime.ts` decides browser-open vs WebSocket notify based on frontend connection state. Toast notifications via `sonner`, TanStack Router navigation, visibility-gated queuing all in place.
 
 Move browser-opening logic from CLI to daemon. The daemon decides what to do based on frontend connection state.
 
@@ -168,16 +167,6 @@ Scoped in `goals/performance/backlog/global-keyboard-registry.md`.
 
 ---
 
-## 14. Daemon starts on install
+## ~~14. Daemon starts on install~~ DONE
 
-**Priority:** High — blocks the "CLI is a dumb pipe" architecture
-**Size:** Medium
-
-The daemon must be running from the moment Plannotator is installed. Every CLI command assumes the daemon exists and talks to it. No lazy startup on first session creation, no local file fallbacks. If the daemon isn't running, it's a bug in the install — not something the CLI works around.
-
-Currently the daemon starts lazily when the first plan/review/annotate command runs. This means hooks that fire before any session (like `improve-context` on `EnterPlanMode`) have no daemon to talk to and silently lose functionality.
-
-**Scope:**
-- Install script (`scripts/install.sh`) runs `plannotator daemon start` after placing the binary
-- Plugin activation ensures daemon is running as a safety net
-- Daemon auto-restarts if it dies (or at minimum, any binary invocation re-starts it)
+Install scripts (`scripts/install.sh` and `scripts/install.ps1`) now start the daemon in the background after placing the binary. The CLI's `ensureDaemonClient({ bestEffort: true })` serves as a safety net if the daemon dies.

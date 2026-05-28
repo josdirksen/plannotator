@@ -1,18 +1,52 @@
 # feat/single-server-runtime — Full Provenance Record
 
-PR #733 into `main`. This document tracks every PR that was merged into this branch, in order, with what each one accomplished and what it replaced.
+PR #733 into `main`. This document tracks every PR in this stack — 13 total across an 8-layer deep chain that was progressively collapsed.
 
-## The Stack
+## The Full Stack
+
+The original work was an 8-layer stacked PR chain (#734 → #738 → #744 → #753 → #755 → #758 → #759 → #766/#770). Each layer built on the previous. They were squash-merged downward into #734, which landed on `feat/single-server-runtime`. Then 4 more PRs landed directly on the branch.
 
 ```
 main
  └── #733 feat/single-server-runtime (OPEN → main)
-      ├── #734  Add long-running Plannotator daemon runtime
-      ├── #797  Remove legacy standalone apps, archive, and integrations
+      │
+      │   ┌─── Original 8-layer stack (collapsed into #734) ───┐
+      │   │                                                     │
+      └── #734 daemon runtime ◄─────────────────────────────────┘
+           └── #738 debug shell + simulator
+                └── #744 WebSocket event hub
+                     └── #753 production frontend + initial view
+                          └── #755 embed code review surface
+                               └── #758 embed plan review surface
+                                    └── #759 session lifecycle + worktree projects
+                                         ├── #766 unified settings + Zustand review store
+                                         └── #770 session persistence
+      │
+      │   ┌─── Post-collapse PRs (directly on branch) ─────────┐
+      │   │                                                     │
+      ├── #797  Remove legacy standalone apps (-32,885 lines)
       ├── #801  Simplify extensions to thin wrappers
       ├── #806  Start daemon on install
       └── #808  Replace ConfigStore with Zustand vanilla store
 ```
+
+## All 13 PRs
+
+| # | PR | Title | Files | Lines | Base |
+|---|-----|-------|-------|-------|------|
+| 1 | #734 | Add long-running Plannotator daemon runtime | 331 | +44,032 / -2,314 | feat/single-server-runtime |
+| 2 | #738 | Add daemon debug shell and simulator | 296 | +38,855 / -1,266 | ← #734 |
+| 3 | #744 | Add daemon WebSocket event hub | 350 | +36,890 / -5,965 | ← #738 |
+| 4 | #753 | Add production frontend with initial view | 260 | +33,929 / -461 | ← #744 |
+| 5 | #755 | Embed code review surface in frontend app | 237 | +29,834 / -839 | ← #753 |
+| 6 | #758 | Embed plan review surface and fix cross-surface issues | 128 | +7,585 / -1,137 | ← #755 |
+| 7 | #759 | Session lifecycle, worktree projects, and directory picker | 117 | +7,348 / -921 | ← #758 |
+| 8 | #766 | Unified settings, performance optimizations, and Zustand review store | 84 | +4,811 / -706 | ← #759 |
+| 9 | #770 | Session persistence: denied sessions stay alive for resubmission | 24 | +1,011 / -170 | ← #759 |
+| 10 | #797 | Remove legacy standalone apps, archive, and integrations | 238 | +735 / -32,885 | feat/single-server-runtime |
+| 11 | #801 | Simplify extensions to thin wrappers: server-owned prompts, vendor trim, dumb-pipe CLI | 22 | +244 / -315 | feat/single-server-runtime |
+| 12 | #806 | Start daemon on install so hooks work immediately | 3 | +24 / -15 | feat/single-server-runtime |
+| 13 | #808 | Replace ConfigStore with Zustand vanilla store | 15 | +139 / -152 | feat/single-server-runtime |
 
 ## Net Impact
 

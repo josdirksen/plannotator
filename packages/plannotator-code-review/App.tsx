@@ -838,7 +838,7 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
         serverConfig?: { displayName?: string; gitUser?: string };
         lastDecision?: 'approved' | 'feedback' | 'exited' | null;
       }) => {
-        configStore.init(data.serverConfig);
+        configStore.getState().init(data.serverConfig);
         setGitUser(data.serverConfig?.gitUser);
         if ((data.serverConfig as { legacyTabMode?: boolean } | undefined)?.legacyTabMode) setLegacyTabMode(true);
         const apiFiles = parseDiffToFiles(data.rawPatch);
@@ -912,7 +912,7 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
   }, [diffTypeSetupPending, aiCheckComplete, showAISetup]);
 
   const handleDiffStyleChange = useCallback((style: 'split' | 'unified') => {
-    configStore.set('diffStyle', style);
+    configStore.getState().set('diffStyle', style);
   }, []);
 
   // Handle line selection from diff viewer

@@ -1,2 +1,2 @@
-export { configStore } from './configStore';
+export { configStore, useConfigStore, type SettingValue } from './configStore';
 export { useConfigValue } from './useConfig';

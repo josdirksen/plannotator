@@ -179,7 +179,7 @@ export const GitTab: React.FC = () => {
           <button
             key={opt.value}
             type="button"
-            onClick={() => configStore.set('defaultDiffType', opt.value)}
+            onClick={() => configStore.getState().set('defaultDiffType', opt.value)}
             className={`w-full flex items-start gap-3 p-3 rounded-lg border transition-colors text-left ${
               defaultDiffType === opt.value
                 ? 'border-primary bg-primary/5'
@@ -233,7 +233,7 @@ export const ReviewDisplayTab: React.FC = () => {
             <div className="text-sm font-medium">Code Font</div>
             <select
               value={diffFontFamily}
-              onChange={(e) => configStore.set('diffFontFamily', e.target.value)}
+              onChange={(e) => configStore.getState().set('diffFontFamily', e.target.value)}
               className="px-2 py-1 text-xs rounded-md bg-muted/50 border border-border text-foreground"
               style={diffFontFamily ? { fontFamily: `'${diffFontFamily}', monospace` } : undefined}
             >
@@ -247,7 +247,7 @@ export const ReviewDisplayTab: React.FC = () => {
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                onClick={() => configStore.set('diffFontSize', `${Math.max(8, fontSizeNum - 1)}px`)}
+                onClick={() => configStore.getState().set('diffFontSize', `${Math.max(8, fontSizeNum - 1)}px`)}
                 disabled={fontSizeNum <= 8}
                 className="h-7 w-7 rounded-md bg-muted text-foreground flex items-center justify-center text-xs font-medium disabled:opacity-30"
               >
@@ -256,7 +256,7 @@ export const ReviewDisplayTab: React.FC = () => {
               <span className="w-8 text-center text-xs font-mono tabular-nums">{fontSizeNum}px</span>
               <button
                 type="button"
-                onClick={() => configStore.set('diffFontSize', `${Math.min(24, fontSizeNum + 1)}px`)}
+                onClick={() => configStore.getState().set('diffFontSize', `${Math.min(24, fontSizeNum + 1)}px`)}
                 disabled={fontSizeNum >= 24}
                 className="h-7 w-7 rounded-md bg-muted text-foreground flex items-center justify-center text-xs font-medium disabled:opacity-30"
               >
@@ -269,7 +269,7 @@ export const ReviewDisplayTab: React.FC = () => {
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                onClick={() => configStore.set('diffTabSize', Math.max(1, diffTabSize - 1))}
+                onClick={() => configStore.getState().set('diffTabSize', Math.max(1, diffTabSize - 1))}
                 disabled={diffTabSize <= 1}
                 className="h-7 w-7 rounded-md bg-muted text-foreground flex items-center justify-center text-xs font-medium disabled:opacity-30"
               >
@@ -278,7 +278,7 @@ export const ReviewDisplayTab: React.FC = () => {
               <span className="w-8 text-center text-xs font-mono tabular-nums">{diffTabSize}</span>
               <button
                 type="button"
-                onClick={() => configStore.set('diffTabSize', Math.min(8, diffTabSize + 1))}
+                onClick={() => configStore.getState().set('diffTabSize', Math.min(8, diffTabSize + 1))}
                 disabled={diffTabSize >= 8}
                 className="h-7 w-7 rounded-md bg-muted text-foreground flex items-center justify-center text-xs font-medium disabled:opacity-30"
               >
@@ -302,19 +302,19 @@ export const ReviewDisplayTab: React.FC = () => {
         <h3 className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Layout</h3>
         <div className="flex items-center justify-between gap-4">
           <div className="text-sm font-medium shrink-0">Diff Style</div>
-          <SegmentedControl options={DIFF_STYLE_OPTIONS} value={diffStyle} onChange={(v) => configStore.set('diffStyle', v)} />
+          <SegmentedControl options={DIFF_STYLE_OPTIONS} value={diffStyle} onChange={(v) => configStore.getState().set('diffStyle', v)} />
         </div>
         <div className="flex items-center justify-between gap-4">
           <div className="text-sm font-medium shrink-0">Line Overflow</div>
-          <SegmentedControl options={OVERFLOW_OPTIONS} value={diffOverflow} onChange={(v) => configStore.set('diffOverflow', v)} />
+          <SegmentedControl options={OVERFLOW_OPTIONS} value={diffOverflow} onChange={(v) => configStore.getState().set('diffOverflow', v)} />
         </div>
         <div className="flex items-center justify-between gap-4">
           <div className="text-sm font-medium shrink-0">Change Indicators</div>
-          <SegmentedControl options={INDICATOR_OPTIONS} value={diffIndicators} onChange={(v) => configStore.set('diffIndicators', v)} />
+          <SegmentedControl options={INDICATOR_OPTIONS} value={diffIndicators} onChange={(v) => configStore.getState().set('diffIndicators', v)} />
         </div>
         <div className="flex items-center justify-between gap-4">
           <div className="text-sm font-medium shrink-0">Inline Diff</div>
-          <SegmentedControl options={LINE_DIFF_OPTIONS} value={diffLineDiffType} onChange={(v) => configStore.set('diffLineDiffType', v)} />
+          <SegmentedControl options={LINE_DIFF_OPTIONS} value={diffLineDiffType} onChange={(v) => configStore.getState().set('diffLineDiffType', v)} />
         </div>
       </section>
 
@@ -325,23 +325,23 @@ export const ReviewDisplayTab: React.FC = () => {
         <h3 className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Options</h3>
         <ToggleSwitch
           checked={diffShowLineNumbers}
-          onChange={(v) => configStore.set('diffShowLineNumbers', v)}
+          onChange={(v) => configStore.getState().set('diffShowLineNumbers', v)}
           label="Line Numbers"
         />
         <ToggleSwitch
           checked={diffHideWhitespace}
-          onChange={(v) => configStore.set('diffHideWhitespace', v)}
+          onChange={(v) => configStore.getState().set('diffHideWhitespace', v)}
           label="Hide Whitespace"
         />
         <ToggleSwitch
           checked={diffShowBackground}
-          onChange={(v) => configStore.set('diffShowBackground', v)}
+          onChange={(v) => configStore.getState().set('diffShowBackground', v)}
           label="Line Backgrounds"
         />
         {diffShowBackground && (
           <div className="flex items-center justify-between gap-4 pl-4">
             <div className="text-sm font-medium shrink-0">Intensity</div>
-            <SegmentedControl options={LINE_BG_INTENSITY_OPTIONS} value={diffLineBgIntensity} onChange={(v) => configStore.set('diffLineBgIntensity', v)} />
+            <SegmentedControl options={LINE_BG_INTENSITY_OPTIONS} value={diffLineBgIntensity} onChange={(v) => configStore.getState().set('diffLineBgIntensity', v)} />
           </div>
         )}
       </section>
@@ -396,7 +396,7 @@ export const CommentsTab: React.FC = () => {
 
   const save = (next: CCLabelConfig[]) => {
     setLabels(next);
-    configStore.set('conventionalLabels', JSON.stringify(next));
+    configStore.getState().set('conventionalLabels', JSON.stringify(next));
   };
 
   const updateLabel = (index: number, updates: Partial<CCLabelConfig>) => {
@@ -419,14 +419,14 @@ export const CommentsTab: React.FC = () => {
 
   const resetToDefaults = () => {
     setLabels(DEFAULT_CC_LABELS);
-    configStore.set('conventionalLabels', null);
+    configStore.getState().set('conventionalLabels', null);
   };
 
   return (
     <>
       <ToggleSwitch
         checked={conventionalComments}
-        onChange={(v) => configStore.set('conventionalComments', v)}
+        onChange={(v) => configStore.getState().set('conventionalComments', v)}
         label="Conventional Comments"
         description="Add structured labels to review comments"
       />
@@ -675,7 +675,7 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
     savePermissionModeSettings(mode);
   };
 
-  // Server write-back is handled automatically by configStore.set() (debounced POST /api/config)
+  // Server write-back is handled automatically by configStore.getState().set() (debounced POST /api/config)
 
   const handleRegenerateIdentity = () => {
     const oldIdentity = identity;

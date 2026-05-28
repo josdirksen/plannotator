@@ -100,7 +100,7 @@ export function AppSettingsDialog() {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data?.config) {
-          configStore.init(data.config);
+          configStore.getState().init(data.config);
           setLegacyTabMode(!!data.config.legacyTabMode);
         }
       })

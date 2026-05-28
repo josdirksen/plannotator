@@ -1,22 +1,23 @@
 /**
- * ConfigStore — Unified config resolver for Plannotator
+ * ConfigStore — Zustand-based config for Plannotator
  *
- * Singleton that resolves settings with precedence:
- *   server config file > cookie > default
+ * Resolves settings with precedence: server config > cookie > default.
+ * Selector-based subscriptions: components only re-render when their
+ * specific setting changes (unlike the old broadcast-to-all pattern).
  *
- * Works both inside and outside React. React components subscribe
- * via useSyncExternalStore (see useConfig.ts).
- *
- * Server-synced settings automatically write back to ~/.plannotator/config.json
+ * Server-synced settings write back to ~/.plannotator/config.json
  * via a debounced POST /api/config.
  */
 
+import { createStore, useStore } from 'zustand';
 import { SETTINGS, type SettingName, type SettingsMap } from './settings';
 import { apiFetch } from '../utils/api';
 
-type Listener = () => void;
+/** Infer the value type from a SettingDef */
+export type SettingValue<K extends SettingName> = SettingsMap[K] extends { defaultValue: infer D }
+  ? D extends (...args: unknown[]) => infer R ? R : D
+  : never;
 
-/** Deep-merge source into target, recursing into plain objects. */
 function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): void {
   for (const key of Object.keys(source)) {
     if (
@@ -30,100 +31,83 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
   }
 }
 
-/** Infer the value type from a SettingDef */
-type SettingValue<K extends SettingName> = SettingsMap[K] extends { defaultValue: infer D }
-  ? D extends (...args: unknown[]) => infer R ? R : D
-  : never;
+type ConfigState = {
+  [K in SettingName]: SettingValue<K>;
+} & {
+  get: <K extends SettingName>(key: K) => SettingValue<K>;
+  set: <K extends SettingName>(key: K, value: SettingValue<K>) => void;
+  init: (serverConfig?: Record<string, unknown>) => void;
+};
 
-class ConfigStore {
-  private values = new Map<string, unknown>();
-  private listeners = new Set<Listener>();
-  private version = 0;
-  private pendingServerWrites: Record<string, unknown> = {};
-  private serverSyncTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingServerWrites: Record<string, unknown> = {};
+let serverSyncTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor() {
-    // Eagerly resolve all settings from synchronous sources (cookie > default).
-    // The store is safe to read from the moment it's created.
-    for (const [name, def] of Object.entries(SETTINGS)) {
-      const fromCookie = def.fromCookie();
-      const defaultVal = typeof def.defaultValue === 'function'
-        ? (def.defaultValue as () => unknown)()
-        : def.defaultValue;
-      const resolved = fromCookie ?? defaultVal;
-      this.values.set(name, resolved);
-      // Persist generated defaults to cookie so the value is stable across calls
-      if (fromCookie === undefined) {
-        def.toCookie(resolved as never);
-      }
+function scheduleServerSync(): void {
+  if (serverSyncTimer) clearTimeout(serverSyncTimer);
+  serverSyncTimer = setTimeout(() => {
+    const payload = { ...pendingServerWrites };
+    pendingServerWrites = {};
+    apiFetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+  }, 300);
+}
+
+function resolveInitialValues(): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  for (const [name, def] of Object.entries(SETTINGS)) {
+    const fromCookie = def.fromCookie();
+    const defaultVal = typeof def.defaultValue === 'function'
+      ? (def.defaultValue as () => unknown)()
+      : def.defaultValue;
+    const resolved = fromCookie ?? defaultVal;
+    values[name] = resolved;
+    if (fromCookie === undefined) {
+      def.toCookie(resolved as never);
     }
   }
+  return values;
+}
 
-  /**
-   * Apply server config overrides.
-   * Call once after fetching /api/plan or /api/diff.
-   *
-   * Server values take precedence over the cookie/default already resolved
-   * by the constructor. Settings without a server value are left untouched.
-   */
-  init(serverConfig?: Record<string, unknown>): void {
-    if (serverConfig) {
-      for (const [name, def] of Object.entries(SETTINGS)) {
-        if (def.serverKey && def.fromServer) {
-          const fromServer = def.fromServer(serverConfig);
-          if (fromServer !== undefined) {
-            this.values.set(name, fromServer);
-            def.toCookie(fromServer as never);
-          }
-        }
-      }
-    }
-    this.notify();
-  }
+export const configStore = createStore<ConfigState>()((set, get) => ({
+  ...resolveInitialValues() as { [K in SettingName]: SettingValue<K> },
 
-  /** Get a resolved config value. Works outside React. */
-  get<K extends SettingName>(key: K): SettingValue<K> {
-    return this.values.get(key) as SettingValue<K>;
-  }
+  get: <K extends SettingName>(key: K): SettingValue<K> => {
+    return get()[key] as SettingValue<K>;
+  },
 
-  /** Set a config value. Writes cookie (sync), queues server write-back if applicable. */
-  set<K extends SettingName>(key: K, value: SettingValue<K>): void {
+  set: <K extends SettingName>(key: K, value: SettingValue<K>): void => {
     const def = SETTINGS[key];
-    this.values.set(key, value);
     def.toCookie(value as never);
 
     if (def.serverKey && def.toServer) {
-      deepMerge(this.pendingServerWrites, def.toServer(value as never) as Record<string, unknown>);
-      this.scheduleServerSync();
+      deepMerge(pendingServerWrites, def.toServer(value as never) as Record<string, unknown>);
+      scheduleServerSync();
     }
 
-    this.notify();
-  }
+    set({ [key]: value } as Partial<ConfigState>);
+  },
 
-  /** Subscribe to changes. Returns unsubscribe function. */
-  subscribe(listener: Listener): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
+  init: (serverConfig?: Record<string, unknown>): void => {
+    if (!serverConfig) return;
+    const updates: Record<string, unknown> = {};
+    for (const [name, def] of Object.entries(SETTINGS)) {
+      if (def.serverKey && def.fromServer) {
+        const fromServer = def.fromServer(serverConfig);
+        if (fromServer !== undefined) {
+          updates[name] = fromServer;
+          def.toCookie(fromServer as never);
+        }
+      }
+    }
+    if (Object.keys(updates).length > 0) {
+      set(updates as Partial<ConfigState>);
+    }
+  },
+}));
 
-  private notify(): void {
-    this.version++;
-    for (const fn of this.listeners) fn();
-  }
-
-  private scheduleServerSync(): void {
-    if (this.serverSyncTimer) clearTimeout(this.serverSyncTimer);
-    this.serverSyncTimer = setTimeout(() => {
-      const payload = { ...this.pendingServerWrites };
-      this.pendingServerWrites = {};
-      apiFetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      }).catch(() => {}); // best-effort
-    }, 300);
-  }
+export function useConfigStore<T>(selector: (state: ConfigState) => T): T {
+  return useStore(configStore, selector);
 }
-
-export const configStore = new ConfigStore();
-export type { SettingValue };

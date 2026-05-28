@@ -729,7 +729,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   }, [pendingSharedAnnotations, clearPendingSharedAnnotations, resetExternalHighlights]);
 
   const handleTaterModeChange = useCallback((enabled: boolean) => {
-    configStore.set('taterMode', enabled);
+    configStore.getState().set('taterMode', enabled);
   }, []);
 
   const handleEditorModeChange = (mode: EditorMode) => {
@@ -758,7 +758,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
       })
       .then((data: { plan: string; origin?: Origin; mode?: 'annotate' | 'annotate-last' | 'annotate-folder' | 'goal-setup'; goalSetup?: GoalSetupBundle; filePath?: string; sourceInfo?: string; sourceConverted?: boolean; gate?: boolean; renderAs?: 'html' | 'markdown'; rawHtml?: string; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string; host?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; projectRoot?: string; isWSL?: boolean; serverConfig?: { displayName?: string; gitUser?: string }; lastDecision?: 'approved' | 'denied' | 'exited' | 'feedback' | null }) => {
         // Initialize config store with server-provided values (config file > cookie > default)
-        configStore.init(data.serverConfig);
+        configStore.getState().init(data.serverConfig);
         setGitUser(data.serverConfig?.gitUser);
         if ((data.serverConfig as { legacyTabMode?: boolean } | undefined)?.legacyTabMode) setLegacyTabMode(true);
         if (data.mode === 'goal-setup' && data.goalSetup) {
@@ -1163,7 +1163,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
       images: input.images,
       originalCode: input.originalCode,
       createdAt: Date.now(),
-      author: configStore.get('displayName') || undefined,
+      author: configStore.getState().get('displayName') || undefined,
     };
     setCodeAnnotations(prev => [...prev, annotation]);
     setSelectedAnnotationId(null);

@@ -117,7 +117,7 @@ export const PlanDisplayTab: React.FC<PlanDisplayTabProps> = ({ onUIPreferencesC
       <div className="border-t border-border" />
       <ToggleSwitch
         checked={taterMode}
-        onChange={(v) => configStore.set('taterMode', v)}
+        onChange={(v) => configStore.getState().set('taterMode', v)}
         label="Tater Mode"
       />
     </div>

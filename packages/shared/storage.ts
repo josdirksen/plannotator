@@ -269,6 +269,12 @@ export interface HistoryIndexEntry {
   versionCount: number;
   /** ISO mtime of the newest version file. Empty string if none readable. */
   latest: string;
+  /**
+   * Absolute path to the newest (highest-mtime) version file. Empty string if
+   * none readable. Derived from the same mtime scan as `latest` — correct under
+   * version-number gaps (do not reconstruct from versionCount).
+   */
+  latestVersionPath: string;
 }
 
 /**
@@ -288,7 +294,9 @@ function isSlugDir(dirPath: string): boolean {
  * Compute version count + newest mtime (ISO) for a slug dir in one pass.
  * Returns null if the directory has no version files.
  */
-function summarizeSlugDir(slugPath: string): { versionCount: number; latest: string } | null {
+function summarizeSlugDir(
+  slugPath: string
+): { versionCount: number; latest: string; latestVersionPath: string } | null {
   let entries: string[];
   try {
     entries = readdirSync(slugPath);
@@ -298,21 +306,24 @@ function summarizeSlugDir(slugPath: string): { versionCount: number; latest: str
   let versionCount = 0;
   let latestMs = -1;
   let latest = "";
+  let latestPath = "";
   for (const entry of entries) {
     if (!VERSION_FILE_RE.test(entry)) continue;
     versionCount++;
     try {
-      const stat = statSync(join(slugPath, entry));
+      const filePath = join(slugPath, entry);
+      const stat = statSync(filePath);
       const ms = stat.mtime.getTime();
       if (ms > latestMs) {
         latestMs = ms;
         latest = stat.mtime.toISOString();
+        latestPath = filePath;
       }
     } catch {
-      // Unreadable version file: still counts, but contributes no mtime.
+      // Unreadable version file: still counts, but contributes no mtime/path.
     }
   }
-  return versionCount > 0 ? { versionCount, latest } : null;
+  return versionCount > 0 ? { versionCount, latest, latestVersionPath: latestPath } : null;
 }
 
 /**

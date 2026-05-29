@@ -4,6 +4,7 @@ import * as Collapsible from "@radix-ui/react-collapsible";
 import { ChevronRight, Folder, GitBranch, Moon, Settings, Sun } from "lucide-react";
 import { TaterSpriteSidebar } from "./TaterSpriteSidebar";
 import { useActiveProjectCwd } from "./useActiveProjectCwd";
+import { ROW, pad } from "./row-style";
 import { appStore, useAppStore } from "../../stores/app-store";
 import { cn } from "@/lib/utils";
 import {
@@ -29,15 +30,6 @@ import { formatSessionLabel, getSessionModeMeta } from "../../shared/session-met
 
 /** Non-terminal session statuses — the only ones the sidebar surfaces. */
 const LIVE_STATUSES = new Set<string>(["active", "idle", "awaiting-resubmission"]);
-
-/** One disclosure-width per nesting level; depth-based left pad is the only indent. */
-const INDENT = 14;
-const pad = (depth: number) => ({ paddingLeft: `${8 + depth * INDENT}px` });
-
-/** Shared compact row. ~26px tall, single-line, truncating. */
-const ROW =
-  "group/row flex h-[26px] w-full items-center gap-1.5 rounded-md pr-2 text-left text-xs " +
-  "text-sidebar-foreground/85 transition-colors hover:bg-sidebar-accent/50";
 
 const CHEVRON =
   "size-3.5 shrink-0 text-muted-foreground/45 transition-transform duration-150 " +

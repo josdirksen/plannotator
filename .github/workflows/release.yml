@@ -167,16 +167,26 @@ jobs:
             PLANNOTATOR_PORT="$port" "$@" &
             local pid=$!
             local ok=0
+            # Daemon control routes (/daemon/*) require the daemon auth token,
+            # which is written to the daemon state file. Read it and send it as
+            # a bearer token on the smoke's requests, or every call 401s.
+            local state_file="${PLANNOTATOR_DATA_DIR:-$HOME/.plannotator}/daemon.json"
 
             for _ in $(seq 1 60); do
-              local sessions
-              sessions="$(curl -sf "http://127.0.0.1:${port}/daemon/sessions" 2>/dev/null || true)"
-              if [ -n "$sessions" ]; then
-                local session_url
-                session_url="$(python3 -c 'import json,sys; data=json.load(sys.stdin); sessions=data.get("sessions") or []; print(sessions[0].get("url","") if sessions else "")' <<< "$sessions")"
-                if [ -n "$session_url" ] && curl -sf "${session_url}${endpoint}" -o /dev/null 2>/dev/null; then
-                  ok=1
-                  break
+              local token=""
+              if [ -f "$state_file" ]; then
+                token="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('authToken',''))" "$state_file" 2>/dev/null || true)"
+              fi
+              if [ -n "$token" ]; then
+                local sessions
+                sessions="$(curl -sf -H "Authorization: Bearer ${token}" "http://127.0.0.1:${port}/daemon/sessions" 2>/dev/null || true)"
+                if [ -n "$sessions" ]; then
+                  local session_url
+                  session_url="$(python3 -c 'import json,sys; data=json.load(sys.stdin); sessions=data.get("sessions") or []; print(sessions[0].get("url","") if sessions else "")' <<< "$sessions")"
+                  if [ -n "$session_url" ] && curl -sf -H "Authorization: Bearer ${token}" "${session_url}${endpoint}" -o /dev/null 2>/dev/null; then
+                    ok=1
+                    break
+                  fi
                 fi
               fi
               sleep 0.5
@@ -235,23 +245,34 @@ jobs:
               -RedirectStandardError $stderr
             $ok = $false
 
+            # Daemon control routes (/daemon/*) require the daemon auth token
+            # from the state file; send it as a bearer token or requests 401.
+            $dataDir = if ($env:PLANNOTATOR_DATA_DIR) { $env:PLANNOTATOR_DATA_DIR } else { Join-Path $env:USERPROFILE ".plannotator" }
+            $stateFile = Join-Path $dataDir "daemon.json"
             try {
               for ($i = 0; $i -lt 60; $i++) {
                 try {
-                  $sessionsResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/daemon/sessions" -UseBasicParsing -TimeoutSec 1
-                  $sessionsBody = $sessionsResponse.Content | ConvertFrom-Json
-                  if ($sessionsBody.sessions.Count -gt 0) {
-                    $sessionUrl = $sessionsBody.sessions[0].url
-                    Invoke-WebRequest -Uri "$sessionUrl$Endpoint" -UseBasicParsing -TimeoutSec 1 | Out-Null
-                    $ok = $true
-                    break
+                  $token = ""
+                  if (Test-Path $stateFile) {
+                    $token = (Get-Content $stateFile -Raw | ConvertFrom-Json).authToken
+                  }
+                  if ($token) {
+                    $headers = @{ Authorization = "Bearer $token" }
+                    $sessionsResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/daemon/sessions" -Headers $headers -UseBasicParsing -TimeoutSec 1
+                    $sessionsBody = $sessionsResponse.Content | ConvertFrom-Json
+                    if ($sessionsBody.sessions.Count -gt 0) {
+                      $sessionUrl = $sessionsBody.sessions[0].url
+                      Invoke-WebRequest -Uri "$sessionUrl$Endpoint" -Headers $headers -UseBasicParsing -TimeoutSec 1 | Out-Null
+                      $ok = $true
+                      break
+                    }
                   }
                 } catch {
                   if ($process.HasExited) {
                     break
                   }
-                  Start-Sleep -Milliseconds 500
                 }
+                Start-Sleep -Milliseconds 500
               }
             } finally {
               if (-not $process.HasExited) {

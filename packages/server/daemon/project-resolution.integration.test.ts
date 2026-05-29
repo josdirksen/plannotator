@@ -61,8 +61,13 @@ let workspace = "";
 let wsA = "";
 let wsB = "";
 let wsNotes = "";
+let wsADeep = "";
+let wsAWtInside = "";
+let wsAWtInsideDeep = "";
+let wsAWtOutside = "";
 let outer = "";
 let inner = "";
+let innerDeep = "";
 let plain = "";
 
 beforeAll(() => {
@@ -86,10 +91,21 @@ beforeAll(() => {
   wsA = initRepo(join(workspace, "a"));
   wsB = initRepo(join(workspace, "b"));
   wsNotes = mkdir(join(workspace, "notes"));
+  wsADeep = mkdir(join(wsA, "packages", "x")); // deep cwd inside a sub-repo
 
-  // nested repos: outer repo containing an independent inner repo
+  // worktree of sub-repo wsA, located INSIDE the workspace, + a deep subdir in it
+  wsAWtInside = join(workspace, "a-wt");
+  sh(`git ${GIT_ID} worktree add -b feat/a-in ${wsAWtInside}`, wsA);
+  wsAWtInsideDeep = mkdir(join(wsAWtInside, "src", "deep"));
+
+  // worktree of sub-repo wsA, located OUTSIDE the workspace
+  wsAWtOutside = join(ROOT, "ws-a-wt");
+  sh(`git ${GIT_ID} worktree add -b feat/a-out ${wsAWtOutside}`, wsA);
+
+  // nested repos: outer repo containing an independent inner repo + deep subdir
   outer = initRepo(join(ROOT, "outer"));
   inner = initRepo(join(outer, "inner"));
+  innerDeep = mkdir(join(inner, "src", "deep"));
 
   // plain non-git standalone dir
   plain = mkdir(join(ROOT, "plain", "nested"));
@@ -298,5 +314,45 @@ describe("registry persistence (registerResolvedProject)", () => {
     const entries = readProjectRegistry({ baseDir: reg });
     expect(entries.filter((e) => e.cwd === solo)).toHaveLength(1);
     expect(entries.filter((e) => e.cwd === soloWtFeat)).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe("context crossings (deep cwd × declared × worktree)", () => {
+  function declareWorkspace(): string {
+    const reg = freshReg();
+    addProject(workspace, "workspace", { baseDir: reg }, true);
+    return reg;
+  }
+
+  test("deep cwd inside a sub-repo of a declared workspace → owns workspace, sub-scope is the sub-repo", () => {
+    const r = resolveProject(wsADeep, { baseDir: declareWorkspace() });
+    expect(r.projectCwd).toBe(workspace); // declared root wins
+    expect(r.worktree?.cwd).toBe(wsA); // sub-scope = the git repo it sits in, not the deep dir
+    expect(r.worktree?.branch).toBeTruthy();
+  });
+
+  test("deep cwd inside a nested repo (no declared) → innermost repo root", () => {
+    const r = resolveProject(innerDeep, { baseDir: freshReg() });
+    expect(r.projectCwd).toBe(inner); // not outer, not innerDeep
+    expect(r.worktree).toBeUndefined();
+  });
+
+  test("worktree INSIDE a declared workspace → owns workspace, sub-scope is the worktree dir (does not roll up to the sub-repo)", () => {
+    const r = resolveProject(wsAWtInside, { baseDir: declareWorkspace() });
+    expect(r.projectCwd).toBe(workspace); // declared root governs
+    expect(r.worktree?.cwd).toBe(wsAWtInside); // the worktree dir itself, NOT wsA
+  });
+
+  test("deep cwd inside a worktree inside a declared workspace → same workspace + worktree sub-scope", () => {
+    const r = resolveProject(wsAWtInsideDeep, { baseDir: declareWorkspace() });
+    expect(r.projectCwd).toBe(workspace);
+    expect(r.worktree?.cwd).toBe(wsAWtInside);
+  });
+
+  test("worktree OUTSIDE the declared workspace → ignores the declaration, rolls up to its own main repo", () => {
+    const r = resolveProject(wsAWtOutside, { baseDir: declareWorkspace() });
+    expect(r.projectCwd).toBe(wsA); // not workspace (worktree dir isn't under it), not wsAWtOutside
+    expect(r.worktree).toEqual({ cwd: wsAWtOutside, branch: "feat/a-out" });
   });
 });

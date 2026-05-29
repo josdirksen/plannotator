@@ -184,11 +184,31 @@ Documented in `goals/session-persistence/decisions.md`:
 6. Annotate-last anchors feedback to the original message via server-composed excerpt
 7. Plan mode prompts are the exception — host-specific (Pi phases, OpenCode line numbers)
 
+## Post-Stack Work (after the 13-PR stack)
+
+After the stack collapsed into #733, four review-driven PRs plus a `main` merge landed on the branch:
+
+| PR | Title | Result |
+|----|-------|--------|
+| #813 | AddProjectDialog → Radix Dialog | merged |
+| #814 | GitLab support: custom-domain detection + MR list/detailed | merged |
+| #815 | Fix order-dependent PR-stack grouping (leaf-rooting) | merged |
+| #816 | Fix PR review reactivation posting against stale head commit (the P1) | merged |
+
+Each ran the full validate → adversarial-review → fix loop (8-model interrogations on #801/#808; per-PR code-review + interrogate on the batch). Then:
+
+- **`main` merged into the branch** (origin/main `0d86d0ee`), clearing the long-standing PR #733 conflicts. Done on an isolated `merge/main-into-ssr` branch via an analyze → port → verify workflow, then fast-forwarded in. It carried main's 35 commits **and** hand-ported three features that lived in deleted code — #763 Ask-AI-in-plan/annotate, #795 `PLANNOTATOR_DATA_DIR`, #792 Windows Pi shim — without dropping main's work or regressing the new system. Inventory: `goals/merge-to-main/carry-in-inventory.md`.
+- **Amp plugin** refactored to a conforming thin wrapper (`plugin-client`), eliminating its `PLANNOTATOR_READY_FILE` hang; dead pi-server orphan removed.
+- **CI green:** fixed stale release smokes (daemon auth token on Linux; IPv4 session URL on Windows) and deleted dead `@vitest/browser-playwright` scaffolding. PR #733 is now conflict-free and mergeable.
+
 ## Open Items (Backlog)
 
-- ConfigStore → Zustand migration done; global keyboard registry cleanup remains
-- GitLab custom domain detection and detailed PR listing
-- PR stack splitting order-dependence
-- Sidebar design (session grouping by project vs mode)
-- Tab mode config (legacy one-tab-per-session toggle)
-- AddProjectDialog → Radix Dialog migration
+**Done since this record was first written:** GitLab detection + MR listing (#814), PR-stack order-dependence (#815), AddProjectDialog → Radix (#813), PR-review stale-metadata P1 (#816), configStore → Zustand (#808), daemon-on-install (#806), tab-mode config.
+
+**Still open:**
+- **Performance** — 29 of 39 findings open (`goals/performance/findings.md`, re-inventoried 2026-05-28): code-splitting, session eviction, App.tsx monolith/memoization, lazy diagram libs, memory-leak/poller cleanup. The global-keyboard-registry cleanup folds into this.
+- Sidebar design (session grouping by project vs mode) — needs a decision
+- Notify the user when a session updates live
+- Amp plugin: bundled `dist` for standalone (curl) install
+- Minor deferred (`decisions.md`): gate flag on resubmission, stale-session provenance timestamps, `onCancel` on awaiting banner
+- Post-merge human verification: eyeball the Add-Project dialog + GitLab dashboard

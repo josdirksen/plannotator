@@ -86,7 +86,7 @@ export const SidebarContainer: React.FC<SidebarContainerProps> = ({
 }) => {
   return (
     <aside
-      className="hidden lg:flex flex-col sticky top-12 h-[calc(100vh-3rem)] flex-shrink-0 bg-card/50 backdrop-blur-sm border-r border-border"
+      className="hidden lg:flex flex-col sticky top-12 h-[calc(100vh-3rem)] flex-shrink-0 bg-card border-r border-border"
       style={{ width }}
     >
       {/* Tab bar */}

@@ -2138,7 +2138,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
           {isPanelOpen && rightSidebarTab === 'ai' && wideModeType === null && !goalSetupMode && canUseAI && (
             <aside
               data-annotation-panel="true"
-              className={`border-l border-border/50 bg-card/30 backdrop-blur-sm flex flex-col flex-shrink-0 ${
+              className={`border-l border-border/50 bg-card flex flex-col flex-shrink-0 ${
                 isMobile ? 'fixed top-12 bottom-0 right-0 z-[60] w-full max-w-sm shadow-2xl bg-card' : ''
               }`}
               style={isMobile ? undefined : { width: panelResize.width ?? 288 }}

@@ -33,6 +33,7 @@ import { createRemoteShareNotice } from "../share-url";
 import { registerResolvedProject } from "./project-registry";
 import { resolveProject } from "./project-resolver";
 import { sanitizeTag } from "@plannotator/shared/project";
+import { contentHash } from "@plannotator/shared/draft";
 import {
   gitRuntime,
   prepareLocalReviewDiff,
@@ -64,6 +65,23 @@ export interface DaemonSessionFactoryOptions {
 
 const DEFAULT_SESSION_TTL_MS = 96 * 60 * 60 * 1000;
 const SESSION_TIMEOUT_GRACE_MS = 60_000;
+
+/**
+ * Stable, collision-free, never-empty history-folder segment for a worktree.
+ *
+ * `sanitizeTag` alone is lossy as a key: a short/empty branch (e.g. a 1-char branch)
+ * sanitizes to null and would drop the segment entirely — history then falls back
+ * into the project's flat path and mixes with the main checkout — and distinct
+ * branches can normalize to the same value (`feat_x` and `feat-x` both → `feat-x`),
+ * merging two worktrees' histories. Disambiguate every segment with a short hash of
+ * the worktree's absolute path (its stable, unique identity), keeping a readable
+ * branch/dir label as a prefix when one is available.
+ */
+export function worktreeSegment(worktree: { cwd: string; branch?: string }): string {
+  const label = sanitizeTag(worktree.branch || basename(worktree.cwd));
+  const id = contentHash(worktree.cwd).slice(0, 8);
+  return label ? `${label}-${id}` : `wt-${id}`;
+}
 
 type AnnotateInput = {
   markdown: string;
@@ -596,12 +614,10 @@ export function createDaemonSessionFactory(options: DaemonSessionFactoryOptions)
     // matchKey discriminator: the operational scope (worktree/sub-repo, else project
     // root) so distinct worktrees of one project don't collide on reactivation.
     const scopeKey = worktree?.cwd ?? projectCwd;
-    // History keying segment: nest worktree history under a worktree segment so
-    // distinct worktrees of one project never collide/shadow each other. Coalesce
-    // an unsanitizable branch (e.g. <2 chars) to undefined → flat layout.
-    const worktreeSeg = worktree
-      ? sanitizeTag(worktree.branch || basename(worktree.cwd)) ?? undefined
-      : undefined;
+    // History keying segment: nest worktree history under a per-worktree segment so
+    // distinct worktrees of one project never collide or shadow each other. See
+    // worktreeSegment — it is stable, unique, and never empty (no flat-path fallback).
+    const worktreeSeg = worktree ? worktreeSegment(worktree) : undefined;
     try {
       const tmp = tmpdir();
       if (!cwd.startsWith(tmp)) registerResolvedProject(resolved);

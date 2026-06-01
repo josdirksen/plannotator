@@ -76,6 +76,9 @@ interface ViewerProps {
    *  resolve against the doc's own directory rather than only cwd. */
   codePathBaseDir?: string;
   linkedDocInfo?: { filepath: string; onBack: () => void; label?: string; backLabel?: string } | null;
+  /** Render the linked-doc breadcrumb badge (default true; off in folder-annotate
+   *  mode where the sidebar file browser is the way back). */
+  showLinkedDocBadge?: boolean;
   // Plan diff props
   planDiffStats?: { additions: number; deletions: number; modifications: number } | null;
   isPlanDiffActive?: boolean;
@@ -166,6 +169,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   onOpenLinkedDoc,
   onOpenCodeFile,
   linkedDocInfo,
+  showLinkedDocBadge = true,
   imageBaseDir,
   codePathBaseDir,
   copyLabel,
@@ -541,6 +545,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
               onPlanDiffToggle={onPlanDiffToggle}
               showDemoBadge={showDemoBadge}
               linkedDocInfo={linkedDocInfo}
+              showLinkedDocBadge={showLinkedDocBadge}
               sourceInfo={sourceInfo}
             />
           </div>

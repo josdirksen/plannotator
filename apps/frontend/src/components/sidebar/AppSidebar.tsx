@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef } from "react";
-import { Link, useMatchRoute } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useMatchRoute, useNavigate } from "@tanstack/react-router";
 import * as Collapsible from "@radix-ui/react-collapsible";
+import { toast } from "sonner";
 import { Folder, FolderOpen, Plus, Settings } from "lucide-react";
+import { daemonApiClient } from "../../daemon/api/client";
 import { TaterSpriteSidebar } from "@plannotator/ui/components/sprites";
 import { useActiveProjectCwd } from "./useActiveProjectCwd";
 import { ROW, pad } from "./row-style";
@@ -62,6 +64,80 @@ function SessionRow({
   );
 }
 
+/** Mode icon shared with annotate session rows, so the row reads as a sibling. */
+const AnnotateModeIcon = getSessionModeMeta("annotate").icon;
+
+/** True for an annotate session whose match key encodes a folder (vs a single file). */
+function isFolderAnnotateSession(s: DaemonSessionSummary): boolean {
+  return s.mode === "annotate" && !!s.matchKey && s.matchKey.includes(":folder:");
+}
+
+/** The live folder-annotate session anchored to exactly this folder, if any. */
+function folderSessionFor(
+  sessions: DaemonSessionSummary[],
+  cwd: string,
+): DaemonSessionSummary | undefined {
+  return sessions.find((s) => s.matchKey?.endsWith(`:folder:${cwd}`));
+}
+
+/**
+ * The folder's "Annotate" row — one per project and worktree, so every folder is
+ * openable. When the folder's annotate session is live it IS that session: the row
+ * highlights when active and navigates straight to it. When none exists yet, the
+ * row launches one (create-or-reuse via the daemon, mirroring HistoryRow.handleOpen).
+ */
+function FolderAnnotateRow({
+  cwd,
+  depth,
+  session,
+  matchRoute,
+}: {
+  cwd: string;
+  depth: number;
+  session?: DaemonSessionSummary;
+  matchRoute: ReturnType<typeof useMatchRoute>;
+}) {
+  const navigate = useNavigate();
+  const [launching, setLaunching] = useState(false);
+  const isActive =
+    !!session && !!matchRoute({ to: "/s/$sessionId", params: { sessionId: session.id } });
+
+  const handleOpen = async () => {
+    if (session) {
+      void navigate({ to: "/s/$sessionId", params: { sessionId: session.id } });
+      return;
+    }
+    if (launching) return;
+    setLaunching(true);
+    const result = await daemonApiClient.createAnnotateFolderSession(cwd);
+    setLaunching(false);
+    if (result.ok) {
+      void navigate({ to: "/s/$sessionId", params: { sessionId: result.data.session.id } });
+    } else {
+      toast.error("Failed to open folder", { description: result.error.message });
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleOpen}
+      disabled={launching}
+      style={pad(depth)}
+      className={cn(
+        ROW,
+        "cursor-pointer text-muted-foreground/70 disabled:cursor-default disabled:opacity-60",
+        isActive &&
+          "bg-sidebar-accent font-medium text-sidebar-accent-foreground hover:bg-sidebar-accent",
+      )}
+      title="Annotate this folder"
+    >
+      <AnnotateModeIcon className="size-3 shrink-0 text-muted-foreground/55" />
+      <span className="truncate">Annotate</span>
+    </button>
+  );
+}
+
 function WorktreeNode({
   worktree,
   depth,
@@ -71,11 +147,22 @@ function WorktreeNode({
   depth: number;
   matchRoute: ReturnType<typeof useMatchRoute>;
 }) {
-  const collapsed = useAppStore((s) => s.collapsedWorktrees.has(worktree.cwd));
-  const toggle = useAppStore((s) => s.toggleWorktreeCollapse);
-  if (worktree.sessions.length === 0) return null;
+  const override = useAppStore((s) => s.worktreeOpen[worktree.cwd]);
+  const setWorktreeOpen = useAppStore((s) => s.setWorktreeOpen);
+  // The folder-annotate session (if live) is represented by the Annotate row, not
+  // a separate session row.
+  const folderSession = folderSessionFor(worktree.sessions, worktree.cwd);
+  const sessionRows = worktree.sessions.filter((s) => !isFolderAnnotateSession(s));
+  // Default open when the worktree has a real session (something beyond its
+  // Annotate row) OR contains the session you're currently viewing — so the
+  // active worktree opens itself, even after a refresh (the route is the source
+  // of truth). A user's explicit toggle overrides the default and sticks.
+  const containsActive = worktree.sessions.some(
+    (s) => !!matchRoute({ to: "/s/$sessionId", params: { sessionId: s.id } }),
+  );
+  const open = override ?? (sessionRows.length > 0 || containsActive);
   return (
-    <Collapsible.Root open={!collapsed} onOpenChange={() => toggle(worktree.cwd)}>
+    <Collapsible.Root open={open} onOpenChange={(next) => setWorktreeOpen(worktree.cwd, next)}>
       <Collapsible.Trigger
         style={pad(depth)}
         className={cn(ROW, "text-sidebar-foreground/70")}
@@ -83,12 +170,20 @@ function WorktreeNode({
       >
         <span className="flex size-3.5 shrink-0 items-center justify-center text-[11px] font-bold text-muted-foreground/55">W</span>
         <span className="truncate">{worktree.name}</span>
-        <span className="ml-auto pl-1 text-[10px] tabular-nums text-muted-foreground/45">
-          {worktree.sessions.length}
-        </span>
+        {sessionRows.length > 0 && (
+          <span className="ml-auto pl-1 text-[10px] tabular-nums text-muted-foreground/45">
+            {sessionRows.length}
+          </span>
+        )}
       </Collapsible.Trigger>
       <Collapsible.Content>
-        {worktree.sessions.map((session) => (
+        <FolderAnnotateRow
+          cwd={worktree.cwd}
+          depth={depth + 1}
+          session={folderSession}
+          matchRoute={matchRoute}
+        />
+        {sessionRows.map((session) => (
           <SessionRow
             key={session.id}
             session={session}
@@ -112,9 +207,16 @@ function ProjectNode({
   onToggle: () => void;
   matchRoute: ReturnType<typeof useMatchRoute>;
 }) {
+  // Folder-annotate sessions are shown as each folder's Annotate row, so they're
+  // excluded from session-row rendering and from the live-session count.
+  const folderSession = folderSessionFor(project.directSessions, project.cwd);
+  const directRows = project.directSessions.filter((s) => !isFolderAnnotateSession(s));
   const liveCount =
-    project.directSessions.length +
-    project.worktrees.reduce((sum, wt) => sum + wt.sessions.length, 0);
+    directRows.length +
+    project.worktrees.reduce(
+      (sum, wt) => sum + wt.sessions.filter((s) => !isFolderAnnotateSession(s)).length,
+      0,
+    );
 
   return (
     <Collapsible.Root open={isOpen} onOpenChange={onToggle}>
@@ -136,7 +238,13 @@ function ProjectNode({
         )}
       </Collapsible.Trigger>
       <Collapsible.Content>
-        {project.directSessions.map((session) => (
+        <FolderAnnotateRow
+          cwd={project.cwd}
+          depth={1}
+          session={folderSession}
+          matchRoute={matchRoute}
+        />
+        {directRows.map((session) => (
           <SessionRow key={session.id} session={session} depth={1} matchRoute={matchRoute} />
         ))}
         {project.worktrees.map((worktree) => (
@@ -147,7 +255,7 @@ function ProjectNode({
             matchRoute={matchRoute}
           />
         ))}
-        {liveCount === 0 && (
+        {liveCount === 0 && project.worktrees.length === 0 && !folderSession && (
           <div
             style={pad(1)}
             className="flex h-6 items-center text-[11px] text-muted-foreground/40"

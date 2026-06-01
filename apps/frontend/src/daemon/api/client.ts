@@ -76,6 +76,7 @@ export interface DaemonApiClient {
   listDetailedPRs(cwd: string): Promise<DaemonApiResult<PRDetailedListResponse>>;
   createReviewSession(cwd: string, prUrl?: string): Promise<DaemonApiResult<SessionResponse>>;
   createAnnotateSession(cwd: string, filePath: string): Promise<DaemonApiResult<SessionResponse>>;
+  createAnnotateFolderSession(cwd: string): Promise<DaemonApiResult<SessionResponse>>;
   getHistory(projectName?: string): Promise<DaemonApiResult<HistoryListResponse>>;
 }
 
@@ -554,6 +555,26 @@ export function createDaemonApiClient(options: DaemonApiClientOptions = {}): Dae
             origin: "plannotator-frontend",
             cwd,
             filePath,
+          },
+        }),
+      );
+    },
+
+    createAnnotateFolderSession(cwd) {
+      // The daemon factory reads `mode`/`folderPath` and routes to a folder
+      // annotate session (file browser rooted at the folder), keyed on
+      // `folder:<cwd>` so repeat opens reuse the same session.
+      return requestJson(
+        fetchImpl,
+        joinUrl(options.baseUrl, "/daemon/sessions"),
+        isSessionResponse,
+        jsonPost({
+          request: {
+            action: "annotate",
+            origin: "plannotator-frontend",
+            cwd,
+            mode: "annotate-folder",
+            folderPath: cwd,
           },
         }),
       );

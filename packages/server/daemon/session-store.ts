@@ -223,6 +223,7 @@ export class DaemonSessionStore {
       ...(record.cwd && { cwd: record.cwd }),
       ...(record.projectCwd && { projectCwd: record.projectCwd }),
       ...(record.worktree && { worktree: record.worktree }),
+      ...(record.matchKey && { matchKey: record.matchKey }),
       label: record.label,
       ...(record.origin && { origin: record.origin }),
       createdAt: record.createdAt,

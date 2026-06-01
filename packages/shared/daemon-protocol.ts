@@ -92,6 +92,12 @@ export interface DaemonSessionSummary {
   projectCwd?: string;
   /** Sub-scope the session sits in under its project (worktree / sub-repo), if any. */
   worktree?: DaemonWorktreeRef;
+  /**
+   * Resubmission match key (e.g. `annotate:<scope>:folder:<path>`). Exposed so the
+   * sidebar can identify a folder-annotate session and fold it into the folder's
+   * own "Annotate" row instead of listing it as a separate session.
+   */
+  matchKey?: string;
 }
 
 /** A sub-scope a session sits in under its owning project: a git worktree or sub-repo. */

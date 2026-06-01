@@ -2106,6 +2106,10 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                     onOpenLinkedDoc={handleOpenLinkedDoc}
                     onOpenCodeFile={codeFilePopout.open}
                     linkedDocInfo={linkedDocInfo}
+                    // Folder mode: the sidebar file browser is the way back, so the
+                    // breadcrumb would just duplicate it. Hide it there; keep it
+                    // everywhere else (plan/single-file/HTML), where it's the only way back.
+                    showLinkedDocBadge={annotateSource !== 'folder'}
                     imageBaseDir={imageBaseDir}
                     codePathBaseDir={activeDocBaseDir}
                     copyLabel={annotateSource === 'message' ? 'Copy message' : annotateSource === 'file' || annotateSource === 'folder' ? 'Copy file' : undefined}

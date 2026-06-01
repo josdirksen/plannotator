@@ -24,6 +24,14 @@ export interface DocBadgesProps {
   onPlanDiffToggle?: () => void;
   showDemoBadge?: boolean;
   linkedDocInfo?: { filepath: string; onBack: () => void; label?: string; backLabel?: string } | null;
+  /**
+   * Whether to render the linked-doc breadcrumb. Off in folder-annotate mode,
+   * where the sidebar file browser already provides the way back to the file
+   * list — the breadcrumb would just duplicate it. The breadcrumb is the ONLY
+   * way back in plan / single-file / HTML modes (no browser), so it stays there.
+   * `linkedDocInfo` itself is unaffected (still drives copy label + Ask AI source).
+   */
+  showLinkedDocBadge?: boolean;
   /** Source attribution for HTML/URL annotations (e.g. "https://..." or "index.html") */
   sourceInfo?: string;
 }
@@ -37,16 +45,20 @@ export const DocBadges: React.FC<DocBadgesProps> = ({
   onPlanDiffToggle,
   showDemoBadge,
   linkedDocInfo,
+  showLinkedDocBadge = true,
   sourceInfo,
 }) => {
   const isRow = layout === 'row';
+
+  // The breadcrumb is shown only when requested (off in folder mode).
+  const showBreadcrumb = !!linkedDocInfo && showLinkedDocBadge;
 
   // In row layout, only PlanDiffBadge (when it has stats to show)
   // actually renders — everything else is hidden. Check what
   // will truly produce visible output to avoid an empty wrapper div.
   const anything = isRow
     ? (!linkedDocInfo && (hasPreviousVersion && planDiffStats))
-    : repoInfo || hasPreviousVersion || showDemoBadge || linkedDocInfo || sourceInfo;
+    : repoInfo || hasPreviousVersion || showDemoBadge || showBreadcrumb || sourceInfo;
   if (!anything) return null;
 
   // Row layout: single horizontal line. Column layout: stacked rows.
@@ -109,7 +121,7 @@ export const DocBadges: React.FC<DocBadgesProps> = ({
       )}
 
       {/* Linked-doc breadcrumb: only in column layout (sticky lane is hidden in linked-doc mode) */}
-      {!isRow && linkedDocInfo && (
+      {!isRow && showBreadcrumb && linkedDocInfo && (
         <div className="flex items-center gap-1.5">
           <button
             onClick={linkedDocInfo.onBack}

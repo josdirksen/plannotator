@@ -580,6 +580,11 @@ export function createDaemonSessionFactory(options: DaemonSessionFactoryOptions)
 
   const RESUBMIT_STATUSES = new Set(["awaiting-resubmission"]);
   const RESUBMIT_OR_IDLE_STATUSES = new Set(["awaiting-resubmission", "idle"]);
+  // Folder-annotate is user-launched and meant to be one-session-per-folder, so
+  // a repeat open reuses ANY live session for that folder — including one that's
+  // still active — not only one awaiting resubmission. Single-file / last
+  // annotate keep the resubmit-only semantics (those are agent-driven).
+  const LIVE_STATUSES = new Set(["active", "idle", "awaiting-resubmission"]);
 
   function findMatchingSession(store: DaemonFetchContext["store"], matchKey: string, matchStatuses = RESUBMIT_STATUSES) {
     for (const [sessionId, ref] of sessionRefs) {
@@ -699,9 +704,15 @@ export function createDaemonSessionFactory(options: DaemonSessionFactoryOptions)
           : undefined;
 
       if (matchKey) {
-        const existing = findMatchingSession(context.store, matchKey);
+        const existing = findMatchingSession(
+          context.store,
+          matchKey,
+          isFolder ? LIVE_STATUSES : undefined,
+        );
         if (existing) {
-          if (existing.session.updateContent) {
+          // Folders carry no document, so input.markdown is empty — skip the
+          // update in that case to avoid pushing an empty content revision.
+          if (existing.session.updateContent && input.markdown) {
             existing.session.updateContent(input.markdown, input.rawHtml);
           }
           if (context.endpoint.isRemote && sharingEnabled && input.markdown) {

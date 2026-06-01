@@ -19,6 +19,7 @@
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "dev:portal": "bun run --cwd apps/portal dev",
+    "dev:review": "bun run --cwd apps/review dev",
     "dev:marketing": "bun run --cwd apps/marketing dev",
     "dev:frontend": "bun run scripts/dev-frontend.ts",
     "build:hook": "bun run --cwd apps/hook build",

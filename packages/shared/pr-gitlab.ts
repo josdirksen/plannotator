@@ -680,11 +680,12 @@ export function mapGlMrToDetailedItem(raw: GlMRListEntry): PRDetailedListItem {
 async function fetchGlMRRaw(
   runtime: PRRuntime,
   ref: GlMRRef,
+  query = "per_page=30&state=all",
 ): Promise<GlMRListEntry[]> {
   const encoded = encodeProject(ref.projectPath);
   const result = await runtime.runCommand(
     "glab",
-    apiArgs(ref.host, `projects/${encoded}/merge_requests?per_page=30&state=all`),
+    apiArgs(ref.host, `projects/${encoded}/merge_requests?${query}`),
   );
 
   if (result.exitCode !== 0) {
@@ -710,6 +711,11 @@ export async function fetchGlMRDetailedList(
   runtime: PRRuntime,
   ref: GlMRRef,
 ): Promise<PRDetailedListItem[]> {
-  const raw = await fetchGlMRRaw(runtime, ref);
-  return raw.map(mapGlMrToDetailedItem);
+  // Query opened and merged separately so a burst of recent merges can't push
+  // older *open* MRs past the limit and hide them from the dashboard.
+  const [opened, merged] = await Promise.all([
+    fetchGlMRRaw(runtime, ref, "per_page=100&state=opened"),
+    fetchGlMRRaw(runtime, ref, "per_page=30&state=merged"),
+  ]);
+  return [...opened, ...merged].map(mapGlMrToDetailedItem);
 }

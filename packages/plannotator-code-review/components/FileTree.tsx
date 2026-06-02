@@ -226,11 +226,11 @@ export const FileTree: React.FC<FileTreeProps> = ({
   }, [allFolderPaths, areAllFoldersExpanded]);
 
   return (
-    <aside className="border-r border-border/50 bg-card/30 flex flex-col flex-shrink-0 overflow-hidden" style={{ width: width ?? 256 }}>
+    <aside data-cr-sidebar="left" className="border-r border-border/50 bg-card/30 flex flex-col flex-shrink-0 overflow-hidden" style={{ width: `var(--cr-filetree-w, ${width ?? 256}px)` }}>
       {/* Header */}
       <div className="px-3 flex items-center border-b border-border/50" style={{ height: 'var(--panel-header-h)' }}>
         <div className="w-full flex items-center justify-between">
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          <span className="text-xs font-medium text-foreground">
             {searchQuery.trim() ? 'Results' : 'Files'}
           </span>
           <div className="flex items-center gap-1.5">

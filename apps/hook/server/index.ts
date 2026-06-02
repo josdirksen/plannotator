@@ -620,7 +620,7 @@ function registerDaemonSessionInterruptCleanup(
   };
 }
 
-async function runDaemonSessionRequest(request: PluginRequest, options: { pluginError?: boolean } = {}): Promise<{
+async function runDaemonSessionRequest(request: PluginRequest, options: { pluginError?: boolean; announceUrl?: boolean } = {}): Promise<{
   result: PluginActionResult;
   session: PluginSessionInfo;
 }> {
@@ -656,6 +656,16 @@ async function runDaemonSessionRequest(request: PluginRequest, options: { plugin
       process.stderr.write(formatRemoteShareNotice(created.session.remoteShare));
     } else if (daemon.state.isRemote) {
       process.stderr.write(`\n  Open this forwarded Plannotator session URL:\n  ${created.session.url}\n\n`);
+    } else if (options.announceUrl) {
+      // Local interactive commands otherwise say nothing while they block on the
+      // result. Print the session URL (to stderr — stdout carries the feedback
+      // the slash command captures) so the session is never a silent black box,
+      // and note whether a tab was opened or it streamed into an open window.
+      const label = created.session.mode.replace(/-/g, " ");
+      const where = created.browserAction === "notified"
+        ? "sent to your open Plannotator window"
+        : "opened in your browser";
+      process.stderr.write(`\n  Plannotator ${label} session ready — ${where}:\n  ${created.session.url}\n\n`);
     }
     if (options.pluginError) {
       emitPluginSessionReady(session);
@@ -834,7 +844,7 @@ if (args[0] === "sessions") {
     args: args.slice(1).join(" "),
     sharingEnabled,
     shareBaseUrl,
-  });
+  }, { announceUrl: true });
   const result = outcome.result as { approved?: boolean; feedback?: string; prompt?: string; exit?: boolean };
 
   if (result.exit) {
@@ -867,7 +877,7 @@ if (args[0] === "sessions") {
     sharingEnabled,
     shareBaseUrl,
     pasteApiUrl,
-  });
+  }, { announceUrl: true });
   emitAnnotateOutcome(outcome.result as { feedback: string; prompt?: string; exit?: boolean; approved?: boolean });
   process.exit(0);
 
@@ -1008,7 +1018,7 @@ if (args[0] === "sessions") {
     sharingEnabled,
     shareBaseUrl,
     pasteApiUrl,
-  });
+  }, { announceUrl: true });
 
   emitAnnotateOutcome(outcome.result as { feedback: string; prompt?: string; exit?: boolean; approved?: boolean });
   process.exit(0);
@@ -1045,7 +1055,7 @@ if (args[0] === "sessions") {
     bundle,
     stage,
     goalSlug: bundle.goalSlug,
-  });
+  }, { announceUrl: true });
 
   if (outcome?.result) {
     const result = outcome.result as import("@plannotator/shared/plugin-protocol").PluginGoalSetupResult;
@@ -1102,7 +1112,7 @@ if (args[0] === "sessions") {
     sharingEnabled,
     shareBaseUrl,
     pasteApiUrl,
-  });
+  }, { announceUrl: true });
   const result = outcome.result as { approved?: boolean; feedback?: string; prompt?: string };
 
   // Output Copilot CLI permission decision format
@@ -1162,7 +1172,7 @@ if (args[0] === "sessions") {
     sharingEnabled,
     shareBaseUrl,
     pasteApiUrl,
-  });
+  }, { announceUrl: true });
 
   emitAnnotateOutcome(outcome.result as { feedback: string; prompt?: string; exit?: boolean; approved?: boolean });
   process.exit(0);

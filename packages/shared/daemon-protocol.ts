@@ -120,6 +120,12 @@ export interface DaemonCreateSessionRequest {
 export interface DaemonCreateSessionResponse {
   ok: true;
   session: DaemonSessionSummary;
+  /**
+   * How the daemon presented the freshly created session: "opened" launched a
+   * new browser tab, "notified" streamed it into an already-focused frontend.
+   * Absent for frontend-initiated sessions (no presentation step runs).
+   */
+  browserAction?: "opened" | "notified";
 }
 
 export interface DaemonSessionBootstrapResponse {

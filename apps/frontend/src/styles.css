@@ -61,6 +61,14 @@
   opacity: 1;
 }
 
+/* Same whole-sidebar hover-reveal for the code-review file tree + review
+   sidebar. Separate attributes from the plan panes so the two screens stay
+   independent; the button still also reveals on direct handle hover. */
+[data-cr-panes]:has([data-cr-sidebar="left"]:hover) [data-collapse="left"],
+[data-cr-panes]:has([data-cr-sidebar="right"]:hover) [data-collapse="right"] {
+  opacity: 1;
+}
+
 /* While drag-resizing the app sidebar, kill the width transition so the panel
    tracks the cursor 1:1 instead of trailing the 200ms ease. The gap spacer and
    the fixed container are the direct children of [data-slot="sidebar"]. */

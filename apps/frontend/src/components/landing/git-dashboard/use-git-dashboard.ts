@@ -55,7 +55,7 @@ export function formatRelativeTime(iso: string): string {
 
 const STALE_MS = 30_000;
 
-export function useGitDashboard(active = true) {
+export function useGitDashboard(active = true, projectFilter: string | null = null) {
   const projects = useProjectStore((s) => s.projects);
   const prs = useGitDashboardStore((s) => s.prs);
   const loading = useGitDashboardStore((s) => s.loading);
@@ -82,11 +82,24 @@ export function useGitDashboard(active = true) {
     if (stale && !loading) fetchAllPRs(projects);
   }, [active, projects, prs.length, lastFetchedAt, lastProjectKey, loading, fetchAllPRs, clear]);
 
-  const groups = useMemo(() => groupPRs(prs), [prs]);
-  const metrics = useMemo(() => computeMetrics(prs), [prs]);
+  // Project names that actually have PRs, for the filter dropdown. Derived from
+  // the full (unfiltered) set so the options stay stable while filtering.
+  const projectNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const pr of prs) names.add(pr.projectName);
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [prs]);
+
+  const filteredPRs = useMemo(
+    () => (projectFilter ? prs.filter((pr) => pr.projectName === projectFilter) : prs),
+    [prs, projectFilter],
+  );
+
+  const groups = useMemo(() => groupPRs(filteredPRs), [filteredPRs]);
+  const metrics = useMemo(() => computeMetrics(filteredPRs), [filteredPRs]);
 
   const isEmpty =
     groups.open.length === 0 && groups.draft.length === 0 && groups.merged.length === 0;
 
-  return { groups, metrics, loading, error, isEmpty };
+  return { groups, metrics, loading, error, isEmpty, projectNames };
 }

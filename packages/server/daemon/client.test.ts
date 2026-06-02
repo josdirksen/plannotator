@@ -45,7 +45,6 @@ function state() {
     hostname: "127.0.0.1",
     isRemote: false,
     remoteSource: "local",
-    authToken: AUTH_TOKEN,
     startedAt: "2026-01-01T00:00:00.000Z",
   });
 }
@@ -64,7 +63,6 @@ describe("DaemonClient", () => {
     await client.createSession({ request: { action: "plan", origin: "opencode", plan: "x" } });
 
     expect(calls[0].url).toBe("http://localhost:4321/daemon/sessions");
-    expect(calls[0].headers.get("authorization")).toBe(`Bearer ${AUTH_TOKEN}`);
     expect(calls[0].headers.get("content-type")).toBe("application/json");
     expect(await calls[0].json()).toEqual({ request: { action: "plan", origin: "opencode", plan: "x" } });
   });

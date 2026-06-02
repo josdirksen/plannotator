@@ -11,9 +11,7 @@ import type { ServerWebSocket, WebSocketHandler } from "bun";
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 
-type DaemonSocketData = {
-  daemonAuthenticated?: boolean;
-};
+type DaemonSocketData = Record<string, never>;
 type DaemonSocket = ServerWebSocket<DaemonSocketData>;
 type DaemonEventMessage = Extract<DaemonWebSocketServerMessage, { type: "event" }>;
 
@@ -33,7 +31,6 @@ interface ConnectionState {
   // clients never apply a live event and then roll back to an older snapshot.
   pendingSubscriptions: Map<string, DaemonEventMessage[]>;
   heartbeat: ReturnType<typeof setInterval>;
-  daemonAuthenticated: boolean;
   tabVisible: boolean;
   activeSessionId: string | null;
 }
@@ -110,7 +107,6 @@ export class DaemonEventHub {
     let anyVisible = false;
     const allActiveSessionIds = new Set<string>();
     for (const conn of this.connections.values()) {
-      if (!conn.daemonAuthenticated) continue;
       connected = true;
       if (conn.tabVisible) anyVisible = true;
       if (conn.activeSessionId) allActiveSessionIds.add(conn.activeSessionId);
@@ -139,7 +135,6 @@ export class DaemonEventHub {
       subscriptions: new Set(),
       pendingSubscriptions: new Map(),
       heartbeat,
-      daemonAuthenticated: socket.data?.daemonAuthenticated === true,
       tabVisible: true,
       activeSessionId: null,
     });
@@ -191,10 +186,6 @@ export class DaemonEventHub {
 
     for (const rawScope of message.scopes) {
       const scope = normalizeScope(rawScope);
-      if (!connection.daemonAuthenticated && scope.family === "daemon") {
-        this.sendError(socket, "unauthorized", "Daemon event subscriptions require authentication.", message.requestId);
-        continue;
-      }
       if (scope.family !== "daemon" && !scope.sessionId) {
         this.sendError(socket, "invalid-request", `${scope.family} subscriptions require a sessionId.`, message.requestId);
         continue;
@@ -253,10 +244,7 @@ export class DaemonEventHub {
   ): Promise<void> {
     try {
       const connection = this.connections.get(socket);
-      if (!connection?.daemonAuthenticated) {
-        this.sendError(socket, "unauthorized", "Daemon WebSocket actions require authentication.", message.requestId);
-        return;
-      }
+      if (!connection) return;
       const result = await this.options.dispatchAction(message);
       this.send(socket, {
         type: "action-result",

@@ -3,12 +3,8 @@ import {
   PLANNOTATOR_DAEMON_PROTOCOL_VERSION,
 } from "@plannotator/shared/daemon-protocol";
 import { getPlannotatorDataDir } from "@plannotator/shared/data-dir";
-import { randomBytes } from "crypto";
 import { chmodSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync, closeSync, statSync, type Stats } from "fs";
 import { dirname, join } from "path";
-
-export const DAEMON_AUTH_QUERY_PARAM = "plannotator_auth";
-export const DAEMON_AUTH_COOKIE = "plannotator_daemon_auth";
 
 export interface DaemonState {
   protocol: typeof PLANNOTATOR_DAEMON_PROTOCOL;
@@ -20,7 +16,6 @@ export interface DaemonState {
   startedAt: string;
   isRemote: boolean;
   remoteSource: "env" | "ssh" | "local";
-  authToken: string;
   requestedPort?: number;
   binaryVersion?: string;
 }
@@ -62,14 +57,9 @@ function defaultIsAlive(pid: number): boolean {
   }
 }
 
-export function createDaemonAuthToken(): string {
-  return randomBytes(32).toString("hex");
-}
-
+/** Build a browser URL for the daemon (no auth — the daemon is open on localhost). */
 export function createDaemonBrowserAuthUrl(state: DaemonState, pathname = "/"): string {
-  const url = new URL(pathname, state.baseUrl);
-  url.searchParams.set(DAEMON_AUTH_QUERY_PARAM, state.authToken);
-  return url.toString();
+  return new URL(pathname, state.baseUrl).toString();
 }
 
 export function getDaemonPaths(options: DaemonStateOptions = {}): DaemonPaths {
@@ -98,9 +88,7 @@ export function isDaemonState(value: unknown): value is DaemonState {
     typeof state.hostname === "string" &&
     typeof state.baseUrl === "string" &&
     typeof state.startedAt === "string" &&
-    typeof state.isRemote === "boolean" &&
-    typeof state.authToken === "string" &&
-    state.authToken.length >= 32
+    typeof state.isRemote === "boolean"
   );
 }
 
@@ -246,7 +234,6 @@ export function createDaemonState(input: {
   hostname: string;
   isRemote: boolean;
   remoteSource: DaemonState["remoteSource"];
-  authToken?: string;
   startedAt?: string;
   binaryVersion?: string;
   requestedPort?: number;
@@ -264,7 +251,6 @@ export function createDaemonState(input: {
     startedAt: input.startedAt ?? new Date().toISOString(),
     isRemote: input.isRemote,
     remoteSource: input.remoteSource,
-    authToken: input.authToken ?? createDaemonAuthToken(),
     ...(input.binaryVersion && { binaryVersion: input.binaryVersion }),
     ...(input.requestedPort !== undefined && { requestedPort: input.requestedPort }),
   };

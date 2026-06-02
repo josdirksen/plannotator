@@ -2,8 +2,8 @@
 # Ad-hoc session launcher for manual / visual UX testing.
 #
 # Creates a plan, annotate, or review session against the RUNNING daemon using the
-# repo's test fixtures — no agent flow required. Prints an openable URL (auth included)
-# and the daemon also opens it in the browser if no frontend is already connected.
+# repo's test fixtures — no agent flow required. Prints an openable URL and the
+# daemon also opens it in the browser if no frontend is already connected.
 #
 # Usage:
 #   ./scripts/launch-session.sh [plan|annotate|review] [fixture]
@@ -49,7 +49,7 @@ daemon_path = os.path.expanduser("~/.plannotator/daemon.json")
 if not os.path.exists(daemon_path):
     sys.exit("No daemon running. Start one with: plannotator daemon start")
 d = json.load(open(daemon_path))
-base, token = d["baseUrl"], d["authToken"]
+base = d["baseUrl"]
 
 def resolve_fixture(arg, default="05-real-world-plan.md"):
     if not arg:
@@ -81,7 +81,7 @@ else:
 body = json.dumps({"request": req}).encode()
 r = urllib.request.Request(
     base + "/daemon/sessions", data=body, method="POST",
-    headers={"Content-Type": "application/json", "Authorization": "Bearer " + token})
+    headers={"Content-Type": "application/json"})
 try:
     resp = json.load(urllib.request.urlopen(r))
 except urllib.error.HTTPError as e:
@@ -89,7 +89,7 @@ except urllib.error.HTTPError as e:
 
 sess = resp.get("session", {}) or {}
 url = sess.get("url", "")
-open_url = f"{url}?plannotator_auth={token}" if url else "(no url returned)"
+open_url = url if url else "(no url returned)"
 print(f"mode     : {mode}")
 if path:
     print(f"fixture  : {os.path.relpath(path, root)}")

@@ -82,103 +82,46 @@ describe("daemon HTTP router", () => {
     expect(text).not.toContain("__PLANNOTATOR_API_BASE__");
   });
 
-  test("bootstraps browser daemon auth through a cookie", async () => {
-    const { handler } = makeHandler();
-    const res = await handler(new Request(`http://127.0.0.1:4321/?plannotator_auth=${AUTH_TOKEN}`));
-
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("http://127.0.0.1:4321/");
-    expect(res.headers.get("set-cookie")).toContain("plannotator_daemon_auth=");
-
-    const sessionRes = await handler(new Request(`http://127.0.0.1:4321/s/test-session?plannotator_auth=${AUTH_TOKEN}`));
-    expect(sessionRes.status).toBe(302);
-    expect(sessionRes.headers.get("location")).toBe("http://127.0.0.1:4321/s/test-session");
-    expect(sessionRes.headers.get("set-cookie")).toContain("plannotator_daemon_auth=");
-
-    const status = await handler(new Request("http://127.0.0.1:4321/daemon/status", {
-      headers: { cookie: `plannotator_daemon_auth=${AUTH_TOKEN}` },
-    }));
-    expect(status.status).toBe(200);
-
-    const apiWithQueryToken = await handler(new Request(`http://127.0.0.1:4321/daemon/status?plannotator_auth=${AUTH_TOKEN}`));
-    expect(apiWithQueryToken.status).toBe(401);
-    expect(apiWithQueryToken.headers.get("set-cookie")).toBeNull();
-  });
-
-  test("rejects unauthenticated daemon control requests", async () => {
+  test("serves daemon control requests without auth (token removed)", async () => {
     const { handler } = makeHandler();
     const status = await handler(new Request("http://127.0.0.1:4321/daemon/status"));
-    const create = await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
-    }));
-
-    expect(status.status).toBe(401);
-    expect((await status.json()).error.code).toBe("unauthorized");
-    expect(create.status).toBe(401);
-    expect((await create.json()).error.code).toBe("unauthorized");
+    expect(status.status).toBe(200);
   });
 
-  test("authenticates daemon WebSocket upgrades", async () => {
+  test("allows same-origin WebSocket upgrades and rejects cross-origin", async () => {
     const { handler } = makeHandler();
     const upgradeData: unknown[] = [];
+    const upgradeWebSocket = (data: unknown) => {
+      upgradeData.push(data);
+      return undefined;
+    };
 
-    const unauthenticated = await handler(
-      new Request("http://127.0.0.1:4321/daemon/ws"),
-      {
-        upgradeWebSocket: (data) => {
-          upgradeData.push(data);
-          return undefined;
-        },
-      },
-    );
-    expect(unauthenticated).toBeUndefined();
+    // No Origin header → allowed (same-process / non-browser client).
+    const noOrigin = await handler(new Request("http://127.0.0.1:4321/daemon/ws"), {
+      upgradeWebSocket,
+    });
+    expect(noOrigin).toBeUndefined();
 
-    const authenticated = await handler(
+    // Same-origin → allowed.
+    const sameOrigin = await handler(
       new Request("http://127.0.0.1:4321/daemon/ws", {
-        headers: authHeaders({ origin: "http://127.0.0.1:4321" }),
-      }),
-      {
-        upgradeWebSocket: (data) => {
-          upgradeData.push(data);
-          return undefined;
-        },
-      },
-    );
-    expect(authenticated).toBeUndefined();
-
-    const queryAuthenticated = await handler(
-      new Request(`http://127.0.0.1:4321/daemon/ws?plannotator_auth=${AUTH_TOKEN}`, {
         headers: { origin: "http://127.0.0.1:4321" },
       }),
-      {
-        upgradeWebSocket: (data) => {
-          upgradeData.push(data);
-          return undefined;
-        },
-      },
+      { upgradeWebSocket },
     );
-    expect(queryAuthenticated).toBeUndefined();
+    expect(sameOrigin).toBeUndefined();
 
+    // Cross-origin → rejected.
     const crossOrigin = await handler(
       new Request("http://127.0.0.1:4321/daemon/ws", {
         headers: { origin: "http://evil.example" },
       }),
-      {
-        upgradeWebSocket: (data) => {
-          upgradeData.push(data);
-          return undefined;
-        },
-      },
+      { upgradeWebSocket },
     );
     expect(crossOrigin?.status).toBe(403);
 
-    expect(upgradeData).toEqual([
-      { daemonAuthenticated: false },
-      { daemonAuthenticated: true },
-      { daemonAuthenticated: true },
-    ]);
+    // No auth metadata passed to the socket anymore.
+    expect(upgradeData).toEqual([{}, {}]);
   });
 
   test("reports daemon status with active session count", async () => {
@@ -354,7 +297,7 @@ describe("daemon HTTP router", () => {
     expect(s1Socket.sent).toHaveLength(2);
   });
 
-  test("allows unauthenticated WebSocket clients to subscribe only to session scopes", async () => {
+  test("WebSocket clients can subscribe to the daemon scope without auth", async () => {
     const { handler } = makeHandler();
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
@@ -363,20 +306,17 @@ describe("daemon HTTP router", () => {
     }));
 
     const socket = new FakeSocket();
-    socket.data = { daemonAuthenticated: false };
     handler.websocket.open?.(socket as never);
 
+    // Daemon scope subscribes successfully now (no auth gate).
     await handler.websocket.message?.(socket as never, JSON.stringify({
       type: "subscribe",
       requestId: "daemon-sub",
       scopes: [{ family: "daemon" }],
     }));
-    expect(socket.sent[0]).toMatchObject({
-      type: "error",
-      requestId: "daemon-sub",
-      code: "unauthorized",
-    });
+    expect(socket.sent[0]).toMatchObject({ type: "snapshot", scope: { family: "daemon" } });
 
+    // Session scopes still validate the session exists/supports the family.
     await handler.websocket.message?.(socket as never, JSON.stringify({
       type: "subscribe",
       requestId: "session-sub",
@@ -386,25 +326,6 @@ describe("daemon HTTP router", () => {
       type: "error",
       requestId: "session-sub",
       code: "session-not-found",
-    });
-  });
-
-  test("treats missing WebSocket auth metadata as unauthenticated", async () => {
-    const { handler } = makeHandler();
-    const socket = new FakeSocket();
-    socket.data = undefined;
-    handler.websocket.open?.(socket as never);
-
-    await handler.websocket.message?.(socket as never, JSON.stringify({
-      type: "subscribe",
-      requestId: "daemon-sub",
-      scopes: [{ family: "daemon" }],
-    }));
-
-    expect(socket.sent[0]).toMatchObject({
-      type: "error",
-      requestId: "daemon-sub",
-      code: "unauthorized",
     });
   });
 

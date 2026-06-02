@@ -7,12 +7,12 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { viteSingleFile } from "vite-plugin-singlefile";
 
-function discoverDaemon(): { baseUrl: string; authToken: string } | undefined {
+function discoverDaemon(): { baseUrl: string } | undefined {
   try {
     const statePath = path.join(os.homedir(), ".plannotator", "daemon.json");
     const raw = JSON.parse(fs.readFileSync(statePath, "utf-8"));
-    if (raw.baseUrl && raw.authToken) {
-      return { baseUrl: raw.baseUrl, authToken: raw.authToken };
+    if (raw.baseUrl) {
+      return { baseUrl: raw.baseUrl };
     }
   } catch {}
   return undefined;
@@ -38,7 +38,6 @@ export default defineConfig(({ command }) => {
             "/daemon": {
               target: daemon.baseUrl,
               ws: true,
-              headers: { Authorization: `Bearer ${daemon.authToken}` },
             },
             "^/s/[^/]+/api": {
               target: daemon.baseUrl,

@@ -62,9 +62,9 @@ export interface AnnotateServerOptions {
   sourceConverted?: boolean;
   /** Enable review-gate UX: adds an Approve button alongside Close/Send Annotations (#570) */
   gate?: boolean;
-  /** Raw HTML content for direct iframe rendering (--render-html mode) */
+  /** Raw HTML content for direct iframe rendering (HTML render mode) */
   rawHtml?: string;
-  /** Render HTML as-is in an iframe instead of converting to markdown */
+  /** Render HTML as-is in an iframe instead of converting to markdown (default for .html) */
   renderHtml?: boolean;
   /** Session-level force-markdown preference (`--markdown`). Exposed in /api/plan so the
    *  frontend appends `&convert=1` when navigating folder/linked HTML files. */

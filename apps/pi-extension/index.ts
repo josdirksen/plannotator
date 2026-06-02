@@ -410,11 +410,13 @@ export default function plannotator(pi: ExtensionAPI): void {
 		description: "Open markdown file or folder in annotation UI",
 		handler: async (args, ctx) => {
 			const rawAnnotateArgs = args ?? "";
-			const hasTarget = rawAnnotateArgs.replace(/--gate|--render-html|--json|--hook/g, "").trim().length > 0;
+			// HTML renders raw by default; `--markdown` is the conversion opt-out. `--render-html`
+			// is still stripped/recognized as a deprecated no-op. All flags are forwarded verbatim
+			// in `args` to the binary, whose parseAnnotateArgs is the source of truth.
+			const hasTarget = rawAnnotateArgs.replace(/--gate|--render-html|--markdown|--json|--hook/g, "").trim().length > 0;
 			const gate = rawAnnotateArgs.includes("--gate") || rawAnnotateArgs.includes("--hook");
-			const renderHtmlFlag = rawAnnotateArgs.includes("--render-html");
 			if (!hasTarget) {
-				ctx.ui.notify("Usage: /plannotator-annotate <file.md | file.html | https://... | folder/> [--gate] [--json]", "error");
+				ctx.ui.notify("Usage: /plannotator-annotate <file.md | file.html | https://... | folder/> [--gate] [--json] [--markdown]", "error");
 				return;
 			}
 
@@ -422,7 +424,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 			const origin = getPiSessionIdentity(ctx);
 
 			try {
-				const session = await startAnnotationSessionFromArgs(ctx, rawAnnotateArgs, { gate, renderHtml: renderHtmlFlag });
+				const session = await startAnnotationSessionFromArgs(ctx, rawAnnotateArgs, { gate });
 				ctx.ui.notify("Annotation opened. You can keep chatting while it runs.", "info");
 				void session
 					.waitForDecision()

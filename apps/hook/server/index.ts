@@ -151,6 +151,11 @@ if (hookFlag) gateFlag = true;
 const renderHtmlIdx = args.indexOf("--render-html");
 const renderHtmlFlag = renderHtmlIdx !== -1;
 if (renderHtmlFlag) args.splice(renderHtmlIdx, 1);
+// HTML renders raw by default now; `--markdown` is the explicit opt-out that forces
+// Turndown conversion (`--render-html` above is the deprecated no-op).
+const markdownIdx = args.indexOf("--markdown");
+const markdownFlag = markdownIdx !== -1;
+if (markdownFlag) args.splice(markdownIdx, 1);
 
 // Stdout matrix for annotate / annotate-last / copilot annotate-last (#570).
 //
@@ -874,6 +879,7 @@ if (args[0] === "sessions") {
     jinaApiKey: process.env.JINA_API_KEY,
     gate: gateFlag,
     renderHtml: renderHtmlFlag,
+    convertHtml: markdownFlag,
     sharingEnabled,
     shareBaseUrl,
     pasteApiUrl,

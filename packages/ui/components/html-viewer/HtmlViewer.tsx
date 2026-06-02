@@ -75,6 +75,9 @@ export interface HtmlViewerProps {
   onAddGlobalAttachment?: (image: ImageAttachment) => void;
   onRemoveGlobalAttachment?: (path: string) => void;
   maxWidth?: number | null;
+  /** Render edge-to-edge: fill the viewport, drop the card chrome + action bar,
+   *  and let the iframe own the full height instead of auto-resizing to content. */
+  fullViewport?: boolean;
   onAskAI?: (question: string, context: CommentAskAIContext) => void;
 }
 
@@ -91,6 +94,7 @@ export const HtmlViewer = forwardRef<ViewerHandle, HtmlViewerProps>(
       onAddGlobalAttachment,
       onRemoveGlobalAttachment,
       maxWidth,
+      fullViewport,
       onAskAI,
     },
     ref,
@@ -198,10 +202,12 @@ export const HtmlViewer = forwardRef<ViewerHandle, HtmlViewerProps>(
     return (
       <>
         <div
-          className="relative w-full"
-          style={{ maxWidth: maxWidth ?? undefined }}
+          className={`relative w-full${fullViewport ? " h-full flex flex-col" : ""}`}
+          style={fullViewport ? undefined : { maxWidth: maxWidth ?? undefined }}
         >
-          {/* Action bar — positioned above the iframe, outside overflow:hidden */}
+          {/* Action bar — positioned above the iframe, outside overflow:hidden.
+              Hidden in full-viewport mode: edge-to-edge HTML has no card chrome. */}
+          {!fullViewport && (
           <div data-print-hide className="flex justify-end gap-1 md:gap-2 mb-2">
             {onAddGlobalAttachment && onRemoveGlobalAttachment && (
               <AttachmentsButton
@@ -228,10 +234,11 @@ export const HtmlViewer = forwardRef<ViewerHandle, HtmlViewerProps>(
               <span>Comment</span>
             </button>
           </div>
+          )}
 
           <article
             data-print-region="article"
-            className="relative bg-card rounded-xl shadow-xl overflow-hidden w-full"
+            className={fullViewport ? "relative overflow-hidden w-full flex-1" : "relative bg-card rounded-xl shadow-xl overflow-hidden w-full"}
           >
             <iframe
             ref={iframeRef}
@@ -239,7 +246,7 @@ export const HtmlViewer = forwardRef<ViewerHandle, HtmlViewerProps>(
             sandbox="allow-scripts"
             style={{
               width: "100%",
-              height: `${iframeHeight}px`,
+              height: fullViewport ? "100%" : `${iframeHeight}px`,
               border: "none",
               display: "block",
               colorScheme: "auto",

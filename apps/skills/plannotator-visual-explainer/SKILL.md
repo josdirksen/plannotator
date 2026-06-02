@@ -24,14 +24,16 @@ Three paths depending on content type. Each has its own references and structure
 
 Always deliver via Plannotator's annotation UI. Do NOT use `open` or `xdg-open`.
 
+`.html` files render as-is (full-width) by default — no flag needed.
+
 **Plans/proposals** (user should approve/deny):
 ```bash
-plannotator annotate <file> --render-html --gate
+plannotator annotate <file> --gate
 ```
 
 **Everything else** (informational):
 ```bash
-plannotator annotate <file> --render-html
+plannotator annotate <file>
 ```
 
 ---

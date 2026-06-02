@@ -44,6 +44,9 @@ export interface ParsedAnnotateArgs {
   json: boolean;
   hook: boolean;
   renderHtml: boolean;
+  /** Force HTML→markdown conversion (Turndown). HTML now renders raw by default;
+   *  `--markdown` is the explicit opt-out. `--render-html` is the deprecated no-op. */
+  markdown: boolean;
 }
 
 type Segment = { type: "ws" | "tok"; text: string };
@@ -53,11 +56,12 @@ const FLAG_MAP = {
   "--json": "json",
   "--hook": "hook",
   "--render-html": "renderHtml",
+  "--markdown": "markdown",
 } as const satisfies Record<string, keyof Omit<ParsedAnnotateArgs, "filePath" | "rawFilePath">>;
 
 export function parseAnnotateArgs(raw: string): ParsedAnnotateArgs {
   const s = (raw ?? "").trim();
-  const flags = { gate: false, json: false, hook: false, renderHtml: false };
+  const flags = { gate: false, json: false, hook: false, renderHtml: false, markdown: false };
 
   const segments: Segment[] = [];
   for (let i = 0; i < s.length;) {

@@ -66,6 +66,9 @@ export interface AnnotateServerOptions {
   rawHtml?: string;
   /** Render HTML as-is in an iframe instead of converting to markdown */
   renderHtml?: boolean;
+  /** Session-level force-markdown preference (`--markdown`). Exposed in /api/plan so the
+   *  frontend appends `&convert=1` when navigating folder/linked HTML files. */
+  convertHtml?: boolean;
   /** Called when server starts with the URL, remote status, and port */
   onReady?: (url: string, isRemote: boolean, port: number) => void;
   /** Optional daemon event bridge for live session-scoped events. */
@@ -109,6 +112,7 @@ export async function createAnnotateSession(
     gate = false,
     rawHtml: initialRawHtml,
     renderHtml = false,
+    convertHtml = false,
     project: optionalProject,
     worktreeSeg,
   } = options;
@@ -178,6 +182,7 @@ export async function createAnnotateSession(
               gate,
               renderAs: renderHtml && rawHtml ? 'html' as const : 'markdown' as const,
               ...(renderHtml && rawHtml ? { rawHtml } : {}),
+              convertHtml,
               sharingEnabled,
               shareBaseUrl,
               pasteApiUrl,

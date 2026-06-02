@@ -73,6 +73,9 @@ export interface PluginAnnotateRequest extends PluginBaseRequest {
   gate?: boolean;
   rawHtml?: string;
   renderHtml?: boolean;
+  /** Force HTML→markdown conversion. HTML files render raw by default; this is the
+   *  `--markdown` opt-out carried by structured (non-arg-string) callers. */
+  convertHtml?: boolean;
 }
 
 export interface PluginGoalSetupRequest extends PluginBaseRequest {

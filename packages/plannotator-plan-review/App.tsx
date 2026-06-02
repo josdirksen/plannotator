@@ -182,6 +182,9 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const [sourceConverted, setSourceConverted] = useState(false);
   const [renderAs, setRenderAs] = useState<'markdown' | 'html'>('markdown');
   const [rawHtml, setRawHtml] = useState('');
+  // Session-level force-markdown preference (`--markdown`). When set, folder/linked HTML
+  // files are converted instead of rendered raw — threaded into /api/doc as &convert=1.
+  const [convertHtml, setConvertHtml] = useState(false);
   const [sourceFilePath, setSourceFilePath] = useState<string | undefined>();
   const [imageBaseDir, setImageBaseDir] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
@@ -405,6 +408,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const linkedDocHook = useLinkedDoc({
     markdown, annotations, selectedAnnotationId, globalAttachments,
     setMarkdown, setAnnotations, setSelectedAnnotationId, setGlobalAttachments,
+    renderAs, rawHtml, setRenderAs, setRawHtml,
     viewerRef, sidebar: linkedDocSidebar, sourceFilePath, sourceConverted,
   });
 
@@ -492,10 +496,10 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
 
   // File browser file selection: open via linked doc system
   const handleFileBrowserSelect = React.useCallback((absolutePath: string, dirPath: string) => {
-    const buildUrl = (path: string) => `/api/doc?path=${encodeURIComponent(path)}&base=${encodeURIComponent(dirPath)}`;
+    const buildUrl = (path: string) => `/api/doc?path=${encodeURIComponent(path)}&base=${encodeURIComponent(dirPath)}${convertHtml ? '&convert=1' : ''}`;
     linkedDocHook.open(absolutePath, buildUrl, 'files');
     fileBrowser.setActiveFile(absolutePath);
-  }, [linkedDocHook, fileBrowser]);
+  }, [linkedDocHook, fileBrowser, convertHtml]);
 
   // Route linked doc opens through the correct endpoint based on current context
   const handleOpenLinkedDoc = React.useCallback((docPath: string) => {
@@ -503,7 +507,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
       // When viewing a file browser doc, resolve links relative to current file's directory
       const baseDir = linkedDocHook.filepath?.replace(/\/[^/]+$/, '') || fileBrowser.activeDirPath;
       linkedDocHook.open(docPath, (path) =>
-        `/api/doc?path=${encodeURIComponent(path)}&base=${encodeURIComponent(baseDir)}`
+        `/api/doc?path=${encodeURIComponent(path)}&base=${encodeURIComponent(baseDir)}${convertHtml ? '&convert=1' : ''}`
       );
     } else {
       // Pass the current file's directory as base for relative path resolution
@@ -512,13 +516,13 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
         : imageBaseDir?.includes('/') ? imageBaseDir : undefined;
       if (baseDir) {
         linkedDocHook.open(docPath, (path) =>
-          `/api/doc?path=${encodeURIComponent(path)}&base=${encodeURIComponent(baseDir)}`
+          `/api/doc?path=${encodeURIComponent(path)}&base=${encodeURIComponent(baseDir)}${convertHtml ? '&convert=1' : ''}`
         );
       } else {
         linkedDocHook.open(docPath);
       }
     }
-  }, [fileBrowser.activeDirPath, fileBrowser.activeFile, linkedDocHook, imageBaseDir]);
+  }, [fileBrowser.activeDirPath, fileBrowser.activeFile, linkedDocHook, imageBaseDir, convertHtml]);
 
   // Wrap linked doc back to also clear file browser active file
   const handleLinkedDocBack = React.useCallback(() => {
@@ -809,9 +813,12 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
         if (!res.ok) throw new Error('Not in API mode');
         return res.json();
       })
-      .then((data: { plan: string; origin?: Origin; mode?: 'annotate' | 'annotate-last' | 'annotate-folder' | 'goal-setup'; goalSetup?: GoalSetupBundle; filePath?: string; sourceInfo?: string; sourceConverted?: boolean; gate?: boolean; renderAs?: 'html' | 'markdown'; rawHtml?: string; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string; host?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; projectRoot?: string; isWSL?: boolean; serverConfig?: { displayName?: string; gitUser?: string }; lastDecision?: 'approved' | 'denied' | 'exited' | 'feedback' | null }) => {
+      .then((data: { plan: string; origin?: Origin; mode?: 'annotate' | 'annotate-last' | 'annotate-folder' | 'goal-setup'; goalSetup?: GoalSetupBundle; filePath?: string; sourceInfo?: string; sourceConverted?: boolean; gate?: boolean; renderAs?: 'html' | 'markdown'; rawHtml?: string; convertHtml?: boolean; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string; host?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; projectRoot?: string; isWSL?: boolean; serverConfig?: { displayName?: string; gitUser?: string }; lastDecision?: 'approved' | 'denied' | 'exited' | 'feedback' | null }) => {
         // Initialize config store with server-provided values (config file > cookie > default)
         configStore.getState().init(data.serverConfig);
+        // Session-level force-markdown preference (--markdown); threaded into folder/linked
+        // /api/doc requests so on-demand HTML files convert too.
+        setConvertHtml(data.convertHtml ?? false);
         // Enable the Ask AI document chat session for plan review (disabled for
         // goal-setup mode, which has no reviewable document context).
         setAISessionEnabled(data.mode !== 'goal-setup');
@@ -1441,7 +1448,9 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const aiSourceConverted = linkedDocHook.isActive
     ? (linkedDocHook.getDocAnnotations().get(linkedDocHook.filepath ?? '')?.isConverted ?? false)
     : sourceConverted;
-  const aiRenderAs = linkedDocHook.isActive ? 'markdown' : renderAs;
+  // renderAs now tracks the active file (plan, linked doc, or folder file), so the AI
+  // sees the current surface's mode — raw HTML for an .html file, markdown otherwise.
+  const aiRenderAs = renderAs;
   const aiDocumentMode = annotateMode || linkedDocHook.isActive;
   const hasAIDocumentContext =
     !aiDocumentMode ||
@@ -1767,6 +1776,9 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
     return opt ? opt.px : 832;
   }, [planWidth]);
   const annotateReaderMaxWidth = canUseWideMode && wideModeType === 'wide' ? null : planMaxWidth;
+  // HTML surfaces (rendered .html, not Turndown'd) get an edge-to-edge, full-viewport
+  // layout: no centered reading column, card chrome, sticky actions, or wide-mode toggle.
+  const isHtmlSurface = renderAs === 'html';
   const selectedAIProvider = aiProviders.find(provider => provider.id === aiConfig.providerId) ?? null;
   const shouldShowPlanAIAnnouncement =
     showPlanAIAnnouncement &&
@@ -1943,18 +1955,18 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
           {/* Document Area */}
           <OverlayScrollArea
             element="main"
-            className={`flex-1 min-w-0 ${gridEnabled ? 'bg-grid ' : 'bg-card '}${!goalSetupMode && !sidebar.isOpen && wideModeType === null ? 'lg:pl-[30px]' : ''}`}
+            className={`flex-1 min-w-0 ${isHtmlSurface ? 'bg-background' : `${gridEnabled ? 'bg-grid ' : 'bg-card '}${!goalSetupMode && !sidebar.isOpen && wideModeType === null ? 'lg:pl-[30px]' : ''}`}`}
             data-print-region="document"
             onViewportReady={handleViewportReady}
           >
-            <div ref={planAreaRef} className="min-h-full flex flex-col items-center px-2 py-3 md:px-10 md:py-8 xl:px-16 relative z-10">
+            <div ref={planAreaRef} className={`${isHtmlSurface ? 'h-full flex flex-col' : 'min-h-full flex flex-col items-center px-2 py-3 md:px-10 md:py-8 xl:px-16'} relative z-10`}>
               {/* Sticky header lane — ghost bar that pins the toolstrip +
                   badges at top: 12px once the user scrolls. Invisible at top
                   of doc; original toolstrip/badges remain the source of
                   truth there. Hidden in plan diff mode, or when
                   sticky actions are disabled. remountToken re-anchors the
                   ResizeObserver when Viewer swaps content (linked docs). */}
-              {!goalSetupMode && !isPlanDiffActive && stickyActionsEnabled && (
+              {!goalSetupMode && !isPlanDiffActive && !isHtmlSurface && stickyActionsEnabled && (
                 <StickyHeaderLane
                   inputMethod={inputMethod}
                   onInputMethodChange={handleInputMethodChange}
@@ -1972,8 +1984,8 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                 />
               )}
 
-              {/* Annotation Toolstrip (hidden during plan diff) */}
-              {!goalSetupMode && !isPlanDiffActive && (
+              {/* Annotation Toolstrip (hidden during plan diff and on HTML surfaces) */}
+              {!goalSetupMode && !isPlanDiffActive && !isHtmlSurface && (
                 <div data-print-hide className="w-full mb-3 md:mb-4 flex items-center justify-start" style={annotateReaderMaxWidth == null ? undefined : { maxWidth: annotateReaderMaxWidth }}>
                   <AnnotationToolstrip
                     inputMethod={inputMethod}
@@ -2028,8 +2040,8 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                 </div>
               )}
               {/* Normal Plan View — always mounted, hidden during diff mode */}
-              <div className="w-full flex justify-center relative" style={{ display: goalSetupMode || (isPlanDiffActive && planDiff.diffBlocks) || (annotateSource === 'folder' && !markdown && !linkedDocHook.isActive) ? 'none' : undefined }}>
-                {canUseWideMode && !isPlanDiffActive && (
+              <div className={`w-full relative ${isHtmlSurface ? 'flex-1 flex flex-col' : 'flex justify-center'}`} style={{ display: goalSetupMode || (isPlanDiffActive && planDiff.diffBlocks) || (annotateSource === 'folder' && !markdown && !linkedDocHook.isActive) ? 'none' : undefined }}>
+                {canUseWideMode && !isPlanDiffActive && !isHtmlSurface && (
                   <div
                     data-print-hide
                     className="absolute -top-5 left-0 right-0 mx-auto w-full flex justify-end pointer-events-none"
@@ -2064,6 +2076,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                 )}
                 {renderAs === 'html' ? (
                   <HtmlViewer
+                    key={linkedDocHook.isActive ? `doc:${linkedDocHook.filepath}` : 'plan'}
                     ref={viewerRef}
                     rawHtml={rawHtml}
                     annotations={viewerAnnotations}
@@ -2074,7 +2087,8 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                     globalAttachments={globalAttachments}
                     onAddGlobalAttachment={handleAddGlobalAttachment}
                     onRemoveGlobalAttachment={handleRemoveGlobalAttachment}
-                    maxWidth={annotateReaderMaxWidth}
+                    maxWidth={isHtmlSurface ? null : annotateReaderMaxWidth}
+                    fullViewport={isHtmlSurface}
                     onAskAI={canUseAI ? handleAskAI : undefined}
                   />
                 ) : (

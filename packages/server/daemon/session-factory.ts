@@ -93,6 +93,9 @@ type AnnotateInput = {
   gate?: boolean;
   rawHtml?: string;
   renderHtml?: boolean;
+  /** Session-level force-markdown preference (`--markdown`). The frontend threads this
+   *  into folder/linked-doc `/api/doc` requests so on-demand HTML files convert too. */
+  convertHtml?: boolean;
 };
 
 function getRequestCwd(request: { cwd?: string }): string {
@@ -268,7 +271,11 @@ async function resolveAnnotateInput(
   const parsedArgs = hasRawArgs ? parseAnnotateArgs(request.args ?? "") : undefined;
   const structuredFilePath = typeof request.filePath === "string" ? request.filePath : "";
   const gate = request.gate ?? parsedArgs?.gate ?? false;
-  const renderHtml = request.renderHtml ?? (typeof request.rawHtml === "string" ? true : parsedArgs?.renderHtml ?? false);
+  // HTML now renders raw by default. `--markdown` (or structured `convertHtml`) is the
+  // explicit opt-out that forces Turndown conversion. `--render-html`/`renderHtml` is the
+  // deprecated no-op (its old effect is now the default). Inline `rawHtml` still implies render.
+  const forceMarkdown = request.convertHtml ?? parsedArgs?.markdown ?? false;
+  let renderHtml = request.renderHtml ?? (typeof request.rawHtml === "string" ? true : parsedArgs?.renderHtml ?? false);
 
   let markdown = directMarkdown ? request.markdown! : "";
   let rawHtml = request.rawHtml;
@@ -333,12 +340,13 @@ async function resolveAnnotateInput(
             throw new Error(`File too large (${Math.round(htmlFile.size / 1024 / 1024)}MB, max 10MB): ${resolvedTarget}`);
           }
           const html = await htmlFile.text();
-          if (renderHtml) {
-            rawHtml = html;
-            markdown = "";
-          } else {
+          if (forceMarkdown) {
             markdown = htmlToMarkdown(html);
             sourceConverted = true;
+          } else {
+            rawHtml = html;
+            markdown = "";
+            renderHtml = true;
           }
           filePath = resolvedTarget;
           sourceInfo = basename(resolvedTarget);
@@ -371,6 +379,7 @@ async function resolveAnnotateInput(
     gate,
     ...(rawHtml !== undefined && { rawHtml }),
     renderHtml,
+    convertHtml: forceMarkdown,
   };
 }
 

@@ -223,9 +223,9 @@ OpenCode/Pi: event handler intercepts command
         ↓
 Input type detected:
   .md/.mdx   → file read from disk
-  .html/.htm → file read, converted to markdown via Turndown (or rendered as-is with --render-html)
+  .html/.htm → file read, rendered as-is full-width by default (or converted to markdown via Turndown with --markdown)
   https://   → fetched via Jina Reader (default) or fetch+Turndown (--no-jina)
-  folder/    → file browser opened, files converted on demand
+  folder/    → file browser opened; .html rendered as-is per file, .md/.mdx shown directly (--markdown converts HTML)
         ↓
 Annotate server starts (reuses plan editor HTML with mode:"annotate")
         ↓
@@ -507,7 +507,7 @@ interface SharePayload {
   g?: ShareableImage[]; // Global attachments
   d?: (string | null)[]; // diffContext per annotation, parallel to `a`
   s?: (string | undefined)[]; // source per annotation (external tool identifier), parallel to `a`
-  h?: string; // Raw HTML content (--render-html mode)
+  h?: string; // Raw HTML content (HTML render mode)
   r?: 'html'; // Render mode flag (omitted = markdown)
 }
 

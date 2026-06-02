@@ -124,6 +124,10 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const [markdown, setMarkdown] = useState(DEMO_PLAN_CONTENT);
   const markdownRef = useRef(markdown);
   markdownRef.current = markdown;
+  // Parallel ref for raw HTML so the session-revision handler can detect an HTML
+  // resubmission (where markdown is always empty and only rawHtml changes).
+  const rawHtmlRef = useRef(rawHtml);
+  rawHtmlRef.current = rawHtml;
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [codeAnnotations, setCodeAnnotations] = useState<CodeAnnotation[]>([]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
@@ -615,7 +619,11 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
       if (!msg.payload) return;
       const revision = msg.payload as { plan?: string; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; rawHtml?: string };
       if (revision.plan === undefined) return;
-      const contentChanged = revision.plan !== markdownRef.current;
+      // For HTML the document is rawHtml and markdown stays empty, so a markdown-only
+      // comparison never fires — also treat a changed rawHtml as a content change.
+      const contentChanged =
+        revision.plan !== markdownRef.current ||
+        (revision.rawHtml !== undefined && revision.rawHtml !== rawHtmlRef.current);
       if (contentChanged) {
         if (revision.rawHtml !== undefined) {
           setRawHtml(revision.rawHtml);
@@ -2035,7 +2043,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                 <div className="w-full flex justify-center">
                   <div className="w-full max-w-3xl p-12 text-center text-muted-foreground">
                     <p className="text-lg font-medium mb-2">Select a file to annotate</p>
-                    <p className="text-sm">Pick a markdown file from the sidebar to begin.</p>
+                    <p className="text-sm">Pick a markdown or HTML file from the sidebar to begin.</p>
                   </div>
                 </div>
               )}

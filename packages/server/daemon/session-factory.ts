@@ -719,9 +719,10 @@ export function createDaemonSessionFactory(options: DaemonSessionFactoryOptions)
           isFolder ? LIVE_STATUSES : undefined,
         );
         if (existing) {
-          // Folders carry no document, so input.markdown is empty — skip the
-          // update in that case to avoid pushing an empty content revision.
-          if (existing.session.updateContent && input.markdown) {
+          // Folders carry no document (empty markdown + no rawHtml) — skip to avoid
+          // pushing an empty revision. But an HTML file's content lives in rawHtml with
+          // empty markdown, so guard on either so HTML resubmissions still update.
+          if (existing.session.updateContent && (input.markdown || input.rawHtml)) {
             existing.session.updateContent(input.markdown, input.rawHtml);
           }
           if (context.endpoint.isRemote && sharingEnabled && input.markdown) {

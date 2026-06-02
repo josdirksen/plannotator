@@ -22,6 +22,11 @@ interface AnnotationToolstripProps {
    * narrow and leaves room for the diff badges.
    */
   iconOnly?: boolean;
+  /**
+   * Show the "how does this work?" help link. Default true; hidden on the
+   * floating HTML toolstrip where space is tight.
+   */
+  showHelpLink?: boolean;
 }
 
 export const AnnotationToolstrip: React.FC<AnnotationToolstripProps> = ({
@@ -32,6 +37,7 @@ export const AnnotationToolstrip: React.FC<AnnotationToolstripProps> = ({
   taterMode,
   compact = false,
   iconOnly = false,
+  showHelpLink = true,
 }) => {
   const [showHelp, setShowHelp] = useState(false);
   const [helpTab, setHelpTab] = useState<'selection' | 'plannotator'>('selection');
@@ -126,7 +132,7 @@ export const AnnotationToolstrip: React.FC<AnnotationToolstripProps> = ({
         </div>
 
         {/* Help */}
-        {!compact && (
+        {!compact && showHelpLink && (
           <button
             onClick={() => setShowHelp(true)}
             className="ml-2 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors hidden sm:block"

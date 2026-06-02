@@ -124,10 +124,6 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const [markdown, setMarkdown] = useState(DEMO_PLAN_CONTENT);
   const markdownRef = useRef(markdown);
   markdownRef.current = markdown;
-  // Parallel ref for raw HTML so the session-revision handler can detect an HTML
-  // resubmission (where markdown is always empty and only rawHtml changes).
-  const rawHtmlRef = useRef(rawHtml);
-  rawHtmlRef.current = rawHtml;
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [codeAnnotations, setCodeAnnotations] = useState<CodeAnnotation[]>([]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
@@ -186,6 +182,10 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const [sourceConverted, setSourceConverted] = useState(false);
   const [renderAs, setRenderAs] = useState<'markdown' | 'html'>('markdown');
   const [rawHtml, setRawHtml] = useState('');
+  // Parallel ref for raw HTML so the session-revision handler can detect an HTML
+  // resubmission (where markdown stays empty and only rawHtml changes).
+  const rawHtmlRef = useRef(rawHtml);
+  rawHtmlRef.current = rawHtml;
   // Session-level force-markdown preference (`--markdown`). When set, folder/linked HTML
   // files are converted instead of rendered raw — threaded into /api/doc as &convert=1.
   const [convertHtml, setConvertHtml] = useState(false);
@@ -1992,15 +1992,25 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                 />
               )}
 
-              {/* Annotation Toolstrip (hidden during plan diff and on HTML surfaces) */}
-              {!goalSetupMode && !isPlanDiffActive && !isHtmlSurface && (
-                <div data-print-hide className="w-full mb-3 md:mb-4 flex items-center justify-start" style={annotateReaderMaxWidth == null ? undefined : { maxWidth: annotateReaderMaxWidth }}>
+              {/* Annotation Toolstrip — the mode switcher (selection/redline input +
+                  comment/markup mode). Hidden only during plan diff. On an HTML surface
+                  it floats over the document (top-left, always visible) rather than
+                  occupying a header bar, keeping the iframe truly edge-to-edge. */}
+              {!goalSetupMode && !isPlanDiffActive && (
+                <div
+                  data-print-hide
+                  className={isHtmlSurface
+                    ? "absolute top-3 left-3 z-20 flex items-center rounded-lg border border-border/50 bg-background/85 px-1.5 py-1 shadow-md backdrop-blur-sm"
+                    : "w-full mb-3 md:mb-4 flex items-center justify-start"}
+                  style={isHtmlSurface || annotateReaderMaxWidth == null ? undefined : { maxWidth: annotateReaderMaxWidth }}
+                >
                   <AnnotationToolstrip
                     inputMethod={inputMethod}
                     onInputMethodChange={handleInputMethodChange}
                     mode={editorMode}
                     onModeChange={handleEditorModeChange}
                     taterMode={taterMode}
+                    showHelpLink={!isHtmlSurface}
                   />
                 </div>
               )}
@@ -2092,6 +2102,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                     onSelectAnnotation={handleSelectAnnotation}
                     selectedAnnotationId={selectedAnnotationId}
                     mode={editorMode}
+                    inputMethod={inputMethod}
                     globalAttachments={globalAttachments}
                     onAddGlobalAttachment={handleAddGlobalAttachment}
                     onRemoveGlobalAttachment={handleRemoveGlobalAttachment}

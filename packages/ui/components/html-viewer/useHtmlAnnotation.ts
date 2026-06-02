@@ -59,6 +59,10 @@ export function useHtmlAnnotation({
   const pendingTextRef = useRef<string>("");
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  // Mirror toolbar visibility into a ref so the (stable) message handler can gate
+  // type-to-comment on "the markup toolbar is showing", like AnnotationToolbar does.
+  const toolbarStateRef = useRef(toolbarState);
+  toolbarStateRef.current = toolbarState;
 
   const onAddRef = useRef(onAddAnnotation);
   onAddRef.current = onAddAnnotation;
@@ -122,6 +126,9 @@ export function useHtmlAnnotation({
           });
           pendingTextRef.current = "";
         } else if (currentMode === "comment") {
+          // Release iframe focus so the popover's textarea autofocus lands in the
+          // parent (otherwise the iframe keeps focus and swallows further keys).
+          iframeRef.current?.blur();
           setCommentPopover({
             anchorEl: anchor,
             contextText: msg.text,
@@ -146,6 +153,22 @@ export function useHtmlAnnotation({
         pendingTextRef.current = "";
       }
 
+      if (type === `${PREFIX}keytype`) {
+        // Type-to-comment: only when the markup toolbar is showing (matches the
+        // markdown path, where AnnotationToolbar owns this keydown). Open a comment
+        // pre-filled with the typed char.
+        if (!toolbarStateRef.current) return;
+        const key = (e.data as { key?: string }).key;
+        const text = pendingTextRef.current;
+        if (!key || !text) return;
+        const anchor = anchorRef.current ?? getOrCreateAnchor();
+        // Release iframe focus so the popover textarea can take it (and the rest of
+        // the typing) — otherwise the iframe keeps focus and the bridge eats keys.
+        iframeRef.current?.blur();
+        setToolbarState(null);
+        setCommentPopover({ anchorEl: anchor, contextText: text, selectedText: text, initialText: key });
+      }
+
       if (type === `${PREFIX}mark-click`) {
         const msg = e.data as BridgeMarkClickMessage;
         onSelectRef.current?.(msg.id);
@@ -165,7 +188,7 @@ export function useHtmlAnnotation({
         anchorRef.current = null;
       }
     };
-  }, [iframeRef, positionAnchor, onResize]);
+  }, [iframeRef, positionAnchor, onResize, getOrCreateAnchor]);
 
   useEffect(() => {
     if (selectedAnnotationId) {

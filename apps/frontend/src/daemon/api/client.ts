@@ -19,7 +19,6 @@ import type {
   HistoryIndexEntry,
 } from "../contracts";
 import {
-  DaemonHubActionError,
   DaemonHubOpenError,
   getDaemonHubClient,
   type WebSocketFactory,
@@ -455,10 +454,7 @@ export function createDaemonApiClient(options: DaemonApiClientOptions = {}): Dae
         }
         return { ok: true, data: result.payload };
       } catch (cause) {
-        if (
-          cause instanceof DaemonHubOpenError ||
-          (cause instanceof DaemonHubActionError && cause.code === "unauthorized")
-        ) {
+        if (cause instanceof DaemonHubOpenError) {
           return probeSessionApi(session.id, request.path, request.init);
         }
         return {

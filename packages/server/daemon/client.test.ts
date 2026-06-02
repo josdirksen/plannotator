@@ -10,7 +10,6 @@ import { createDaemonState, getDaemonPaths, writeDaemonState } from "./state";
 import { cleanupDaemonState, DaemonClient, discoverDaemon } from "./client";
 
 let dirs: string[] = [];
-const AUTH_TOKEN = "test-auth-token-test-auth-token-1234";
 const envKeys = ["PLANNOTATOR_REMOTE", "PLANNOTATOR_PORT", "SSH_TTY", "SSH_CONNECTION"];
 const originalEnv: Record<string, string | undefined> = Object.fromEntries(
   envKeys.map((key) => [key, process.env[key]]),

@@ -5,16 +5,8 @@ import { DaemonSessionStore } from "./session-store";
 import { createDaemonFetchHandler } from "./server";
 
 const shellHtml = "<html><script>const shellLiteral='</head>';</script><head></head><body>Shell</body></html>";
-const AUTH_TOKEN = "test-auth-token-test-auth-token-1234";
-
-function authHeaders(headers?: HeadersInit): Headers {
-  const next = new Headers(headers);
-  next.set("authorization", `Bearer ${AUTH_TOKEN}`);
-  return next;
-}
-
 class FakeSocket {
-  data?: { daemonAuthenticated?: boolean } = { daemonAuthenticated: true };
+  data?: Record<string, never> = {};
   sent: Record<string, unknown>[] = [];
   closed = false;
 
@@ -35,7 +27,6 @@ function makeHandler() {
     hostname: "127.0.0.1",
     isRemote: false,
     remoteSource: "local",
-    authToken: AUTH_TOKEN,
     startedAt: "2026-01-01T00:00:00.000Z",
   });
   const handler = createDaemonFetchHandler({
@@ -128,17 +119,17 @@ describe("daemon HTTP router", () => {
     const { handler, store } = makeHandler();
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
     }));
-    const res = await handler(new Request("http://127.0.0.1:4321/daemon/status", { headers: authHeaders() }));
+    const res = await handler(new Request("http://127.0.0.1:4321/daemon/status", { headers: {} }));
     const body = await res.json();
     expect(body.pid).toBe(123);
     expect(body.endpoint.baseUrl).toBe("http://localhost:4321");
     expect(body.activeSessionCount).toBe(1);
     expect(body.sessionCount).toBe(1);
     store.complete("s1", { approved: true });
-    const afterComplete = await handler(new Request("http://127.0.0.1:4321/daemon/status", { headers: authHeaders() }));
+    const afterComplete = await handler(new Request("http://127.0.0.1:4321/daemon/status", { headers: {} }));
     const afterCompleteBody = await afterComplete.json();
     expect(afterCompleteBody.activeSessionCount).toBe(0);
     expect(afterCompleteBody.sessionCount).toBe(1);
@@ -160,7 +151,7 @@ describe("daemon HTTP router", () => {
 
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
     }));
     const created = socket.sent[1];
@@ -193,7 +184,7 @@ describe("daemon HTTP router", () => {
 
     const post = await handler(new Request("http://127.0.0.1:4321/daemon/events/debug", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
         source: "agent-simulator",
         scenarioId: "claude-plan-hook",
@@ -218,7 +209,6 @@ describe("daemon HTTP router", () => {
       hostname: "127.0.0.1",
       isRemote: false,
       remoteSource: "local",
-      authToken: AUTH_TOKEN,
       startedAt: "2026-01-01T00:00:00.000Z",
     });
     const handler = createDaemonFetchHandler({
@@ -245,12 +235,12 @@ describe("daemon HTTP router", () => {
 
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "review", origin: "opencode", rawPatch: "diff" } }),
     }));
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "review", origin: "opencode", rawPatch: "diff" } }),
     }));
 
@@ -301,7 +291,7 @@ describe("daemon HTTP router", () => {
     const { handler } = makeHandler();
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
     }));
 
@@ -363,7 +353,6 @@ describe("daemon HTTP router", () => {
       hostname: "127.0.0.1",
       isRemote: false,
       remoteSource: "local",
-      authToken: AUTH_TOKEN,
       startedAt: "2026-01-01T00:00:00.000Z",
     });
     const handler = createDaemonFetchHandler({
@@ -391,7 +380,7 @@ describe("daemon HTTP router", () => {
 
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "review", origin: "opencode", rawPatch: "diff" } }),
     }));
 
@@ -425,7 +414,7 @@ describe("daemon HTTP router", () => {
     const { handler, store } = makeHandler();
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
     }));
     const record = store.get("s1");
@@ -467,7 +456,7 @@ describe("daemon HTTP router", () => {
     const { handler, store } = makeHandler();
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
     }));
     let handled = false;
@@ -536,7 +525,7 @@ describe("daemon HTTP router", () => {
 
   test("rejects old daemon SSE route", async () => {
     const { handler } = makeHandler();
-    const res = await handler(new Request("http://127.0.0.1:4321/daemon/events", { headers: authHeaders() }));
+    const res = await handler(new Request("http://127.0.0.1:4321/daemon/events", { headers: {} }));
     expect(res.status).toBe(410);
     expect(res.headers.get("content-type")).not.toContain("text/event-stream");
   });
@@ -545,14 +534,14 @@ describe("daemon HTTP router", () => {
     const { handler } = makeHandler();
     const create = await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
     }));
     expect(create.status).toBe(201);
     const created = await create.json();
     expect(created.session.id).toBe("s1");
 
-    const list = await handler(new Request("http://127.0.0.1:4321/daemon/sessions", { headers: authHeaders() }));
+    const list = await handler(new Request("http://127.0.0.1:4321/daemon/sessions", { headers: {} }));
     const body = await list.json();
     expect(body.sessions).toHaveLength(1);
     expect(body.sessions[0].url).toBe("http://localhost:4321/s/s1");
@@ -565,7 +554,7 @@ describe("daemon HTTP router", () => {
     const create = await handler(
       new Request("http://127.0.0.1:4321/daemon/sessions", {
         method: "POST",
-        headers: authHeaders({ "content-type": "application/json" }),
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
       }),
       { disableIdleTimeout: () => { timeoutDisabled += 1; } },
@@ -584,7 +573,6 @@ describe("daemon HTTP router", () => {
       hostname: "127.0.0.1",
       isRemote: false,
       remoteSource: "local",
-      authToken: AUTH_TOKEN,
       startedAt: "2026-01-01T00:00:00.000Z",
     });
     const handler = createDaemonFetchHandler({
@@ -603,11 +591,11 @@ describe("daemon HTTP router", () => {
 
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
     }));
     now = 1_101;
-    const list = await handler(new Request("http://127.0.0.1:4321/daemon/sessions?clean=1", { headers: authHeaders() }));
+    const list = await handler(new Request("http://127.0.0.1:4321/daemon/sessions?clean=1", { headers: {} }));
     const body = await list.json();
 
     expect(body.sessions).toHaveLength(0);
@@ -618,7 +606,7 @@ describe("daemon HTTP router", () => {
     const { handler } = makeHandler();
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
     }));
     const res = await handler(new Request("http://127.0.0.1:4321/s/s1"));
@@ -644,7 +632,6 @@ describe("daemon HTTP router", () => {
         hostname: "127.0.0.1",
         isRemote: false,
         remoteSource: "local",
-        authToken: AUTH_TOKEN,
         startedAt: "2026-01-01T00:00:00.000Z",
       });
       store.create({
@@ -676,7 +663,7 @@ describe("daemon HTTP router", () => {
     const { handler } = makeHandler();
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
     }));
     const res = await handler(new Request("http://127.0.0.1:4321/s/s1/api/plan"));
@@ -688,7 +675,7 @@ describe("daemon HTTP router", () => {
     const { handler, store } = makeHandler();
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
     }));
     let routed = 0;
@@ -738,7 +725,7 @@ describe("daemon HTTP router", () => {
     const { handler } = makeHandler();
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
     }));
 
@@ -771,7 +758,7 @@ describe("daemon HTTP router", () => {
     const { handler, store } = makeHandler();
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
     }));
     let routed = 0;
@@ -797,7 +784,7 @@ describe("daemon HTTP router", () => {
     let timeoutDisabled = 0;
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
     }));
     const record = store.get("s1");
@@ -820,7 +807,7 @@ describe("daemon HTTP router", () => {
     const { handler } = makeHandler();
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
     }));
     const res = await handler(new Request("http://127.0.0.1:4321/api/plan", {
@@ -833,7 +820,7 @@ describe("daemon HTTP router", () => {
     const { handler } = makeHandler();
     const res = await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "text/plain" }),
+      headers: { "content-type": "text/plain" },
       body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
     }));
     const body = await res.json();
@@ -845,17 +832,17 @@ describe("daemon HTTP router", () => {
     const { handler, store } = makeHandler();
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
     }));
     const cancel = await handler(new Request("http://127.0.0.1:4321/daemon/sessions/s1/cancel", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: "{}",
     }));
     expect((await cancel.json()).session.status).toBe("cancelled");
 
-    const result = await handler(new Request("http://127.0.0.1:4321/daemon/sessions/s1/result", { headers: authHeaders() }));
+    const result = await handler(new Request("http://127.0.0.1:4321/daemon/sessions/s1/result", { headers: {} }));
     const body = await result.json();
     expect(body.session.status).toBe("cancelled");
     expect(body.session.error).toBe("Session cancelled.");
@@ -867,12 +854,12 @@ describe("daemon HTTP router", () => {
     let timeoutDisabled = 0;
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
     }));
 
     const resultPromise = handler(
-      new Request("http://127.0.0.1:4321/daemon/sessions/s1/result", { headers: authHeaders() }),
+      new Request("http://127.0.0.1:4321/daemon/sessions/s1/result", { headers: {} }),
       { disableIdleTimeout: () => { timeoutDisabled += 1; } },
     );
     store.complete("s1", { approved: true });
@@ -886,17 +873,17 @@ describe("daemon HTTP router", () => {
     const { handler } = makeHandler();
     await handler(new Request("http://127.0.0.1:4321/daemon/sessions", {
       method: "POST",
-      headers: authHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ request: { action: "plan", origin: "opencode", plan: "x" } }),
     }));
 
     const cancel = await handler(new Request("http://127.0.0.1:4321/daemon/sessions/s1/cancel", {
       method: "POST",
-      headers: authHeaders(),
+      headers: {},
     }));
     const shutdown = await handler(new Request("http://127.0.0.1:4321/daemon/shutdown", {
       method: "POST",
-      headers: authHeaders(),
+      headers: {},
     }));
 
     expect(cancel.status).toBe(415);

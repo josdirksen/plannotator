@@ -2,7 +2,7 @@
 # Sandbox script for testing Plannotator OpenCode plugin locally
 #
 # Usage:
-#   ./sandbox-opencode.sh [--workflow MODE] [--planning-agents AGENTS] [--disable-sharing] [--keep] [--no-git]
+#   ./sandbox-opencode.sh [--isolated] [--runtime MODE] [--workflow MODE] [--planning-agents AGENTS] [--disable-sharing] [--keep] [--no-git] [--no-launch]
 #
 # Options:
 #   --workflow MODE     Plugin workflow to test: manual | plan-agent | all-agents
@@ -11,8 +11,15 @@
 #                      Default: plan
 #   --disable-sharing  Create opencode.json with "share": "disabled" to test
 #                      the sharing disable feature without env var pollution
+#   --isolated        Run OpenCode with temporary HOME/XDG/Bun cache dirs
+#                     so local plugin installs and command shims are ignored
+#   --isolation-root  Directory to use for isolated HOME/XDG/Bun cache dirs
+#   --no-auth         Don't copy the current OpenCode auth.json into isolation
+#   --runtime MODE    Plugin runtime to force: auto | cli | embedded
+#                     Default: auto
 #   --keep             Don't clean up sandbox on exit (for debugging)
 #   --no-git           Don't initialize git repo (tests non-git fallback)
+#   --no-launch        Create the sandbox and config, then exit before OpenCode
 #
 # What it does:
 #   1. Clears OpenCode-related caches
@@ -40,8 +47,15 @@ PLUGIN_LOADER_RELATIVE_PATH="./.opencode/plannotator.ts"
 WORKFLOW="plan-agent"
 PLANNING_AGENTS="plan"
 DISABLE_SHARING=false
+ISOLATED=false
+ISOLATION_ROOT=""
+COPY_AUTH=true
+RUNTIME="auto"
 KEEP_SANDBOX=false
 NO_GIT=false
+NO_LAUNCH=false
+SOURCE_HOME="${HOME:-}"
+SOURCE_XDG_DATA_HOME="${XDG_DATA_HOME:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --workflow)
@@ -64,12 +78,41 @@ while [ $# -gt 0 ]; do
       DISABLE_SHARING=true
       shift
       ;;
+    --isolated)
+      ISOLATED=true
+      shift
+      ;;
+    --isolation-root)
+      if [ -z "${2:-}" ]; then
+        echo "--isolation-root requires an argument" >&2
+        exit 1
+      fi
+      ISOLATION_ROOT="$2"
+      ISOLATED=true
+      shift 2
+      ;;
+    --no-auth)
+      COPY_AUTH=false
+      shift
+      ;;
+    --runtime)
+      if [ -z "${2:-}" ]; then
+        echo "--runtime requires an argument" >&2
+        exit 1
+      fi
+      RUNTIME="$2"
+      shift 2
+      ;;
     --keep)
       KEEP_SANDBOX=true
       shift
       ;;
     --no-git)
       NO_GIT=true
+      shift
+      ;;
+    --no-launch)
+      NO_LAUNCH=true
       shift
       ;;
     *)
@@ -87,6 +130,50 @@ case "$WORKFLOW" in
     exit 1
     ;;
 esac
+
+case "$RUNTIME" in
+  auto|cli|embedded) ;;
+  *)
+    echo "Invalid --runtime value: $RUNTIME" >&2
+    echo "Expected one of: auto, cli, embedded" >&2
+    exit 1
+    ;;
+esac
+
+if [ "$ISOLATED" = true ]; then
+  if [ -z "$ISOLATION_ROOT" ]; then
+    ISOLATION_ROOT=$(mktemp -d /tmp/plannotator-opencode-isolated-XXXXXX)
+  else
+    mkdir -p "$ISOLATION_ROOT"
+  fi
+
+  mkdir -p \
+    "$ISOLATION_ROOT/home" \
+    "$ISOLATION_ROOT/config" \
+    "$ISOLATION_ROOT/cache" \
+    "$ISOLATION_ROOT/data/opencode" \
+    "$ISOLATION_ROOT/state" \
+    "$ISOLATION_ROOT/bun-cache"
+
+  source_data_home="${SOURCE_XDG_DATA_HOME:-$SOURCE_HOME/.local/share}"
+  source_auth="$source_data_home/opencode/auth.json"
+
+  export HOME="$ISOLATION_ROOT/home"
+  export XDG_CONFIG_HOME="$ISOLATION_ROOT/config"
+  export XDG_CACHE_HOME="$ISOLATION_ROOT/cache"
+  export XDG_DATA_HOME="$ISOLATION_ROOT/data"
+  export XDG_STATE_HOME="$ISOLATION_ROOT/state"
+  export BUN_INSTALL_CACHE_DIR="$ISOLATION_ROOT/bun-cache"
+  export PLANNOTATOR_BIN="${PLANNOTATOR_BIN:-$PROJECT_ROOT/bin/plannotator.js}"
+
+  if [ "$COPY_AUTH" = true ]; then
+    if [ -f "$source_auth" ]; then
+      cp "$source_auth" "$XDG_DATA_HOME/opencode/auth.json"
+    else
+      echo "Warning: OpenCode auth not found at $source_auth; isolated OpenCode may need login." >&2
+    fi
+  fi
+fi
 
 planning_agents_json() {
   local raw="$1"
@@ -139,6 +226,15 @@ cleanup() {
     echo "Cleaning up sandbox..."
     rm -rf "$SANDBOX_DIR"
     echo "Done."
+  fi
+
+  if [ "$ISOLATED" = true ]; then
+    if [ "$KEEP_SANDBOX" = true ]; then
+      echo "Keeping isolation root at: $ISOLATION_ROOT"
+      echo "To clean up manually: rm -rf $ISOLATION_ROOT"
+    else
+      rm -rf "$ISOLATION_ROOT"
+    fi
   fi
 }
 trap cleanup EXIT
@@ -1634,8 +1730,9 @@ mkdir -p .opencode/commands
 cp "$PLUGIN_DIR/commands/"*.md .opencode/commands/
 
 # Also install to global commands directory (some OpenCode versions need this)
-mkdir -p ~/.config/opencode/commands
-cp "$PLUGIN_DIR/commands/"*.md ~/.config/opencode/commands/ 2>/dev/null || true
+GLOBAL_COMMANDS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/commands"
+mkdir -p "$GLOBAL_COMMANDS_DIR"
+cp "$PLUGIN_DIR/commands/"*.md "$GLOBAL_COMMANDS_DIR/" 2>/dev/null || true
 
 echo ""
 
@@ -1645,6 +1742,10 @@ PLUGIN_CONFIG=$(cat <<EOF
 [
   ["$PLUGIN_LOADER_RELATIVE_PATH", {
     "workflow": "$WORKFLOW"$(
+      if [ "$RUNTIME" != "auto" ]; then
+        printf ',\n    "runtime": "%s"' "$RUNTIME"
+      fi
+    )$(
       if [ "$WORKFLOW" = "plan-agent" ]; then
         printf ',\n    "planningAgents": %s' "$(planning_agents_json "$PLANNING_AGENTS")"
       fi
@@ -1668,7 +1769,11 @@ EOF
 echo "=== Sandbox Ready ==="
 echo ""
 echo "Directory: $SANDBOX_DIR"
+if [ "$ISOLATED" = true ]; then
+  echo "Isolation root: $ISOLATION_ROOT"
+fi
 echo "Workflow: $WORKFLOW"
+echo "Runtime: $RUNTIME"
 if [ "$WORKFLOW" = "plan-agent" ]; then
   echo "Planning agents: $PLANNING_AGENTS"
 fi
@@ -1707,6 +1812,11 @@ echo "     Type a draft in the browser, wait a few seconds, then close the tab w
 echo "     /plannotator-annotate docs/folder-draft-b"
 echo "     If the bug is present, folder B will show folder A's draft"
 echo ""
+if [ "$NO_LAUNCH" = true ]; then
+  echo "Not launching OpenCode (--no-launch)."
+  exit 0
+fi
+
 echo "Launching OpenCode..."
 echo ""
 

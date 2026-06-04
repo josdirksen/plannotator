@@ -271,6 +271,10 @@ LOCAL_OPENCHAMBER_CLI="$OPENCHAMBER_REPO/packages/web/bin/cli.js"
 LOCAL_OPENCHAMBER_DIST="$OPENCHAMBER_REPO/packages/web/dist/index.html"
 
 if [ -f "$LOCAL_OPENCHAMBER_CLI" ]; then
+  if [ ! -x "$OPENCHAMBER_REPO/node_modules/.bin/vite" ] && [ ! -x "$OPENCHAMBER_REPO/packages/web/node_modules/.bin/vite" ]; then
+    echo "Installing OpenChamber dependencies in $OPENCHAMBER_REPO..."
+    (cd "$OPENCHAMBER_REPO" && bun install)
+  fi
   if [ ! -f "$LOCAL_OPENCHAMBER_DIST" ]; then
     echo "Building OpenChamber web UI from $OPENCHAMBER_REPO..."
     (cd "$OPENCHAMBER_REPO" && bun run build:web)

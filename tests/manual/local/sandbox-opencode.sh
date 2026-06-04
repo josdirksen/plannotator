@@ -196,6 +196,110 @@ planning_agents_json() {
   printf '[%s]' "${parts[*]}"
 }
 
+shell_quote() {
+  printf "'%s'" "$(printf "%s" "$1" | sed "s/'/'\\\\''/g")"
+}
+
+write_runtime_helpers() {
+  if [ "$ISOLATED" != true ]; then
+    return
+  fi
+
+  local opencode_bin
+  opencode_bin="$(command -v opencode || true)"
+  local openchamber_repo="${OPENCHAMBER_REPO:-/Users/ramos/oss-agents/openchamber}"
+  local openchamber_data_dir="$ISOLATION_ROOT/openchamber-data"
+  mkdir -p "$openchamber_data_dir"
+
+  cat > "$SANDBOX_DIR/plannotator-opencode-env.sh" << EOF
+# Source this file to reuse the isolated OpenCode/Plannotator sandbox.
+export PLANNOTATOR_OPENCODE_SANDBOX=$(shell_quote "$SANDBOX_DIR")
+export PLANNOTATOR_OPENCODE_ISOLATION_ROOT=$(shell_quote "$ISOLATION_ROOT")
+export HOME=$(shell_quote "$HOME")
+export XDG_CONFIG_HOME=$(shell_quote "$XDG_CONFIG_HOME")
+export XDG_CACHE_HOME=$(shell_quote "$XDG_CACHE_HOME")
+export XDG_DATA_HOME=$(shell_quote "$XDG_DATA_HOME")
+export XDG_STATE_HOME=$(shell_quote "$XDG_STATE_HOME")
+export BUN_INSTALL_CACHE_DIR=$(shell_quote "$BUN_INSTALL_CACHE_DIR")
+export PLANNOTATOR_BIN=$(shell_quote "$PLANNOTATOR_BIN")
+export OPENCHAMBER_DATA_DIR=$(shell_quote "$openchamber_data_dir")
+export OPENCHAMBER_REPO=$(shell_quote "$openchamber_repo")
+EOF
+
+  if [ -n "$opencode_bin" ]; then
+    cat >> "$SANDBOX_DIR/plannotator-opencode-env.sh" << EOF
+export OPENCODE_BINARY=$(shell_quote "$opencode_bin")
+export OPENCHAMBER_OPENCODE_PATH=$(shell_quote "$opencode_bin")
+EOF
+  fi
+
+  cat > "$SANDBOX_DIR/run-opencode.sh" << 'EOF'
+#!/bin/bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/plannotator-opencode-env.sh"
+cd "$PLANNOTATOR_OPENCODE_SANDBOX"
+exec "${OPENCODE_BINARY:-opencode}" "$@"
+EOF
+
+  cat > "$SANDBOX_DIR/run-opencode-serve.sh" << 'EOF'
+#!/bin/bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/plannotator-opencode-env.sh"
+cd "$PLANNOTATOR_OPENCODE_SANDBOX"
+PORT="${OPENCODE_PORT:-4096}"
+exec "${OPENCODE_BINARY:-opencode}" serve --port "$PORT" "$@"
+EOF
+
+  cat > "$SANDBOX_DIR/run-openchamber.sh" << 'EOF'
+#!/bin/bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/plannotator-opencode-env.sh"
+cd "$PLANNOTATOR_OPENCODE_SANDBOX"
+
+if [ -n "${OPENCHAMBER_CLI:-}" ]; then
+  exec "$OPENCHAMBER_CLI" serve --foreground "$@"
+fi
+
+if command -v openchamber >/dev/null 2>&1; then
+  exec openchamber serve --foreground "$@"
+fi
+
+LOCAL_OPENCHAMBER_CLI="$OPENCHAMBER_REPO/packages/web/bin/cli.js"
+LOCAL_OPENCHAMBER_DIST="$OPENCHAMBER_REPO/packages/web/dist/index.html"
+
+if [ -f "$LOCAL_OPENCHAMBER_CLI" ]; then
+  if [ ! -f "$LOCAL_OPENCHAMBER_DIST" ]; then
+    echo "Building OpenChamber web UI from $OPENCHAMBER_REPO..."
+    (cd "$OPENCHAMBER_REPO" && bun run build:web)
+  fi
+  exec node "$LOCAL_OPENCHAMBER_CLI" serve --foreground "$@"
+fi
+
+echo "Could not find OpenChamber." >&2
+echo "Install openchamber or set OPENCHAMBER_REPO / OPENCHAMBER_CLI before running this script." >&2
+exit 1
+EOF
+
+  cat > "$SANDBOX_DIR/run-openchamber-external.sh" << 'EOF'
+#!/bin/bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/plannotator-opencode-env.sh"
+export OPENCODE_PORT="${OPENCODE_PORT:-4096}"
+export OPENCODE_SKIP_START=true
+exec "$SCRIPT_DIR/run-openchamber.sh" "$@"
+EOF
+
+  chmod +x \
+    "$SANDBOX_DIR/run-opencode.sh" \
+    "$SANDBOX_DIR/run-opencode-serve.sh" \
+    "$SANDBOX_DIR/run-openchamber.sh" \
+    "$SANDBOX_DIR/run-openchamber-external.sh"
+}
+
 echo "=== Plannotator OpenCode Sandbox ==="
 echo ""
 
@@ -1766,6 +1870,8 @@ cat > opencode.json << EOF
 }
 EOF
 
+write_runtime_helpers
+
 echo "=== Sandbox Ready ==="
 echo ""
 echo "Directory: $SANDBOX_DIR"
@@ -1786,6 +1892,14 @@ if [ "$DISABLE_SHARING" = true ]; then
   echo "Sharing: DISABLED (via opencode.json config)"
 else
   echo "Sharing: enabled (default)"
+fi
+if [ "$ISOLATED" = true ]; then
+  echo ""
+  echo "Reusable helpers:"
+  echo "  OpenCode TUI:        $SANDBOX_DIR/run-opencode.sh"
+  echo "  OpenChamber managed: $SANDBOX_DIR/run-openchamber.sh"
+  echo "  OpenCode server:     $SANDBOX_DIR/run-opencode-serve.sh"
+  echo "  OpenChamber external: $SANDBOX_DIR/run-openchamber-external.sh"
 fi
 echo ""
 echo "To test:"

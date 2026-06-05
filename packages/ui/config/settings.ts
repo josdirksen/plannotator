@@ -39,6 +39,16 @@ export const SETTINGS = {
     toServer: (v: string) => ({ displayName: v }),
   },
 
+  gridEnabled: {
+    defaultValue: false as boolean,
+    fromCookie: () => {
+      const v = storage.getItem('plannotator-grid-enabled');
+      return v === 'true' ? true : v === 'false' ? false : undefined;
+    },
+    toCookie: (v: boolean) => storage.setItem('plannotator-grid-enabled', String(v)),
+    serverKey: undefined, fromServer: undefined, toServer: undefined,
+  },
+
   // --- Diff display options (namespaced under diffOptions in config.json) ---
 
   defaultDiffType: {

@@ -22,10 +22,11 @@ import { getCallbackConfig, CallbackAction, executeCallback } from '@plannotator
 import { useAgents } from '@plannotator/ui/hooks/useAgents';
 import { useActiveSection } from '@plannotator/ui/hooks/useActiveSection';
 import { storage } from '@plannotator/ui/utils/storage';
-import { configStore } from '@plannotator/ui/config';
+import { configStore, useConfigValue } from '@plannotator/ui/config';
 import { CompletionOverlay } from '@plannotator/ui/components/CompletionOverlay';
 import { useUpdateCheck } from '@plannotator/ui/hooks/useUpdateCheck';
 import { PlanAIAnnouncementDialog } from '@plannotator/ui/components/PlanAIAnnouncementDialog';
+import { LookAndFeelAnnouncementDialog } from '@plannotator/ui/components/LookAndFeelAnnouncementDialog';
 import { getObsidianSettings, getEffectiveVaultPath, isObsidianConfigured, CUSTOM_PATH_SENTINEL } from '@plannotator/ui/utils/obsidian';
 import { getBearSettings } from '@plannotator/ui/utils/bear';
 import { getOctarineSettings, isOctarineConfigured } from '@plannotator/ui/utils/octarine';
@@ -39,6 +40,7 @@ import {
   saveAIProviderSelection,
 } from '@plannotator/ui/utils/aiProvider';
 import { markPlanAIAnnouncementSeen, needsPlanAIAnnouncement } from '@plannotator/ui/utils/planAIAnnouncement';
+import { markLookAndFeelAnnouncementSeen, needsLookAndFeelAnnouncement } from '@plannotator/ui/utils/lookAndFeelAnnouncement';
 import { useAIChat } from '@plannotator/ui/hooks/useAIChat';
 import { getUIPreferences, type UIPreferences, type PlanWidth } from '@plannotator/ui/utils/uiPreferences';
 import { getEditorMode, saveEditorMode } from '@plannotator/ui/utils/editorMode';
@@ -135,6 +137,7 @@ const App: React.FC = () => {
     const stored = storage.getItem('plannotator-tater-mode');
     return stored === 'true';
   });
+  const gridEnabled = useConfigValue('gridEnabled');
   const [uiPrefs, setUiPrefs] = useState(() => getUIPreferences());
 
   // Plan-area width (inside the OverlayScrollArea, after sidebar/panel
@@ -169,6 +172,9 @@ const App: React.FC = () => {
   const [sourceInfo, setSourceInfo] = useState<string | undefined>();
   const [sourceConverted, setSourceConverted] = useState(false);
   const [renderAs, setRenderAs] = useState<'markdown' | 'html'>('markdown');
+  // HTML plans render edge-to-edge (full-viewport) instead of in the centered,
+  // card-chromed markdown column. Branch the document-area containers on this.
+  const isHtmlSurface = renderAs === 'html';
   const [rawHtml, setRawHtml] = useState('');
   const [sourceFilePath, setSourceFilePath] = useState<string | undefined>();
   const [imageBaseDir, setImageBaseDir] = useState<string | undefined>(undefined);
@@ -211,6 +217,7 @@ const App: React.FC = () => {
     };
   });
   const [showPlanAIAnnouncement, setShowPlanAIAnnouncement] = useState(needsPlanAIAnnouncement);
+  const [showLookAndFeelAnnouncement, setShowLookAndFeelAnnouncement] = useState(needsLookAndFeelAnnouncement);
   const isMobile = useIsMobile();
 
   const viewerRef = useRef<ViewerHandle>(null);
@@ -303,6 +310,11 @@ const App: React.FC = () => {
   const dismissPlanAIAnnouncement = useCallback(() => {
     markPlanAIAnnouncementSeen();
     setShowPlanAIAnnouncement(false);
+  }, []);
+
+  const dismissLookAndFeelAnnouncement = useCallback(() => {
+    markLookAndFeelAnnouncementSeen();
+    setShowLookAndFeelAnnouncement(false);
   }, []);
 
   const handleAIChatToggle = useCallback(() => {
@@ -1914,8 +1926,17 @@ const App: React.FC = () => {
   }, [uiPrefs.planWidth]);
   const annotateReaderMaxWidth = canUseWideMode && wideModeType === 'wide' ? null : planMaxWidth;
   const selectedAIProvider = aiProviders.find(provider => provider.id === aiConfig.providerId) ?? null;
+  // Only greet in a normal authoring context — not on a read-only shared session
+  // (a viewer would also be able to flip the owner's gridEnabled), nor over the
+  // goal-setup / permission-mode flows. Deferred (not marked seen) until then.
+  const shouldShowLookAndFeelAnnouncement =
+    showLookAndFeelAnnouncement &&
+    !isSharedSession &&
+    !goalSetupMode &&
+    !showPermissionModeSetup;
   const shouldShowPlanAIAnnouncement =
     showPlanAIAnnouncement &&
+    !shouldShowLookAndFeelAnnouncement &&
     canUseAI &&
     aiSessionEnabled &&
     isApiMode &&
@@ -2084,7 +2105,7 @@ const App: React.FC = () => {
           {/* Document Area */}
           <OverlayScrollArea
             element="main"
-            className={`flex-1 min-w-0 bg-grid ${!goalSetupMode && !sidebar.isOpen && wideModeType === null ? 'lg:pl-[30px]' : ''}`}
+            className={`flex-1 min-w-0 ${isHtmlSurface ? 'bg-background' : `${gridEnabled ? "bg-grid " : "bg-card "}${!goalSetupMode && !sidebar.isOpen && wideModeType === null ? 'lg:pl-[30px]' : ''}`}`}
             data-print-region="document"
             onViewportReady={handleViewportReady}
           >
@@ -2098,7 +2119,7 @@ const App: React.FC = () => {
               cancelText="Dismiss"
               showCancel
             />
-            <div ref={planAreaRef} className="min-h-full flex flex-col items-center px-2 py-3 md:px-10 md:py-8 xl:px-16 relative z-10">
+            <div ref={planAreaRef} className={`${isHtmlSurface ? 'h-full flex flex-col' : 'min-h-full flex flex-col items-center px-2 py-3 md:px-10 md:py-8 xl:px-16'} relative z-10`}>
               {/* Sticky header lane — ghost bar that pins the toolstrip +
                   badges at top: 12px once the user scrolls. Invisible at top
                   of doc; original toolstrip/badges remain the source of
@@ -2179,8 +2200,8 @@ const App: React.FC = () => {
                 </div>
               )}
               {/* Normal Plan View — always mounted, hidden during diff mode */}
-              <div className="w-full flex justify-center relative" style={{ display: goalSetupMode || (isPlanDiffActive && planDiff.diffBlocks) || (annotateSource === 'folder' && !markdown && !linkedDocHook.isActive) ? 'none' : undefined }}>
-                {canUseWideMode && !isPlanDiffActive && !archive.archiveMode && (
+              <div className={`w-full relative ${isHtmlSurface ? 'flex-1 flex flex-col' : 'flex justify-center'}`} style={{ display: goalSetupMode || (isPlanDiffActive && planDiff.diffBlocks) || (annotateSource === 'folder' && !markdown && !linkedDocHook.isActive) ? 'none' : undefined }}>
+                {canUseWideMode && !isPlanDiffActive && !archive.archiveMode && !isHtmlSurface && (
                   <div
                     data-print-hide
                     className="absolute -top-5 left-0 right-0 mx-auto w-full flex justify-end pointer-events-none"
@@ -2222,10 +2243,12 @@ const App: React.FC = () => {
                     onSelectAnnotation={handleSelectAnnotation}
                     selectedAnnotationId={selectedAnnotationId}
                     mode={editorMode}
+                    inputMethod={inputMethod}
                     globalAttachments={globalAttachments}
                     onAddGlobalAttachment={handleAddGlobalAttachment}
                     onRemoveGlobalAttachment={handleRemoveGlobalAttachment}
-                    maxWidth={annotateReaderMaxWidth}
+                    maxWidth={null}
+                    fullViewport
                     onAskAI={canUseAI ? handleAskAI : undefined}
                   />
                 ) : (
@@ -2242,6 +2265,7 @@ const App: React.FC = () => {
                     mode={editorMode}
                     inputMethod={inputMethod}
                     taterMode={taterMode}
+                    gridEnabled={gridEnabled}
                     globalAttachments={globalAttachments}
                     onAddGlobalAttachment={handleAddGlobalAttachment}
                     onRemoveGlobalAttachment={handleRemoveGlobalAttachment}
@@ -2528,6 +2552,13 @@ const App: React.FC = () => {
           providerName={selectedAIProvider?.name ?? null}
           onOpenAI={handleOpenAIAnnouncement}
           onDismiss={dismissPlanAIAnnouncement}
+        />
+
+        <LookAndFeelAnnouncementDialog
+          isOpen={shouldShowLookAndFeelAnnouncement}
+          gridEnabled={gridEnabled}
+          onToggleGrid={(v) => configStore.set('gridEnabled', v)}
+          onDismiss={dismissLookAndFeelAnnouncement}
         />
 
         {/* Image Annotator for pasted images */}

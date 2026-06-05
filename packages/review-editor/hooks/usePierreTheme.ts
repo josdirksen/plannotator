@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import type { DiffLineBgIntensity } from '@plannotator/shared/config';
 import { useTheme } from '@plannotator/ui/components/ThemeProvider';
 import { useConfigValue } from '@plannotator/ui/config';
+import { buildPierreFontCSS } from '../utils/pierreFontCss';
 
 export const SHIKI_THEME_MAP: Record<string, { dark: string | null; light: string | null }> = {
   'andromeeda': { dark: 'andromeeda', light: null },
@@ -185,11 +186,7 @@ export function usePierreTheme(options?: { fontFamily?: string; fontSize?: strin
       const primary = styles.getPropertyValue('--primary').trim();
       if (!bg || !fg) return;
 
-      const fontCSS = fontFamily || fontSize ? `
-          pre, code, [data-line-content], [data-column-number] {
-            ${fontFamily ? `font-family: '${fontFamily}', monospace !important;` : ''}
-            ${fontSize ? `font-size: ${fontSize} !important; line-height: 1.5 !important;` : ''}
-          }` : '';
+      const fontCSS = buildPierreFontCSS(fontFamily, fontSize);
 
       setPierreTheme({
         type: resolvedMode,

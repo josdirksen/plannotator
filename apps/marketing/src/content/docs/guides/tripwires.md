@@ -1,6 +1,6 @@
 ---
 title: "Tripwires"
-description: "Mark slop-free zones in your repo so any change that touches a protected file or symbol surfaces a warning during code review."
+description: "Mark slop-free zones so any change that touches a protected file or symbol surfaces a warning during code review."
 sidebar:
   order: 17
 section: "Guides"
@@ -12,13 +12,12 @@ Some code is load-bearing in ways that aren't obvious from the diff: a hand-tune
 
 ## Configuration
 
-Tripwires are defined in a single JSON file at the root of your repo:
+Tripwires live in two layers that are merged together:
 
-```
-.plannotator/tripwires.json
-```
+- **Global** — a private file that is auto-created the first time you review in a repo and lives at `~/.plannotator/tripwires/<project-key>.json` (under your home `~/.plannotator` data directory, or wherever `PLANNOTATOR_DATA_DIR` points). It is **never committed** — it follows you across machines only if you sync your data directory, and it stays with you across every repo you work in.
+- **Repo** (optional) — a committed file at `.plannotator/tripwires.json` in the repo root. This is the team opt-in: anyone who clones the repo gets these rules.
 
-The file has one top-level key, `rules`, which is an array. Each rule names the files it protects (`globs`), optionally the symbols within them (`symbols`), and an optional `note` explaining why the zone is protected.
+Both layers use the same shape. Each file has one top-level key, `rules`, which is an array. Each rule names the files it protects (`globs`), optionally the symbols within them (`symbols`), and an optional `note` explaining why the zone is protected. The two layers are merged additively — global rules first, then repo rules appended on top — so a repo rule never overrides a global one; both apply.
 
 ```json
 {
@@ -39,6 +38,36 @@ The file has one top-level key, `rules`, which is an array. Each rule names the 
 | `globs` | Yes | One or more repo-relative glob patterns. A rule with no valid globs is dropped. |
 | `symbols` | No | Names that narrow the rule to lines mentioning those symbols. Omit to protect every change in the matched files. |
 | `note` | No | Message shown on the warning. Defaults to `Touches a slop-free zone`. |
+
+### Config locations
+
+The global file is keyed to the repository, not the folder. Plannotator derives the key from the repo's `origin` remote (so `git@github.com:you/app.git`, `https://github.com/you/app.git`, and an SSH URL with a custom port all resolve to the same project key). Repos with no remote fall back to the repository's shared git directory, so **linked worktrees of the same clone share one global file** rather than each getting their own.
+
+The two layers are merged by concatenation, global first. If a rule in each layer happens to share an `id`, the duplicate is renamed (`my-rule`, `my-rule-2`) so both still apply rather than one silently shadowing the other.
+
+You don't have to create either file by hand. The global file is created empty (`{ "rules": [] }`) the first time you review in a repo, and you can manage both layers from the command line:
+
+```bash
+plannotator tripwires list      # show the merged global + repo rules
+plannotator tripwires validate  # check both files and report any problems
+plannotator tripwires path      # print the path to each layer's file
+```
+
+Add rules directly with flags — global by default, or into the repo-committed file with `--repo` (the only time Plannotator ever writes inside your repo, because you asked):
+
+```bash
+plannotator tripwires add --glob "src/billing/**" --symbol chargeCard --note "Money path"
+plannotator tripwires add --glob "migrations/**" --repo   # team-shared, committed
+```
+
+Or describe what you want protected in plain language — from the terminal or inside your agent:
+
+```bash
+plannotator tripwires add protect the auth core and token validation
+plannotator review --add-tripwire the billing module and anything touching refunds
+```
+
+The description form **prints instructions for your agent**: explore the repo, turn the description into concrete globs and symbols, write the rule into the indicated file, then validate and show the result. The command itself never writes files in this mode.
 
 ### Example: protect whole files
 
@@ -111,10 +140,20 @@ Because tripwires are re-evaluated on every diff and PR switch, a hit you've alr
 
 Tripwires never block anything and they are **never included in the feedback sent back to the agent.** They are a signal for the human reviewer, not an instruction for the agent. When you click **Send Feedback**, only your own annotations are submitted — tripwire warnings are filtered out entirely, and they don't count toward the annotation total that gates submission.
 
+## Non-interactive scan
+
+You don't have to open the review UI to see what would trip. Run:
+
+```bash
+plannotator review --tripwires
+```
+
+(or `-t`) to print a report instead of opening the browser. The report lists the rules from each layer and a live status section showing which wires the current diff trips. It's handy for a quick check, for scripting, or for letting an agent see the slop-free zones it's about to touch.
+
 ## Fail-open behavior
 
-If `.plannotator/tripwires.json` is missing, empty, or malformed, tripwires simply do nothing — review proceeds exactly as it would without the file. A single broken rule never discards its siblings; the valid rules still apply. You can't break code review by writing a bad config.
+If either tripwires file is missing, empty, or malformed, tripwires simply do nothing for that layer — review proceeds exactly as it would without it. The two layers fail independently: a broken repo file never wipes out your global rules, and a broken global file never wipes out the repo's. A single broken rule never discards its siblings; the valid rules still apply. You can't break code review by writing a bad config.
 
 ## PR mode
 
-Tripwires evaluate during PR review as well, as long as a local checkout of the repo exists so the config file and repo root can be found. Without a local checkout there's nothing to read the config from, so no tripwires fire.
+Tripwires evaluate during PR review as well. Your **global** rules still fire in PR mode — they're keyed to the repository you launched the review from, so the same slop-free zones you've set up locally apply even without a checkout of the PR. The **repo** layer needs a local checkout of the repo, since its config file lives in the working tree; without one, only the global rules fire.

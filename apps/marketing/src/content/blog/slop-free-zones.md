@@ -16,7 +16,7 @@ The risk isn't that the change is obviously wrong. It's that it's *quiet*. You'r
 
 ## Slop-free zones
 
-The fix is to give that code a perimeter. A **slop-free zone** is a part of the codebase you've decided needs care — and Tripwires let you declare those zones in one file:
+The fix is to give that code a perimeter. A **slop-free zone** is a part of the codebase you've decided needs care — and Tripwires let you declare those zones with a few lines of JSON:
 
 ```json
 {
@@ -34,7 +34,9 @@ The fix is to give that code a perimeter. A **slop-free zone** is a part of the 
 }
 ```
 
-Drop that at `.plannotator/tripwires.json` in your repo root. The first rule watches the auth package, but only fires on lines that mention `verifyToken` or `hashPassword`. The second watches every migration and the schema file wholesale — no symbols, so any change at all trips it.
+The first rule watches the auth package, but only fires on lines that mention `verifyToken` or `hashPassword`. The second watches every migration and the schema file wholesale — no symbols, so any change at all trips it.
+
+These rules can live in two places, and Plannotator merges both. There's a **private global file** — auto-created the first time you review in a repo at `~/.plannotator/tripwires/<project-key>.json` — that follows you across every repo you work in, no commit required. And there's an **optional per-repo file** at `.plannotator/tripwires.json` that you commit so the whole team gets the same zones. You can run with just one or layer both; the repo rules merge on top of your global ones.
 
 The semantics are deliberately simple: **any change that touches a tripwired file or symbol trips the wire** — adding, editing, deleting, or renaming. There's nothing to learn beyond globs and an optional list of names.
 
@@ -46,7 +48,7 @@ Tripwires are passive on purpose. When a change touches a slop-free zone, you ge
 
 And tripwires are strictly for you, the human reviewer. They are **never** included in the feedback sent back to the agent, and they don't count toward your annotation total. They're a heads-up display, not an instruction.
 
-If the config file is missing or malformed, tripwires simply do nothing — one bad rule never discards the others, and you can't break review by writing a bad file. Fail-open, always.
+If either config file is missing or malformed, tripwires simply do nothing for that layer — the two fail independently, so a bad repo file never wipes out your global rules and vice versa. One bad rule never discards the others, and you can't break review by writing a bad file. Fail-open, always.
 
 ## Try it
 
@@ -56,4 +58,8 @@ Update to the latest version:
 curl -fsSL https://plannotator.ai/install.sh | bash
 ```
 
-Add a `.plannotator/tripwires.json` with the files you care about most, run `/plannotator-review`, and watch the zones light up. Full details are in the [Tripwires guide](/docs/guides/tripwires/).
+Then just run `/plannotator-review` — the global tripwires file is auto-created for the repo, ready for your first rule. Add the files you care about most and watch the zones light up.
+
+Two flags make it scriptable. `plannotator review --tripwires` prints a scan report instead of opening the browser, so you (or an agent) can see exactly which wires the current diff trips. And `plannotator review --add-tripwire <description>` takes plain language — "protect the billing module and anything touching refunds" — and hands your agent precise instructions for turning that into a rule: explore the repo, pick the globs and symbols, write the config, validate. Prefer doing it yourself? `plannotator tripwires add --glob "src/billing/**" --note "money path"` writes the rule straight into your global config (or the repo's, with `--repo`).
+
+Full details are in the [Tripwires guide](/docs/guides/tripwires/).

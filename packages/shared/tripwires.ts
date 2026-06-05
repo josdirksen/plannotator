@@ -6,10 +6,14 @@
  * tripwired file or symbol — adding, editing, deleting, or renaming — the wire
  * trips and an informational annotation surfaces in the review UI.
  *
- * Pure and runtime-agnostic: no node:fs, no Bun globals, no spawning, and no
- * intra-shared imports. This file is vendored verbatim into the Pi extension,
- * so it must stay fully self-contained.
+ * Pure and runtime-agnostic: no node:fs, no Bun globals, no spawning. The only
+ * dependency is the sibling `./repo` parser (also vendored into the Pi
+ * extension's flat `generated/` layout, so the relative import resolves there);
+ * everything impure (hashing, git/fs I/O) lives in the runtime glue that wraps
+ * these helpers.
  */
+
+import { parseRemoteUrl, parseRemoteHost } from "./repo";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -608,36 +612,74 @@ export function parseChangedLines(patch: string): FileSpan[] {
 
 const DEFAULT_NOTE = "Touches a slop-free zone";
 
+/** A diagnostic surfaced while parsing a tripwires config layer. */
+export interface TripwireDiagnostic {
+  /** `error` = the whole layer was unusable; `warning` = a single rule dropped. */
+  level: "error" | "warning";
+  message: string;
+  /** Index of the offending rule (warnings only). */
+  ruleIndex?: number;
+}
+
+/** Result of {@link parseTripwiresConfigDetailed}: the (fail-open) config plus diagnostics. */
+export interface TripwiresParseResult {
+  config: TripwiresConfig;
+  diagnostics: TripwireDiagnostic[];
+}
+
 /**
- * Parse a tripwires config from raw JSON text. Fail-open: any parse error,
- * malformed shape, or invalid rule yields a safe config — one bad rule never
- * discards its siblings.
+ * Parse a tripwires config from raw JSON text, accumulating diagnostics.
+ * Fail-open: any parse error, malformed shape, or invalid rule yields a safe
+ * config — one bad rule never discards its siblings. This variant never logs;
+ * the runtime glue decides whether (and where) to surface diagnostics so a
+ * corrupt config can be distinguished from an empty one.
  */
-export function parseTripwiresConfig(raw: string | null | undefined): TripwiresConfig {
-  if (!raw || typeof raw !== "string") return { rules: [] };
+export function parseTripwiresConfigDetailed(
+  raw: string | null | undefined,
+): TripwiresParseResult {
+  const diagnostics: TripwireDiagnostic[] = [];
+  if (!raw || typeof raw !== "string") return { config: { rules: [] }, diagnostics };
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    console.error("[tripwires] failed to parse tripwires.json:", err);
-    return { rules: [] };
+    diagnostics.push({
+      level: "error",
+      message: `failed to parse tripwires JSON: ${err instanceof Error ? err.message : String(err)}`,
+    });
+    return { config: { rules: [] }, diagnostics };
   }
 
-  if (!parsed || typeof parsed !== "object") return { rules: [] };
+  if (!parsed || typeof parsed !== "object") {
+    diagnostics.push({ level: "error", message: "tripwires config is not an object" });
+    return { config: { rules: [] }, diagnostics };
+  }
   const rawRules = (parsed as { rules?: unknown }).rules;
-  if (!Array.isArray(rawRules)) return { rules: [] };
+  if (!Array.isArray(rawRules)) {
+    diagnostics.push({ level: "error", message: "tripwires config `rules` is not an array" });
+    return { config: { rules: [] }, diagnostics };
+  }
 
   const rules: TripwireRule[] = [];
   for (let i = 0; i < rawRules.length; i++) {
     const rule = rawRules[i];
-    if (!rule || typeof rule !== "object") continue;
+    if (!rule || typeof rule !== "object") {
+      diagnostics.push({ level: "warning", message: "rule is not an object", ruleIndex: i });
+      continue;
+    }
     const r = rule as Record<string, unknown>;
 
     // globs is required and must contain at least one non-empty string.
-    if (!Array.isArray(r.globs)) continue;
+    if (!Array.isArray(r.globs)) {
+      diagnostics.push({ level: "warning", message: "rule is missing a `globs` array", ruleIndex: i });
+      continue;
+    }
     const globs = r.globs.filter((g): g is string => typeof g === "string" && g.length > 0);
-    if (globs.length === 0) continue;
+    if (globs.length === 0) {
+      diagnostics.push({ level: "warning", message: "rule has no non-empty globs", ruleIndex: i });
+      continue;
+    }
 
     const symbols = Array.isArray(r.symbols)
       ? r.symbols.filter((s): s is string => typeof s === "string" && s.length > 0)
@@ -650,6 +692,90 @@ export function parseTripwiresConfig(raw: string | null | undefined): TripwiresC
       ...(typeof r.note === "string" && r.note.length > 0 ? { note: r.note } : {}),
     });
   }
+
+  return { config: { rules }, diagnostics };
+}
+
+/**
+ * Parse a tripwires config from raw JSON text. Fail-open: any parse error,
+ * malformed shape, or invalid rule yields a safe config — one bad rule never
+ * discards its siblings. Thin wrapper over {@link parseTripwiresConfigDetailed}
+ * that drops the diagnostics.
+ */
+export function parseTripwiresConfig(raw: string | null | undefined): TripwiresConfig {
+  return parseTripwiresConfigDetailed(raw).config;
+}
+
+// ---------------------------------------------------------------------------
+// Identity normalization + config merge (two-layer global/repo store)
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalize a repo's identity into a stable string used to key the global
+ * tripwires file. Pure — composes the two existing `./repo` parsers; the runtime
+ * glue hashes the result.
+ *
+ * - Remote present: `host/path` where `host` is the lowercased
+ *   {@link parseRemoteHost} result and `path` is {@link parseRemoteUrl} (which
+ *   already strips the scheme, credentials, `.git` suffix, and host). SSH, HTTPS,
+ *   and SSH-with-port forms of the same remote all collapse to the same string,
+ *   e.g. `github.com/backnotprop/plannotator`.
+ * - Remote absent (either parser returns null): `local:<repoKeyBase>`, where the
+ *   glue supplies the canonical repo dir (git-common-dir parent) so linked
+ *   worktrees of one repo share a key.
+ * - Empty everything: `local:`.
+ */
+export function normalizeRemoteIdentity(
+  remoteUrl: string | null | undefined,
+  repoKeyBase: string | null,
+): string {
+  if (remoteUrl) {
+    // Strip embedded credentials from a scheme://user:pass@host authority before
+    // parsing. parseRemoteHost otherwise returns the username (its host regex
+    // stops at the first `:`), so a creds-bearing HTTPS clone URL would key to a
+    // different identity than the bare one. Scheme-gated so the SSH `git@host:`
+    // form (where `@` is structural, not a credential) is untouched.
+    const sanitized = remoteUrl.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@]+@/i, "$1");
+    const host = parseRemoteHost(sanitized);
+    const path = parseRemoteUrl(sanitized);
+    if (host && path) {
+      const normalizedPath = path.replace(/\/+$/, "");
+      return `${host.toLowerCase()}/${normalizedPath}`;
+    }
+  }
+  return `local:${repoKeyBase ?? ""}`;
+}
+
+/**
+ * Merge a global and a repo tripwires config into one. Global rules come first,
+ * repo rules are appended. Colliding ids are made unique by suffixing `-2`,
+ * `-3`, … (deterministic). Distinct ids matter only for the internal dedup key
+ * in {@link evaluateTripwires} — a colliding global+repo id on the same line
+ * would otherwise collapse two real hits into one.
+ */
+export function mergeTripwiresConfigs(
+  global: TripwiresConfig,
+  repo: TripwiresConfig,
+): TripwiresConfig {
+  const globalRules = Array.isArray(global?.rules) ? global.rules : [];
+  const repoRules = Array.isArray(repo?.rules) ? repo.rules : [];
+
+  const seen = new Set<string>();
+  const rules: TripwireRule[] = [];
+
+  const add = (rule: TripwireRule) => {
+    let id = rule.id;
+    let n = 2;
+    while (seen.has(id)) {
+      id = `${rule.id}-${n}`;
+      n++;
+    }
+    seen.add(id);
+    rules.push(id === rule.id ? rule : { ...rule, id });
+  };
+
+  for (const rule of globalRules) add(rule);
+  for (const rule of repoRules) add(rule);
 
   return { rules };
 }
@@ -707,7 +833,7 @@ export function evaluateTripwires(
     const seen = new Set<string>();
 
     const push = (hit: TripwireHit) => {
-      const key = `${hit.ruleId} ${hit.filePath} ${hit.side ?? ""} ${hit.line ?? ""}`;
+      const key = `${hit.ruleId}\x00${hit.filePath}\x00${hit.side ?? ""}\x00${hit.line ?? ""}`;
       if (seen.has(key)) return;
       seen.add(key);
       hits.push(hit);
@@ -845,4 +971,202 @@ export function tripwireHitToReviewAnnotation(hit: TripwireHit): TripwireReviewA
     input.lineEnd = hit.line;
   }
   return input;
+}
+
+// ---------------------------------------------------------------------------
+// CLI / non-interactive formatting (list + scan report)
+// ---------------------------------------------------------------------------
+
+/** Everything `formatTripwiresMarkdown` needs to render a two-layer report. */
+export interface TripwiresListView {
+  /** Hashed project key for the global file (null when no key was derived). */
+  globalKey: string | null;
+  /** User-facing path to the global tripwires file. */
+  globalPath: string;
+  /** Path to the repo tripwires file, or null outside a git repo. */
+  repoPath: string | null;
+  /** Rules from the global layer (pre-merge, for grouped display). */
+  globalRules: TripwireRule[];
+  /** Rules from the repo layer (pre-merge, for grouped display). */
+  repoRules: TripwireRule[];
+  /** Optional live evaluation hits to append as a status section. */
+  hits?: TripwireHit[];
+}
+
+/** Escape pipe characters so a value renders inside a markdown table cell. */
+function escapeCell(value: string): string {
+  return value.replace(/\|/g, "\\|");
+}
+
+/** Render one layer's rules as a markdown table, or "(none)" when empty. */
+function rulesTable(rules: TripwireRule[]): string {
+  if (rules.length === 0) return "(none)";
+  const header = "| id | globs | symbols | note |\n| --- | --- | --- | --- |";
+  const rows = rules.map((r) => {
+    const globs = r.globs.join(", ");
+    const symbols = r.symbols && r.symbols.length > 0 ? r.symbols.join(", ") : "";
+    const note = r.note ?? "";
+    return `| ${escapeCell(r.id)} | ${escapeCell(globs)} | ${escapeCell(symbols)} | ${escapeCell(note)} |`;
+  });
+  return [header, ...rows].join("\n");
+}
+
+/**
+ * Render a two-layer tripwires view as markdown: a Global section and a Repo
+ * section, each a table (or "(none)"), plus an optional live-status section that
+ * marks which rule ids tripped.
+ */
+export function formatTripwiresMarkdown(view: TripwiresListView): string {
+  const sections: string[] = [];
+
+  sections.push(`## Global (${view.globalPath})`);
+  sections.push(rulesTable(view.globalRules));
+
+  const repoLabel = view.repoPath ?? ".plannotator/tripwires.json";
+  sections.push(`## Repo (${repoLabel})`);
+  sections.push(rulesTable(view.repoRules));
+
+  if (view.hits) {
+    sections.push("## Live status");
+    if (view.hits.length === 0) {
+      sections.push("No tripwires tripped.");
+    } else {
+      const trippedIds = new Set(view.hits.map((h) => h.ruleId));
+      // An in-place edit touching a tripwired symbol trips on both the old (`-`)
+      // and new (`+`) side at the same line number; evaluateTripwires keeps both
+      // (the review UI's old/new gutters need them), but to a reader they are the
+      // same location. Collapse status lines that share (ruleId, where, note).
+      const seen = new Set<string>();
+      const lines: string[] = [];
+      for (const h of view.hits) {
+        const where = h.scope === "line" && typeof h.line === "number"
+          ? `${h.filePath}:${h.line}`
+          : h.filePath;
+        const dedupKey = `${h.ruleId}\x00${where}\x00${h.note}`;
+        if (seen.has(dedupKey)) continue;
+        seen.add(dedupKey);
+        lines.push(`- \`${h.ruleId}\` tripped — ${escapeCell(where)} — ${escapeCell(h.note)}`);
+      }
+      sections.push(`Tripped: ${[...trippedIds].map((id) => `\`${id}\``).join(", ")}`);
+      sections.push(lines.join("\n"));
+    }
+  }
+
+  return sections.join("\n\n");
+}
+
+/**
+ * Build the agent-facing instruction for `--add-tripwire <description>` and
+ * `tripwires add <description>`. The user describes the sensitive region in
+ * natural language; the returned prompt tells the agent how to turn that into
+ * a concrete rule and write it. It never writes the file itself — the command
+ * output IS the instruction.
+ */
+export function buildAddTripwirePrompt(args: {
+  /** The user's natural-language description of what to protect. */
+  description: string;
+  /** Resolved absolute path of the global per-project file, when known. */
+  globalPath?: string;
+  /** Resolved path of the repo-committed file, when inside a git repo. */
+  repoPath?: string;
+}): string {
+  const globalPath =
+    args.globalPath ?? "~/.plannotator/tripwires/<project-key>.json";
+  const repoPath = args.repoPath ?? ".plannotator/tripwires.json";
+
+  return [
+    "Add a tripwire (slop-free zone) so future code-review diffs touching this region are flagged.",
+    `The user wants to protect:\n\n> ${args.description}`,
+    [
+      "Steps:",
+      "1. Explore the repository to resolve that description into concrete file globs (prefer the narrowest globs that cover it). If the user named functions, classes, or other symbols, capture them as `symbols` entries; otherwise omit `symbols`.",
+      "2. Write the rule into the GLOBAL tripwires file (default; private to this machine):",
+      `   ${globalPath}`,
+      `   Only use the repo-committed file (${repoPath}) if the user explicitly asked for a team-shared / committed tripwire.`,
+      "3. If the file does not exist, create it as `{ \"rules\": [] }`. Append the new rule — never remove or rewrite existing rules. Give it a unique `id`.",
+      "4. Run `plannotator tripwires validate` to confirm the config parses, then show the user the final rule and which file it landed in.",
+    ].join("\n"),
+    [
+      "Schema for one rule:",
+      "```json",
+      JSON.stringify(
+        { id: "money-path", globs: ["src/billing/**"], symbols: ["chargeCustomer"], note: "Money path — review carefully" },
+        null,
+        2,
+      ),
+      "```",
+      "`globs` (required): repo-relative; `*` matches within a path segment, `**` across segments, `?` one character. `symbols` (optional): plain substrings — a rule with symbols only trips when a change touches that symbol. `note` (optional): shown on the warning in the review UI.",
+      "Semantics: any change that touches a matched file or symbol — adding, editing, deleting, renaming — trips the wire.",
+    ].join("\n"),
+    "This is an instruction to apply — the command did not write any file.",
+  ].join("\n\n");
+}
+
+// ---------------------------------------------------------------------------
+// Rule writing (pure JSON manipulation — fs lives in runtime glue)
+// ---------------------------------------------------------------------------
+
+export type AppendRuleResult =
+  | { ok: true; json: string; rule: TripwireRule }
+  | { ok: false; error: string };
+
+/**
+ * Append a rule to a tripwires JSON document, preserving everything already
+ * there (existing rules verbatim, unknown top-level keys). Returns the new
+ * document text, or a refusal when the existing content cannot be parsed —
+ * an explicit write must never clobber a file the user could still repair.
+ * Missing/empty input starts a fresh `{ "rules": [] }` document.
+ */
+export function appendRuleToTripwiresJson(
+  raw: string | null,
+  rule: { globs: string[]; symbols?: string[]; note?: string; id?: string },
+): AppendRuleResult {
+  if (rule.globs.length === 0 || rule.globs.some((g) => g.trim().length === 0)) {
+    return { ok: false, error: "a rule needs at least one non-empty glob" };
+  }
+
+  let doc: Record<string, unknown>;
+  if (raw === null || raw.trim().length === 0) {
+    doc = { rules: [] };
+  } else {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        return { ok: false, error: "existing config is not a JSON object — fix it first (plannotator tripwires validate)" };
+      }
+      doc = parsed as Record<string, unknown>;
+    } catch {
+      return { ok: false, error: "existing config is not valid JSON — refusing to overwrite it (plannotator tripwires validate)" };
+    }
+  }
+
+  const rules = Array.isArray(doc.rules) ? (doc.rules as unknown[]) : [];
+  doc.rules = rules;
+
+  const existingIds = new Set(
+    rules
+      .map((r) => (typeof r === "object" && r !== null ? (r as Record<string, unknown>).id : undefined))
+      .filter((id): id is string => typeof id === "string"),
+  );
+
+  let id = rule.id?.trim();
+  if (id) {
+    if (existingIds.has(id)) {
+      return { ok: false, error: `a rule with id "${id}" already exists` };
+    }
+  } else {
+    let n = rules.length + 1;
+    while (existingIds.has(`rule-${n}`)) n++;
+    id = `rule-${n}`;
+  }
+
+  const newRule: TripwireRule = {
+    id,
+    globs: rule.globs,
+    ...(rule.symbols && rule.symbols.length > 0 ? { symbols: rule.symbols } : {}),
+    ...(rule.note && rule.note.trim().length > 0 ? { note: rule.note.trim() } : {}),
+  };
+  rules.push(newRule);
+
+  return { ok: true, json: JSON.stringify(doc, null, 2) + "\n", rule: newRule };
 }

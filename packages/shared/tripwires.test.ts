@@ -1,13 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import { transformReviewInput } from "./external-annotation";
 import {
+  appendRuleToTripwiresJson,
+  buildAddTripwirePrompt,
   evaluateTripwires,
+  formatTripwiresMarkdown,
   globToRegExp,
   matchesAnyGlob,
+  mergeTripwiresConfigs,
+  normalizeRemoteIdentity,
   parseChangedLines,
   parseTripwiresConfig,
+  parseTripwiresConfigDetailed,
   tripwireHitToReviewAnnotation,
   TRIPWIRE_SOURCE,
+  type TripwireRule,
   type TripwiresConfig,
 } from "./tripwires";
 
@@ -666,5 +673,390 @@ describe("tripwireHitToReviewAnnotation", () => {
     expect("error" in result).toBe(false);
     if ("error" in result) throw new Error(result.error);
     expect(result.annotations[0].text).toBe(hits[0].note);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// normalizeRemoteIdentity — stable cross-protocol identity
+// ---------------------------------------------------------------------------
+
+describe("normalizeRemoteIdentity", () => {
+  test("ssh, https, and ssh-with-port forms of the same remote collapse to one identity", () => {
+    const ssh = normalizeRemoteIdentity("git@github.com:backnotprop/plannotator.git", null);
+    const https = normalizeRemoteIdentity("https://github.com/backnotprop/plannotator.git", null);
+    const sshPort = normalizeRemoteIdentity("ssh://git@github.com:22/backnotprop/plannotator.git", null);
+    expect(ssh).toBe("github.com/backnotprop/plannotator");
+    expect(https).toBe(ssh);
+    expect(sshPort).toBe(ssh);
+  });
+
+  test("credentials embedded in an https URL do not change the identity", () => {
+    const plain = normalizeRemoteIdentity("https://github.com/backnotprop/plannotator.git", null);
+    const withCreds = normalizeRemoteIdentity(
+      "https://user:token@github.com/backnotprop/plannotator.git",
+      null,
+    );
+    expect(withCreds).toBe(plain);
+  });
+
+  test("trailing .git and trailing slash are stripped", () => {
+    expect(normalizeRemoteIdentity("https://github.com/acme/repo.git", null)).toBe("github.com/acme/repo");
+    expect(normalizeRemoteIdentity("https://github.com/acme/repo/", null)).toBe("github.com/acme/repo");
+  });
+
+  test("GitHub Enterprise host is lowercased", () => {
+    expect(normalizeRemoteIdentity("https://Git.Corp.EXAMPLE.com/team/proj.git", null)).toBe(
+      "git.corp.example.com/team/proj",
+    );
+  });
+
+  test("no remote with no key base is stable and local-prefixed", () => {
+    expect(normalizeRemoteIdentity(null, null)).toBe("local:");
+    expect(normalizeRemoteIdentity(undefined, null)).toBe("local:");
+    expect(normalizeRemoteIdentity("", null)).toBe("local:");
+  });
+
+  test("no remote falls back to local:<repoKeyBase>", () => {
+    expect(normalizeRemoteIdentity(null, "/home/me/plannotator")).toBe("local:/home/me/plannotator");
+  });
+
+  test("two worktrees sharing one git-common-dir base produce the same identity", () => {
+    // The runtime glue passes the canonicalized git-common-dir parent, which is
+    // shared across linked worktrees, so both worktrees collapse to one key.
+    const base = "/home/me/plannotator";
+    const wtA = normalizeRemoteIdentity(null, base);
+    const wtB = normalizeRemoteIdentity(null, base);
+    expect(wtA).toBe(wtB);
+  });
+
+  test("an unparseable remote falls back to the local key base", () => {
+    // parseRemoteHost/parseRemoteUrl return null for nonsense, so we fall open
+    // to the local: form rather than emitting a half-formed host/path.
+    expect(normalizeRemoteIdentity("not a url", "/repo")).toBe("local:/repo");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mergeTripwiresConfigs — additive merge with id de-collision
+// ---------------------------------------------------------------------------
+
+describe("mergeTripwiresConfigs", () => {
+  const rule = (id: string, glob = "a.ts"): TripwireRule => ({ id, globs: [glob] });
+
+  test("global rules come first, repo rules appended", () => {
+    const merged = mergeTripwiresConfigs(
+      { rules: [rule("g1"), rule("g2")] },
+      { rules: [rule("r1")] },
+    );
+    expect(merged.rules.map((r) => r.id)).toEqual(["g1", "g2", "r1"]);
+  });
+
+  test("colliding ids are suffixed -2, -3 deterministically", () => {
+    const merged = mergeTripwiresConfigs(
+      { rules: [rule("rule-0", "global.ts")] },
+      { rules: [rule("rule-0", "repo.ts"), rule("rule-0", "repo2.ts")] },
+    );
+    expect(merged.rules.map((r) => r.id)).toEqual(["rule-0", "rule-0-2", "rule-0-3"]);
+    // Globs are preserved (only the id changes on collision).
+    expect(merged.rules[0].globs).toEqual(["global.ts"]);
+    expect(merged.rules[1].globs).toEqual(["repo.ts"]);
+    expect(merged.rules[2].globs).toEqual(["repo2.ts"]);
+  });
+
+  test("empty global passes the repo rules through unchanged", () => {
+    const merged = mergeTripwiresConfigs({ rules: [] }, { rules: [rule("r1")] });
+    expect(merged.rules.map((r) => r.id)).toEqual(["r1"]);
+  });
+
+  test("a bad (non-array rules) layer does not wipe the other", () => {
+    // mergeTripwiresConfigs is defensive against a malformed layer object.
+    const merged = mergeTripwiresConfigs(
+      { rules: [rule("g1")] },
+      { rules: undefined as unknown as TripwireRule[] },
+    );
+    expect(merged.rules.map((r) => r.id)).toEqual(["g1"]);
+  });
+
+  test("collision within the global layer itself is also de-duplicated", () => {
+    const merged = mergeTripwiresConfigs(
+      { rules: [rule("dup"), rule("dup")] },
+      { rules: [] },
+    );
+    expect(merged.rules.map((r) => r.id)).toEqual(["dup", "dup-2"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseTripwiresConfigDetailed — diagnostics
+// ---------------------------------------------------------------------------
+
+describe("parseTripwiresConfigDetailed", () => {
+  test("malformed JSON yields an error diagnostic and an empty config", () => {
+    const result = parseTripwiresConfigDetailed("{not json");
+    expect(result.config).toEqual({ rules: [] });
+    expect(result.diagnostics.length).toBe(1);
+    expect(result.diagnostics[0].level).toBe("error");
+  });
+
+  test("non-object and non-array rules yield error diagnostics", () => {
+    expect(parseTripwiresConfigDetailed("42").diagnostics[0]).toMatchObject({ level: "error" });
+    expect(parseTripwiresConfigDetailed('{"rules":"nope"}').diagnostics[0]).toMatchObject({
+      level: "error",
+    });
+  });
+
+  test("missing-globs rule yields a warning with ruleIndex; siblings kept", () => {
+    const raw = JSON.stringify({
+      rules: [
+        { globs: ["src/*.ts"], note: "good" },
+        { note: "no globs" },
+        { globs: ["lib/*.ts"] },
+      ],
+    });
+    const result = parseTripwiresConfigDetailed(raw);
+    expect(result.config.rules.map((r) => r.globs)).toEqual([["src/*.ts"], ["lib/*.ts"]]);
+    const warning = result.diagnostics.find((d) => d.level === "warning");
+    expect(warning).toBeDefined();
+    expect(warning?.ruleIndex).toBe(1);
+  });
+
+  test("a valid config produces no diagnostics", () => {
+    const raw = JSON.stringify({ rules: [{ id: "a", globs: ["a.ts"] }] });
+    expect(parseTripwiresConfigDetailed(raw).diagnostics).toEqual([]);
+  });
+
+  test("null / undefined produce no diagnostics (empty, not corrupt)", () => {
+    expect(parseTripwiresConfigDetailed(null).diagnostics).toEqual([]);
+    expect(parseTripwiresConfigDetailed(undefined).diagnostics).toEqual([]);
+  });
+
+  test("parseTripwiresConfig still delegates and returns just the config", () => {
+    const raw = JSON.stringify({ rules: [{ id: "a", globs: ["a.ts"] }] });
+    expect(parseTripwiresConfig(raw)).toEqual({ rules: [{ id: "a", globs: ["a.ts"] }] });
+    expect(parseTripwiresConfig("{bad")).toEqual({ rules: [] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatTripwiresMarkdown — grouped list + live status
+// ---------------------------------------------------------------------------
+
+describe("formatTripwiresMarkdown", () => {
+  test("groups into Global and Repo sections with tables", () => {
+    const md = formatTripwiresMarkdown({
+      globalKey: "abc123",
+      globalPath: "~/.plannotator/tripwires/abc123.json",
+      repoPath: "/repo/.plannotator/tripwires.json",
+      globalRules: [{ id: "g1", globs: ["src/**"], symbols: ["validateToken"], note: "guarded" }],
+      repoRules: [{ id: "r1", globs: ["lib/*.ts"] }],
+    });
+    expect(md).toContain("## Global (~/.plannotator/tripwires/abc123.json)");
+    expect(md).toContain("## Repo (/repo/.plannotator/tripwires.json)");
+    expect(md).toContain("| g1 | src/** | validateToken | guarded |");
+    expect(md).toContain("| r1 | lib/*.ts |  |  |");
+  });
+
+  test("empty layers render (none)", () => {
+    const md = formatTripwiresMarkdown({
+      globalKey: null,
+      globalPath: "~/.plannotator/tripwires/none.json",
+      repoPath: null,
+      globalRules: [],
+      repoRules: [],
+    });
+    expect(md).toContain("## Global");
+    expect(md).toContain("## Repo (.plannotator/tripwires.json)");
+    expect(md).toContain("(none)");
+  });
+
+  test("hits append a live-status section marking tripped ids", () => {
+    const md = formatTripwiresMarkdown({
+      globalKey: "k",
+      globalPath: "g.json",
+      repoPath: "r.json",
+      globalRules: [{ id: "g1", globs: ["src/**"] }],
+      repoRules: [],
+      hits: [{ ruleId: "g1", filePath: "src/auth.ts", note: "guarded", scope: "line", side: "new", line: 12 }],
+    });
+    expect(md).toContain("## Live status");
+    expect(md).toContain("`g1`");
+    expect(md).toContain("src/auth.ts:12");
+  });
+
+  test("collapses old+new hits at the same line into one status line", () => {
+    // An in-place edit trips on both the removed (old) and added (new) side at
+    // the same line; the human-readable status list should show it once.
+    const md = formatTripwiresMarkdown({
+      globalKey: "k",
+      globalPath: "g.json",
+      repoPath: "r.json",
+      globalRules: [{ id: "auth", globs: ["auth.ts"] }],
+      repoRules: [],
+      hits: [
+        { ruleId: "auth", filePath: "auth.ts", note: "Security critical", scope: "line", side: "old", line: 1 },
+        { ruleId: "auth", filePath: "auth.ts", note: "Security critical", scope: "line", side: "new", line: 1 },
+      ],
+    });
+    const occurrences = md.split("`auth` tripped — auth.ts:1 — Security critical").length - 1;
+    expect(occurrences).toBe(1);
+  });
+
+  test("keeps distinct line numbers as separate status lines", () => {
+    const md = formatTripwiresMarkdown({
+      globalKey: "k",
+      globalPath: "g.json",
+      repoPath: "r.json",
+      globalRules: [{ id: "auth", globs: ["auth.ts"] }],
+      repoRules: [],
+      hits: [
+        { ruleId: "auth", filePath: "auth.ts", note: "Security critical", scope: "line", side: "old", line: 1 },
+        { ruleId: "auth", filePath: "auth.ts", note: "Security critical", scope: "line", side: "new", line: 9 },
+      ],
+    });
+    expect(md).toContain("auth.ts:1");
+    expect(md).toContain("auth.ts:9");
+  });
+
+  test("empty hits array reports nothing tripped", () => {
+    const md = formatTripwiresMarkdown({
+      globalKey: "k",
+      globalPath: "g.json",
+      repoPath: "r.json",
+      globalRules: [],
+      repoRules: [],
+      hits: [],
+    });
+    expect(md).toContain("## Live status");
+    expect(md).toContain("No tripwires tripped.");
+  });
+
+  test("omitting hits omits the live-status section entirely", () => {
+    const md = formatTripwiresMarkdown({
+      globalKey: "k",
+      globalPath: "g.json",
+      repoPath: "r.json",
+      globalRules: [],
+      repoRules: [],
+    });
+    expect(md).not.toContain("Live status");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildAddTripwirePrompt — agent-facing instruction (no file write)
+// ---------------------------------------------------------------------------
+
+describe("buildAddTripwirePrompt", () => {
+  test("embeds the user's description and the no-write disclaimer", () => {
+    const prompt = buildAddTripwirePrompt({
+      description: "protect the billing module from casual edits",
+    });
+    expect(prompt).toContain("protect the billing module from casual edits");
+    expect(prompt.toLowerCase()).toContain("did not write");
+    // Instructs the validate-then-show ritual.
+    expect(prompt).toContain("plannotator tripwires validate");
+  });
+
+  test("uses resolved paths when provided, placeholders otherwise", () => {
+    const resolved = buildAddTripwirePrompt({
+      description: "auth core",
+      globalPath: "/home/u/.plannotator/tripwires/repo-abc123.json",
+      repoPath: "/work/repo/.plannotator/tripwires.json",
+    });
+    expect(resolved).toContain("/home/u/.plannotator/tripwires/repo-abc123.json");
+    expect(resolved).toContain("/work/repo/.plannotator/tripwires.json");
+
+    const placeholder = buildAddTripwirePrompt({ description: "auth core" });
+    expect(placeholder).toContain("~/.plannotator/tripwires/<project-key>.json");
+    expect(placeholder).toContain(".plannotator/tripwires.json");
+  });
+
+  test("defaults to the global file and frames repo as explicit opt-in", () => {
+    const prompt = buildAddTripwirePrompt({ description: "x" });
+    expect(prompt).toContain("GLOBAL");
+    expect(prompt.toLowerCase()).toContain("explicitly asked");
+  });
+
+  test("documents the rule schema with a JSON example", () => {
+    const prompt = buildAddTripwirePrompt({ description: "x" });
+    expect(prompt).toContain('"globs"');
+    expect(prompt).toContain('"symbols"');
+    expect(prompt).toContain('"note"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// appendRuleToTripwiresJson — pure JSON append (fs lives in runtime glue)
+// ---------------------------------------------------------------------------
+
+describe("appendRuleToTripwiresJson", () => {
+  test("starts a fresh document from null/empty input", () => {
+    for (const raw of [null, "", "   "]) {
+      const result = appendRuleToTripwiresJson(raw, { globs: ["src/**"], note: "n" });
+      expect(result.ok).toBe(true);
+      if (!result.ok) continue;
+      const doc = JSON.parse(result.json);
+      expect(doc.rules).toHaveLength(1);
+      expect(doc.rules[0]).toEqual({ id: "rule-1", globs: ["src/**"], note: "n" });
+      expect(result.json.endsWith("\n")).toBe(true);
+    }
+  });
+
+  test("preserves existing rules verbatim and unknown top-level keys", () => {
+    const raw = JSON.stringify({
+      $schema: "https://example.com/tripwires.json",
+      rules: [{ id: "keep-me", globs: ["a/**"], extra: "field" }],
+    });
+    const result = appendRuleToTripwiresJson(raw, { globs: ["b/**"] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const doc = JSON.parse(result.json);
+    expect(doc.$schema).toBe("https://example.com/tripwires.json");
+    expect(doc.rules[0]).toEqual({ id: "keep-me", globs: ["a/**"], extra: "field" });
+    expect(doc.rules[1].globs).toEqual(["b/**"]);
+  });
+
+  test("generates non-colliding sequential ids", () => {
+    const raw = JSON.stringify({ rules: [{ id: "rule-1", globs: ["a"] }, { id: "rule-3", globs: ["b"] }] });
+    const result = appendRuleToTripwiresJson(raw, { globs: ["c"] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const doc = JSON.parse(result.json);
+    // rules.length + 1 = 3 collides with rule-3 → bumps to rule-4.
+    expect(doc.rules[2].id).toBe("rule-4");
+  });
+
+  test("rejects an explicit id collision", () => {
+    const raw = JSON.stringify({ rules: [{ id: "money", globs: ["a"] }] });
+    const result = appendRuleToTripwiresJson(raw, { globs: ["b"], id: "money" });
+    expect(result.ok).toBe(false);
+  });
+
+  test("refuses to clobber unparseable or non-object content", () => {
+    expect(appendRuleToTripwiresJson("{ not json", { globs: ["a"] }).ok).toBe(false);
+    expect(appendRuleToTripwiresJson("[1,2,3]", { globs: ["a"] }).ok).toBe(false);
+  });
+
+  test("rejects empty globs", () => {
+    expect(appendRuleToTripwiresJson(null, { globs: [] }).ok).toBe(false);
+    expect(appendRuleToTripwiresJson(null, { globs: ["  "] }).ok).toBe(false);
+  });
+
+  test("omits empty symbols and blank notes, trims the note", () => {
+    const result = appendRuleToTripwiresJson(null, { globs: ["a"], symbols: [], note: "  hi  " });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const rule = JSON.parse(result.json).rules[0];
+    expect(rule.symbols).toBeUndefined();
+    expect(rule.note).toBe("hi");
+  });
+
+  test("appended rule round-trips through the detailed parser with no diagnostics", () => {
+    const result = appendRuleToTripwiresJson(null, { globs: ["src/**"], symbols: ["charge"], note: "money" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const parsed = parseTripwiresConfigDetailed(result.json);
+    expect(parsed.diagnostics).toHaveLength(0);
+    expect(parsed.config.rules).toHaveLength(1);
   });
 });

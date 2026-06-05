@@ -30,12 +30,11 @@ import { createEditorAnnotationHandler } from "./editor-annotations";
 import { createExternalAnnotationHandler } from "./external-annotations";
 import { createAgentJobHandler } from "./agent-jobs";
 import {
-  parseTripwiresConfig,
   evaluateTripwires,
   tripwireHitToReviewAnnotation,
   TRIPWIRE_SOURCE,
 } from "@plannotator/shared/tripwires";
-import { repoRootFromCwd, readTripwiresFile } from "./tripwires";
+import { resolveMergedTripwires } from "./tripwires";
 import {
   CODEX_REVIEW_SYSTEM_PROMPT,
   buildCodexCommand,
@@ -202,8 +201,10 @@ export async function startReviewServer(
     return options.agentCwd ?? resolveVcsCwd(currentDiffType, gitContext?.cwd) ?? process.cwd();
   };
 
-  // Tripwires — re-evaluate the current patch against the repo's
-  // `.plannotator/tripwires.json` and surface hits as external annotations.
+  // Tripwires — re-evaluate the current patch against the merged global + repo
+  // tripwires config and surface hits as external annotations. The global layer
+  // lives under `<dataDir>/tripwires/<key>.json` (keyed by remote identity), the
+  // repo layer is `.plannotator/tripwires.json`; rules are merged additively.
   // Fully fail-open: any failure logs and leaves the review untouched. Runs at
   // startup and after every patch reassignment (diff switch, PR scope, PR
   // switch). Defined after resolveAgentCwd to avoid a TDZ on the cwd resolver.
@@ -212,11 +213,23 @@ export async function startReviewServer(
       // Stale hits from a previous patch never carry over.
       externalAnnotations.clearBySource(TRIPWIRE_SOURCE);
 
-      const root = await repoRootFromCwd(resolveAgentCwd());
-      if (!root) return;
+      // resolveMergedTripwires runs git resolution, ensures the global file
+      // exists (write-once), re-reads both layers, and merges them. Re-running
+      // per refresh re-reads file contents so edits land without a restart;
+      // ensureGlobalTripwiresFile is idempotent so the once-only intent holds.
+      const { config, root, globalDiagnostics } = await resolveMergedTripwires(resolveAgentCwd());
 
-      const config = parseTripwiresConfig(readTripwiresFile(root));
-      const hits = evaluateTripwires(currentPatch, config, { cwd: root });
+      // Surface a corrupt GLOBAL file (error-level diagnostics) so users can
+      // tell it apart from an empty one. A bad file still fails open to empty.
+      for (const d of globalDiagnostics) {
+        if (d.level === "error") {
+          console.error(`[tripwires] global config error: ${d.message}`);
+        }
+      }
+
+      // Global rules fire even when root is null (PR mode without a checkout),
+      // so do NOT early-return on a missing repo root.
+      const hits = evaluateTripwires(currentPatch, config, { cwd: root ?? undefined });
       if (hits.length === 0) return;
 
       const result = externalAnnotations.addAnnotations({

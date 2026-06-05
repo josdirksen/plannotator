@@ -8,7 +8,7 @@ import React, {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import type { Annotation, EditorMode, ImageAttachment, InputMethod } from "../../types";
+import type { Annotation, EditorMode, ImageAttachment } from "../../types";
 import { AnnotationType } from "../../types";
 import { getIdentity } from "../../utils/identity";
 import { AnnotationToolbar } from "../AnnotationToolbar";
@@ -71,8 +71,6 @@ export interface HtmlViewerProps {
   onSelectAnnotation: (id: string | null) => void;
   selectedAnnotationId: string | null;
   mode: EditorMode;
-  /** Input method: 'drag' = text selection, 'pinpoint' = click an element. */
-  inputMethod: InputMethod;
   globalAttachments?: ImageAttachment[];
   onAddGlobalAttachment?: (image: ImageAttachment) => void;
   onRemoveGlobalAttachment?: (path: string) => void;
@@ -80,9 +78,6 @@ export interface HtmlViewerProps {
   /** Render edge-to-edge: fill the viewport, drop the card chrome + action bar,
    *  and let the iframe own the full height instead of auto-resizing to content. */
   fullViewport?: boolean;
-  /** Hide the floating doc-level controls (attachments + global comment) in
-   *  full-viewport mode, so the user can read the page unobstructed. */
-  hideControls?: boolean;
   onAskAI?: (question: string, context: CommentAskAIContext) => void;
 }
 
@@ -95,13 +90,11 @@ export const HtmlViewer = forwardRef<ViewerHandle, HtmlViewerProps>(
       onSelectAnnotation,
       selectedAnnotationId,
       mode,
-      inputMethod,
       globalAttachments = [],
       onAddGlobalAttachment,
       onRemoveGlobalAttachment,
       maxWidth,
       fullViewport,
-      hideControls,
       onAskAI,
     },
     ref,
@@ -162,16 +155,6 @@ export const HtmlViewer = forwardRef<ViewerHandle, HtmlViewerProps>(
         hook.applyAnnotations(annotations);
       }
     }, [iframeReady]); // eslint-disable-line react-hooks/exhaustive-deps
-
-    // Tell the bridge the current input method (drag vs pinpoint). Re-posts on
-    // ready (fresh iframe) and whenever the user switches it in the toolstrip.
-    useEffect(() => {
-      if (!iframeReady) return;
-      iframeRef.current?.contentWindow?.postMessage(
-        { type: `${PREFIX}set-input-method`, method: inputMethod },
-        "*",
-      );
-    }, [iframeReady, inputMethod]);
 
     useEffect(() => {
       if (!iframeReady) return;
@@ -268,7 +251,7 @@ export const HtmlViewer = forwardRef<ViewerHandle, HtmlViewerProps>(
             {/* Full-viewport mode has no card chrome, so float the same controls
                 over the top-right of the iframe (with a backdrop so they read over
                 any HTML). The selection toolbar is portaled separately. */}
-            {fullViewport && !hideControls && (
+            {fullViewport && (
               <div
                 data-print-hide
                 className="absolute top-3 right-3 z-10 flex items-center gap-1 md:gap-2 rounded-lg border border-border/50 bg-background/80 px-1.5 py-1 shadow-md backdrop-blur-sm"

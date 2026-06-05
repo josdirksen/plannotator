@@ -2374,7 +2374,7 @@ const App: React.FC = () => {
                   sticky actions are disabled. remountToken re-anchors the
                   ResizeObserver when Viewer swaps content (linked docs or
                   message switches). */}
-              {!goalSetupMode && !isPlanDiffActive && !archive.archiveMode && uiPrefs.stickyActionsEnabled && (
+              {!goalSetupMode && !isPlanDiffActive && !isHtmlSurface && !archive.archiveMode && uiPrefs.stickyActionsEnabled && (
                 <StickyHeaderLane
                   inputMethod={inputMethod}
                   onInputMethodChange={handleInputMethodChange}
@@ -2484,6 +2484,7 @@ const App: React.FC = () => {
                 )}
                 {renderAs === 'html' ? (
                   <HtmlViewer
+                    key={linkedDocHook.isActive ? `doc:${linkedDocHook.filepath}` : 'plan'}
                     ref={viewerRef}
                     rawHtml={rawHtml}
                     annotations={viewerAnnotations}
@@ -2491,7 +2492,6 @@ const App: React.FC = () => {
                     onSelectAnnotation={handleSelectAnnotation}
                     selectedAnnotationId={selectedAnnotationId}
                     mode={editorMode}
-                    inputMethod={inputMethod}
                     globalAttachments={globalAttachments}
                     onAddGlobalAttachment={handleAddGlobalAttachment}
                     onRemoveGlobalAttachment={handleRemoveGlobalAttachment}

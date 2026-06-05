@@ -157,6 +157,7 @@ const ReviewApp: React.FC = () => {
   const diffShowLineNumbers = useConfigValue('diffShowLineNumbers');
   const diffShowBackground = useConfigValue('diffShowBackground');
   const diffHideWhitespace = useConfigValue('diffHideWhitespace');
+  const diffExpandUnchanged = useConfigValue('diffExpandUnchanged');
   const diffFontFamily = useConfigValue('diffFontFamily');
   const diffFontSize = useConfigValue('diffFontSize');
   const diffTabSize = useConfigValue('diffTabSize');
@@ -257,6 +258,21 @@ const ReviewApp: React.FC = () => {
   const displayRepo = prMetadata ? getDisplayRepo(prMetadata) : '';
   const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
   const updateInfo = useUpdateCheck();
+  const updateToastShown = useRef(false);
+  useEffect(() => {
+    if (updateInfo?.updateAvailable && !updateInfo.dismissed && !updateToastShown.current) {
+      updateToastShown.current = true;
+      const t = setTimeout(() => {
+        toast('A new version of Plannotator is available', {
+          description: 'Open the Options menu to update.',
+          duration: 4000,
+          position: 'top-right',
+          classNames: { toast: '!w-auto', description: '!text-foreground/70' },
+        });
+      }, 1500);
+      return () => clearTimeout(t);
+    }
+  }, [updateInfo?.updateAvailable, updateInfo?.dismissed]);
 
   const identity = useConfigValue('displayName');
 
@@ -1385,6 +1401,7 @@ const ReviewApp: React.FC = () => {
     lineDiffType: diffLineDiffType,
     disableLineNumbers: !diffShowLineNumbers,
     disableBackground: !diffShowBackground,
+    expandUnchanged: diffExpandUnchanged,
     fontFamily: diffFontFamily || undefined,
     fontSize: diffFontSize || undefined,
     // Only propagate base for modes where it affects old/new content. Avoids
@@ -1450,7 +1467,7 @@ const ReviewApp: React.FC = () => {
   }), [
     files, activeFileIndex, diffStyle, diffOverflow, diffIndicators,
     diffLineDiffType, diffShowLineNumbers, diffShowBackground,
-    diffFontFamily, diffFontSize, activeDiffBase, committedBase, feedbackDiffContext, prReviewScopeLabel, prDiffScope,
+    diffExpandUnchanged, diffFontFamily, diffFontSize, activeDiffBase, committedBase, feedbackDiffContext, prReviewScopeLabel, prDiffScope,
     allAnnotations, externalAnnotations,
     selectedAnnotationId, pendingSelection, handleLineSelection,
     handleAddAnnotation, handleAddFileComment, handleAddFileCommentForFile, handleEditAnnotation,

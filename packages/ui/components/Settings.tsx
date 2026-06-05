@@ -237,6 +237,7 @@ const ReviewDisplayTab: React.FC = () => {
   const diffShowBackground = useConfigValue('diffShowBackground');
   const diffLineBgIntensity = useConfigValue('diffLineBgIntensity');
   const diffHideWhitespace = useConfigValue('diffHideWhitespace');
+  const diffExpandUnchanged = useConfigValue('diffExpandUnchanged');
   const diffFontFamily = useConfigValue('diffFontFamily');
   const diffFontSize = useConfigValue('diffFontSize');
 
@@ -380,6 +381,16 @@ const ReviewDisplayTab: React.FC = () => {
           <SegmentedControl options={LINE_BG_INTENSITY_OPTIONS} value={diffLineBgIntensity} onChange={(v) => configStore.set('diffLineBgIntensity', v)} />
         </div>
       )}
+
+      <div className="border-t border-border" />
+
+      {/* Expand Unchanged Regions */}
+      <ToggleSwitch
+        checked={diffExpandUnchanged}
+        onChange={(v) => configStore.set('diffExpandUnchanged', v)}
+        label="Expand Unchanged Regions"
+        description="Show full file content around changes by default"
+      />
 
       <div className="border-t border-border" />
 
@@ -1482,8 +1493,8 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
 
                     <style>{`
                       @keyframes tip-slide-open {
-                        from { max-height: 0; opacity: 0; }
-                        to   { max-height: 60px; opacity: 1; }
+                        from { opacity: 0; transform: translateY(-4px); }
+                        to   { opacity: 1; transform: translateY(0); }
                       }
                     `}</style>
                     <div className="space-y-1.5">

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
 import os from "node:os";
@@ -91,6 +91,12 @@ import {
 	extractChangedFiles,
 } from "../generated/code-nav.js";
 import {
+	parseTripwiresConfig,
+	evaluateTripwires,
+	tripwireHitToReviewAnnotation,
+	TRIPWIRE_SOURCE,
+} from "../generated/tripwires.js";
+import {
 	canStageFiles,
 	detectRemoteDefaultCompareTarget,
 	getVcsContext,
@@ -144,6 +150,29 @@ function detectWSL(): boolean {
 		}
 	} catch { /* ignore */ }
 	return false;
+}
+
+/** Resolve the git repo root for a cwd, or null when not in a git repo. */
+function piRepoRoot(cwd: string): string | null {
+	try {
+		return execFileSync("git", ["rev-parse", "--show-toplevel"], {
+			cwd,
+			encoding: "utf-8",
+		}).trim();
+	} catch {
+		return null;
+	}
+}
+
+/** Read `<root>/.plannotator/tripwires.json`, or null on miss/throw. */
+function piReadTripwires(root: string): string | null {
+	try {
+		const path = `${root}/.plannotator/tripwires.json`;
+		if (!existsSync(path)) return null;
+		return readFileSync(path, "utf-8");
+	} catch {
+		return null;
+	}
 }
 
 export interface ReviewServerResult {
@@ -284,6 +313,28 @@ export async function startReviewServer(options: {
 		if (options.agentCwd) return options.agentCwd;
 		return resolveVcsCwd(currentDiffType, options.gitContext?.cwd) ?? process.cwd();
 	}
+
+	// Re-evaluate tripwires against the current patch and republish them as
+	// external annotations. Fail-open: any error leaves the review usable. Called
+	// at startup and after every patch reassignment (diff/PR switches).
+	function refreshTripwires(): void {
+		try {
+			externalAnnotations.clearBySource(TRIPWIRE_SOURCE);
+			const root = piRepoRoot(resolveAgentCwd());
+			if (!root) return;
+			const config = parseTripwiresConfig(piReadTripwires(root));
+			const hits = evaluateTripwires(currentPatch, config, { cwd: root });
+			if (hits.length === 0) return;
+			const result = externalAnnotations.addAnnotations({
+				annotations: hits.map(tripwireHitToReviewAnnotation),
+			});
+			if ("error" in result) console.error(`[tripwires] addAnnotations error:`, result.error);
+		} catch (err) {
+			console.error(`[tripwires] refresh failed:`, err);
+		}
+	}
+	refreshTripwires();
+
 	const tour = createTourSession();
 
 	const agentJobs = createAgentJobHandler({
@@ -530,6 +581,7 @@ export async function startReviewServer(options: {
 				currentBase = base;
 				baseEverSwitched = true;
 				currentError = result.error;
+				refreshTripwires();
 
 				// Recompute gitContext for the effective cwd so the client's
 				// sidebar reflects the worktree we're now reviewing.
@@ -578,6 +630,7 @@ export async function startReviewServer(options: {
 					currentGitRef = originalPRGitRef;
 					currentError = originalPRError;
 					currentPRDiffScope = "layer";
+					refreshTripwires();
 					json(res, {
 						rawPatch: currentPatch,
 						gitRef: currentGitRef,
@@ -605,6 +658,7 @@ export async function startReviewServer(options: {
 				currentGitRef = result.label;
 				currentError = undefined;
 				currentPRDiffScope = "full-stack";
+				refreshTripwires();
 				json(res, {
 					rawPatch: currentPatch,
 					gitRef: currentGitRef,
@@ -678,6 +732,9 @@ export async function startReviewServer(options: {
 					display: getDisplayRepo(pr.metadata),
 					branch: `${getMRLabel(pr.metadata)} ${getMRNumberLabel(pr.metadata)}`,
 				};
+
+				// Re-evaluate against the switched-to PR's patch and local checkout.
+				refreshTripwires();
 
 				return json(res, {
 					rawPatch: currentPatch,

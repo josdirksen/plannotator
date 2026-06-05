@@ -30,6 +30,13 @@ import { createEditorAnnotationHandler } from "./editor-annotations";
 import { createExternalAnnotationHandler } from "./external-annotations";
 import { createAgentJobHandler } from "./agent-jobs";
 import {
+  parseTripwiresConfig,
+  evaluateTripwires,
+  tripwireHitToReviewAnnotation,
+  TRIPWIRE_SOURCE,
+} from "@plannotator/shared/tripwires";
+import { repoRootFromCwd, readTripwiresFile } from "./tripwires";
+import {
   CODEX_REVIEW_SYSTEM_PROMPT,
   buildCodexCommand,
   generateOutputPath,
@@ -194,6 +201,34 @@ export async function startReviewServer(
     }
     return options.agentCwd ?? resolveVcsCwd(currentDiffType, gitContext?.cwd) ?? process.cwd();
   };
+
+  // Tripwires — re-evaluate the current patch against the repo's
+  // `.plannotator/tripwires.json` and surface hits as external annotations.
+  // Fully fail-open: any failure logs and leaves the review untouched. Runs at
+  // startup and after every patch reassignment (diff switch, PR scope, PR
+  // switch). Defined after resolveAgentCwd to avoid a TDZ on the cwd resolver.
+  const refreshTripwires = async (): Promise<void> => {
+    try {
+      // Stale hits from a previous patch never carry over.
+      externalAnnotations.clearBySource(TRIPWIRE_SOURCE);
+
+      const root = await repoRootFromCwd(resolveAgentCwd());
+      if (!root) return;
+
+      const config = parseTripwiresConfig(readTripwiresFile(root));
+      const hits = evaluateTripwires(currentPatch, config, { cwd: root });
+      if (hits.length === 0) return;
+
+      const result = externalAnnotations.addAnnotations({
+        annotations: hits.map(tripwireHitToReviewAnnotation),
+      });
+      if ("error" in result) console.error("[tripwires] addAnnotations error:", result.error);
+    } catch (err) {
+      console.error("[tripwires] refresh failed:", err);
+    }
+  };
+  void refreshTripwires();
+
   const agentJobs = createAgentJobHandler({
     mode: "review",
     getServerUrl: () => serverUrl,
@@ -516,6 +551,9 @@ export async function startReviewServer(
               baseEverSwitched = true;
               currentError = result.error;
 
+              // Re-evaluate tripwires against the freshly switched patch.
+              await refreshTripwires();
+
               // Recompute gitContext for the effective cwd so the client's
               // sidebar (current branch, default branch, diff-mode options)
               // reflects the worktree we're now reviewing — not the main
@@ -568,6 +606,7 @@ export async function startReviewServer(
                 currentGitRef = originalPRGitRef;
                 currentError = originalPRError;
                 currentPRDiffScope = "layer";
+                await refreshTripwires();
                 return Response.json({
                   rawPatch: currentPatch,
                   gitRef: currentGitRef,
@@ -595,6 +634,8 @@ export async function startReviewServer(
               currentGitRef = result.label;
               currentError = undefined;
               currentPRDiffScope = "full-stack";
+
+              await refreshTripwires();
 
               return Response.json({
                 rawPatch: currentPatch,
@@ -714,6 +755,9 @@ export async function startReviewServer(
                 display: getDisplayRepo(pr.metadata),
                 branch: `${getMRLabel(pr.metadata)} ${getMRNumberLabel(pr.metadata)}`,
               };
+
+              // Re-evaluate tripwires against the newly switched PR's patch.
+              await refreshTripwires();
 
               return Response.json({
                 rawPatch: currentPatch,

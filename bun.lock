@@ -104,7 +104,6 @@
       "dependencies": {
         "@joplin/turndown-plugin-gfm": "^1.0.64",
         "@pierre/diffs": "^1.1.12",
-        "glimpseui": "^0.8.0",
         "turndown": "^7.2.4",
       },
       "devDependencies": {
@@ -112,6 +111,7 @@
         "@earendil-works/pi-ai": ">=0.74.0",
         "@earendil-works/pi-coding-agent": ">=0.74.0",
         "@earendil-works/pi-tui": ">=0.74.0",
+        "glimpseui": "^0.8.0",
       },
       "peerDependencies": {
         "@earendil-works/pi-coding-agent": ">=0.74.0",
@@ -249,6 +249,8 @@
         "@pierre/diffs": "^1.1.12",
         "@plannotator/ai": "workspace:*",
         "@plannotator/shared": "workspace:*",
+      },
+      "devDependencies": {
         "glimpseui": "^0.8.0",
       },
       "peerDependencies": {

@@ -235,7 +235,7 @@ const colorStyles = {
   },
   accent: {
     active: 'bg-background text-foreground shadow-sm',
-    hover: 'text-accent/80 bg-accent/8',
+    hover: 'text-annotation-comment/80 bg-annotation-comment/8',
     inactive: 'text-muted-foreground hover:text-foreground',
   },
   destructive: {

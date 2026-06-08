@@ -17,6 +17,7 @@ import { parseWorktreeDiffType, resolveBaseBranch } from "@plannotator/shared/re
 import {
   createDefaultSemanticDiffRuntime,
   getSemanticDiffAvailability,
+  getSemanticDiffScratchCwd,
   runSemanticDiff,
   semanticDiffCacheKey,
   semanticDiffFileExtsFromSearchParams,
@@ -214,6 +215,21 @@ export async function startReviewServer(
     if (!workspace) return undefined;
     return workspace.getPromptContext();
   };
+  const semanticDiffScratchCwd = getSemanticDiffScratchCwd();
+  const resolveSemanticDiffCwd = (): string => {
+    if (workspace) return workspace.root;
+    if (options.worktreePool && prMetadata) {
+      const poolPath = options.worktreePool.resolve(prMetadata.url);
+      if (poolPath) return poolPath;
+    }
+    if (options.agentCwd) return options.agentCwd;
+    if (gitContext) {
+      const vcsCwd = resolveVcsCwd(currentDiffType as DiffType, gitContext.cwd);
+      if (vcsCwd) return vcsCwd;
+      if (gitContext.cwd) return gitContext.cwd;
+    }
+    return semanticDiffScratchCwd;
+  };
   const semanticDiffCache = new SemanticDiffResponseCache();
   const semanticDiffAvailabilityCache = new Map<string, Promise<SemanticDiffAvailability>>();
 
@@ -236,7 +252,7 @@ export async function startReviewServer(
   };
 
   const getSemanticDiffAdvert = async () => {
-    const availability = await getSemanticDiffAvailabilityForCwd(resolveAgentCwd());
+    const availability = await getSemanticDiffAvailabilityForCwd(resolveSemanticDiffCwd());
     return {
       available: availability.available,
       ...(availability.semVersion && { semVersion: availability.semVersion }),
@@ -245,7 +261,7 @@ export async function startReviewServer(
   };
 
   const getSemanticDiff = async (url: URL): Promise<SemanticDiffResponse> => {
-    const cwd = resolveAgentCwd();
+    const cwd = resolveSemanticDiffCwd();
     const fileExts = semanticDiffFileExtsFromSearchParams(url.searchParams);
     const cacheKey = semanticDiffCacheKey({ rawPatch: currentPatch, cwd, fileExts });
     const cached = semanticDiffCache.get(cacheKey, currentPatch);

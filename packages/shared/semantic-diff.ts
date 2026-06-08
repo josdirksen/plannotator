@@ -1,9 +1,8 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
 import { getPlannotatorDataDir } from "./data-dir";
 import type {
   SemanticDiffAvailability,
@@ -34,7 +33,6 @@ export interface SemanticDiffRuntime {
   fileExists: (path: string) => boolean;
   env: Record<string, string | undefined>;
   cwd: string;
-  moduleDir: string;
   dataDir: string;
   pathDelimiter: string;
   platform: NodeJS.Platform;
@@ -141,21 +139,12 @@ function defaultRunCommand(
   });
 }
 
-function getModuleDir(): string {
-  try {
-    return dirname(fileURLToPath(import.meta.url));
-  } catch {
-    return process.cwd();
-  }
-}
-
 export function createDefaultSemanticDiffRuntime(): SemanticDiffRuntime {
   return {
     runCommand: defaultRunCommand,
     fileExists: existsSync,
     env: process.env,
     cwd: process.cwd(),
-    moduleDir: getModuleDir(),
     dataDir: getPlannotatorDataDir(),
     pathDelimiter: delimiter,
     platform: process.platform,
@@ -171,6 +160,22 @@ export function getManagedSemBinaryPath(
   platform: NodeJS.Platform = process.platform,
 ): string {
   return join(dataDir, "vendor", "sem", PLANNOTATOR_SEM_VERSION, semBinaryName(platform));
+}
+
+export function getSemanticDiffScratchCwd(dataDir = getPlannotatorDataDir()): string {
+  const primary = join(dataDir, "semantic-diff", "patch-only");
+  try {
+    mkdirSync(primary, { recursive: true });
+    return primary;
+  } catch {
+    const fallback = join(tmpdir(), "plannotator-semantic-diff");
+    try {
+      mkdirSync(fallback, { recursive: true });
+      return fallback;
+    } catch {
+      return tmpdir();
+    }
+  }
 }
 
 function isPathLike(value: string): boolean {
@@ -471,7 +476,7 @@ export async function runSemanticDiff(
     };
   }
 
-  const cwd = options.cwd || runtime.cwd || homedir();
+  const cwd = options.cwd || runtime.cwd || getSemanticDiffScratchCwd(runtime.dataDir);
   const effectiveRuntime = cwd === runtime.cwd ? runtime : { ...runtime, cwd };
   const resolved = await resolveSem(effectiveRuntime);
   if (!("command" in resolved)) return resolved;

@@ -85,6 +85,7 @@ function formatSummary(data: SemanticDiffOkResponse): string {
   ];
   if (summary.renamed > 0) parts.push(`${summary.renamed} renamed`);
   if (summary.moved > 0) parts.push(`${summary.moved} moved`);
+  if (summary.reordered > 0) parts.push(`${summary.reordered} reordered`);
   if (summary.binary > 0) parts.push(`${summary.binary} binary`);
   if (summary.orphan > 0) parts.push(`${summary.orphan} orphans`);
   return `Summary: ${parts.join(', ')} across ${summary.fileCount} files`;

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,6 +24,7 @@ const originalHome = process.env.HOME;
 const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
 const originalPort = process.env.PLANNOTATOR_PORT;
 const originalSemPath = process.env.PLANNOTATOR_SEM_PATH;
+const originalDataDir = process.env.PLANNOTATOR_DATA_DIR;
 
 function makeTempDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -69,7 +70,10 @@ function initRepo(): string {
   return repoDir;
 }
 
-function makeMockSem(dir: string): string {
+function makeMockSem(dir: string, options: {
+  runCwdLogPath?: string;
+  inputLogPath?: string;
+} = {}): string {
   const semPath = join(dir, "sem");
   writeFileSync(
     semPath,
@@ -80,7 +84,8 @@ function makeMockSem(dir: string): string {
       '  echo "sem 0.8.0"',
       "  exit 0",
       "fi",
-      "cat >/dev/null",
+      ...(options.runCwdLogPath ? [`pwd >> ${JSON.stringify(options.runCwdLogPath)}`] : []),
+      ...(options.inputLogPath ? [`cat > ${JSON.stringify(options.inputLogPath)}`] : ["cat >/dev/null"]),
       "cat <<'JSON'",
       JSON.stringify({
         summary: { fileCount: 1, added: 1, modified: 0, deleted: 0, moved: 0, renamed: 0, reordered: 0, binary: 0, orphan: 0, total: 1 },
@@ -174,6 +179,11 @@ afterEach(() => {
   } else {
     process.env.PLANNOTATOR_SEM_PATH = originalSemPath;
   }
+  if (originalDataDir === undefined) {
+    delete process.env.PLANNOTATOR_DATA_DIR;
+  } else {
+    process.env.PLANNOTATOR_DATA_DIR = originalDataDir;
+  }
 
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
@@ -197,7 +207,10 @@ describe("pi review server", () => {
 
   test("advertises semantic diff availability and serves parsed sem output", async () => {
     const dir = makeTempDir("plannotator-pi-sem-server-");
-    process.env.PLANNOTATOR_SEM_PATH = makeMockSem(dir);
+    const dataDir = makeTempDir("plannotator-pi-sem-data-");
+    const cwdLogPath = join(dir, "cwd-log");
+    process.env.PLANNOTATOR_DATA_DIR = dataDir;
+    process.env.PLANNOTATOR_SEM_PATH = makeMockSem(dir, { runCwdLogPath: cwdLogPath });
     process.env.PLANNOTATOR_PORT = String(await reservePort());
 
     const server = await startReviewServer({
@@ -229,6 +242,35 @@ describe("pi review server", () => {
           { entityType: "function", entityName: "created", filePath: "src/app.ts" },
         ],
       });
+      expect(realpathSync(readFileSync(cwdLogPath, "utf-8").trim())).toBe(
+        realpathSync(join(dataDir, "semantic-diff", "patch-only")),
+      );
+    } finally {
+      server.stop();
+    }
+  });
+
+  test("runs semantic diff from the local agent cwd when one is available", async () => {
+    const dir = makeTempDir("plannotator-pi-sem-agent-");
+    const agentCwd = makeTempDir("plannotator-pi-sem-agent-cwd-");
+    const cwdLogPath = join(dir, "cwd-log");
+    process.env.PLANNOTATOR_SEM_PATH = makeMockSem(dir, { runCwdLogPath: cwdLogPath });
+    process.env.PLANNOTATOR_PORT = String(await reservePort());
+
+    const server = await startReviewServer({
+      rawPatch: semanticRawPatch,
+      gitRef: "test",
+      origin: "pi",
+      agentCwd,
+      htmlContent: "<!doctype html><html><body>review</body></html>",
+    });
+
+    try {
+      const semanticPayload = await fetch(`${server.url}/api/semantic-diff`).then((response) => response.json()) as {
+        status: string;
+      };
+      expect(semanticPayload.status).toBe("ok");
+      expect(realpathSync(readFileSync(cwdLogPath, "utf-8").trim())).toBe(realpathSync(agentCwd));
     } finally {
       server.stop();
     }
@@ -493,10 +535,13 @@ describe("pi review server", () => {
     const homeDir = makeTempDir("plannotator-pi-home-");
     const root = makeTempDir("plannotator-pi-workspace-");
     const apiDir = join(root, "api");
+    const semDir = makeTempDir("plannotator-pi-workspace-switch-sem-");
+    const cwdLogPath = join(semDir, "cwd-log");
+    const inputLogPath = join(semDir, "input.patch");
     mkdirSync(apiDir, { recursive: true });
     process.env.HOME = homeDir;
     process.env.PLANNOTATOR_PORT = String(await reservePort());
-    process.env.PLANNOTATOR_SEM_PATH = makeMockSem(makeTempDir("plannotator-pi-workspace-switch-sem-"));
+    process.env.PLANNOTATOR_SEM_PATH = makeMockSem(semDir, { runCwdLogPath: cwdLogPath, inputLogPath });
 
     git(apiDir, ["init"]);
     git(apiDir, ["branch", "-M", "main"]);
@@ -542,6 +587,13 @@ describe("pi review server", () => {
       expect(diffPayload.agentCwd).toBe(root);
       expect(diffPayload.semanticDiff).toEqual(expect.objectContaining({ available: true }));
       expect("workspace" in diffPayload).toBe(false);
+
+      const semanticPayload = await fetch(`${server.url}/api/semantic-diff`).then((response) => response.json()) as {
+        status: string;
+      };
+      expect(semanticPayload.status).toBe("ok");
+      expect(realpathSync(readFileSync(cwdLogPath, "utf-8").trim())).toBe(realpathSync(root));
+      expect(readFileSync(inputLogPath, "utf-8")).toContain("diff --git a/api/tracked.txt b/api/tracked.txt");
 
       const switchResponse = await fetch(`${server.url}/api/diff/switch`, {
         method: "POST",

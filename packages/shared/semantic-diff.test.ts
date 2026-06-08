@@ -20,7 +20,6 @@ interface MockCommand {
 
 function makeRuntime(options: {
   cwd?: string;
-  moduleDir?: string;
   env?: Record<string, string | undefined>;
   files?: string[];
   commands?: Record<string, MockCommand>;
@@ -33,7 +32,6 @@ function makeRuntime(options: {
     calls,
     env: options.env ?? {},
     cwd: options.cwd ?? "/repo",
-    moduleDir: options.moduleDir ?? "/app/packages/shared",
     dataDir: "/home/user/.plannotator",
     pathDelimiter: ":",
     platform: "linux",

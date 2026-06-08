@@ -98,6 +98,7 @@ import {
 import {
 	createDefaultSemanticDiffRuntime,
 	getSemanticDiffAvailability,
+	getSemanticDiffScratchCwd,
 	runSemanticDiff,
 	semanticDiffCacheKey,
 	semanticDiffFileExtsFromSearchParams,
@@ -310,6 +311,21 @@ export async function startReviewServer(options: {
 		return workspace.getPromptContext();
 	}
 	const tour = createTourSession();
+	const semanticDiffScratchCwd = getSemanticDiffScratchCwd();
+	function resolveSemanticDiffCwd(): string {
+		if (workspace) return workspace.root;
+		if (options.worktreePool && prMeta) {
+			const poolPath = options.worktreePool.resolve(prMeta.url);
+			if (poolPath) return poolPath;
+		}
+		if (options.agentCwd) return options.agentCwd;
+		if (options.gitContext) {
+			const vcsCwd = resolveVcsCwd(currentDiffType as DiffType, options.gitContext.cwd);
+			if (vcsCwd) return vcsCwd;
+			if (options.gitContext.cwd) return options.gitContext.cwd;
+		}
+		return semanticDiffScratchCwd;
+	}
 	const semanticDiffCache = new SemanticDiffResponseCache();
 	const semanticDiffAvailabilityCache = new Map<string, Promise<SemanticDiffAvailability>>();
 
@@ -334,7 +350,7 @@ export async function startReviewServer(options: {
 	}
 
 	async function getSemanticDiffAdvert() {
-		const availability = await getSemanticDiffAvailabilityForCwd(resolveAgentCwd());
+		const availability = await getSemanticDiffAvailabilityForCwd(resolveSemanticDiffCwd());
 		return {
 			available: availability.available,
 			...(availability.semVersion ? { semVersion: availability.semVersion } : {}),
@@ -343,7 +359,7 @@ export async function startReviewServer(options: {
 	}
 
 	async function getSemanticDiff(url: URL): Promise<SemanticDiffResponse> {
-		const cwd = resolveAgentCwd();
+		const cwd = resolveSemanticDiffCwd();
 		const fileExts = semanticDiffFileExtsFromSearchParams(url.searchParams);
 		const cacheKey = semanticDiffCacheKey({ rawPatch: currentPatch, cwd, fileExts });
 		const cached = semanticDiffCache.get(cacheKey, currentPatch);

@@ -496,6 +496,7 @@ describe("pi review server", () => {
     mkdirSync(apiDir, { recursive: true });
     process.env.HOME = homeDir;
     process.env.PLANNOTATOR_PORT = String(await reservePort());
+    process.env.PLANNOTATOR_SEM_PATH = makeMockSem(makeTempDir("plannotator-pi-workspace-switch-sem-"));
 
     git(apiDir, ["init"]);
     git(apiDir, ["branch", "-M", "main"]);
@@ -533,11 +534,13 @@ describe("pi review server", () => {
         agentCwd?: string;
         diffType?: string;
         diffOptions?: Array<{ id: string }>;
+        semanticDiff?: { available: boolean };
       };
       expect(diffPayload.mode).toBe("workspace");
       expect(diffPayload.diffType).toBe("workspace-current");
       expect(diffPayload.diffOptions?.map((option) => option.id)).toContain("workspace-last");
       expect(diffPayload.agentCwd).toBe(root);
+      expect(diffPayload.semanticDiff).toEqual(expect.objectContaining({ available: true }));
       expect("workspace" in diffPayload).toBe(false);
 
       const switchResponse = await fetch(`${server.url}/api/diff/switch`, {
@@ -546,9 +549,14 @@ describe("pi review server", () => {
         body: JSON.stringify({ diffType: "workspace-last", hideWhitespace: true }),
       });
       expect(switchResponse.status).toBe(200);
-      const switched = await switchResponse.json() as { diffType?: string; diffOptions?: Array<{ id: string }> };
+      const switched = await switchResponse.json() as {
+        diffType?: string;
+        diffOptions?: Array<{ id: string }>;
+        semanticDiff?: { available: boolean };
+      };
       expect(switched.diffType).toBe("workspace-last");
       expect(switched.diffOptions?.map((option) => option.id)).toContain("workspace-current");
+      expect(switched.semanticDiff).toEqual(expect.objectContaining({ available: true }));
 
       const currentResponse = await fetch(`${server.url}/api/diff/switch`, {
         method: "POST",

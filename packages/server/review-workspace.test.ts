@@ -822,6 +822,7 @@ describe("review-workspace", () => {
 
     it("serves combined diffs and maps prefixed paths back to child repos", async () => {
       const root = makeTempDir("plannotator-workspace-server-");
+      process.env.PLANNOTATOR_SEM_PATH = makeMockSem(makeTempDir("plannotator-workspace-switch-sem-"));
       const api = join(root, "api");
       const web = join(root, "web");
       mkdirSync(api, { recursive: true });
@@ -856,6 +857,7 @@ describe("review-workspace", () => {
           diffType?: string;
           diffOptions?: Array<{ id: string }>;
           agentCwd?: string;
+          semanticDiff?: { available: boolean };
         };
         expect(diffPayload.mode).toBe("workspace");
         expect(diffPayload.diffType).toBe("workspace-current");
@@ -866,6 +868,7 @@ describe("review-workspace", () => {
           "workspace-last",
         ]);
         expect(diffPayload.agentCwd).toBe(root);
+        expect(diffPayload.semanticDiff).toEqual(expect.objectContaining({ available: true }));
         expect("workspace" in diffPayload).toBe(false);
         expect(diffPayload.rawPatch).toContain("diff --git a/api/tracked.txt b/api/tracked.txt");
         expect(diffPayload.rawPatch).toContain("diff --git a/web/new.txt b/web/new.txt");
@@ -876,9 +879,15 @@ describe("review-workspace", () => {
           body: JSON.stringify({ diffType: "workspace-last", hideWhitespace: true }),
         });
         expect(lastResponse.status).toBe(200);
-        const lastPayload = await lastResponse.json() as { diffType?: string; rawPatch: string; diffOptions?: Array<{ id: string }> };
+        const lastPayload = await lastResponse.json() as {
+          diffType?: string;
+          rawPatch: string;
+          diffOptions?: Array<{ id: string }>;
+          semanticDiff?: { available: boolean };
+        };
         expect(lastPayload.diffType).toBe("workspace-last");
         expect(lastPayload.diffOptions?.map((option) => option.id)).toContain("workspace-current");
+        expect(lastPayload.semanticDiff).toEqual(expect.objectContaining({ available: true }));
         expect(lastPayload.rawPatch).toContain("diff --git a/api/tracked.txt b/api/tracked.txt");
 
         const currentResponse = await fetch(`${server.url}/api/diff/switch`, {

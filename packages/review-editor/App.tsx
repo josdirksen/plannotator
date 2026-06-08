@@ -99,11 +99,13 @@ interface DiffData {
   prStackInfo?: PRStackInfo | null;
   prDiffScope?: PRDiffScope;
   prDiffScopeOptions?: PRDiffScopeOption[];
-  semanticDiff?: {
-    available: boolean;
-    semVersion?: string;
-    semSource?: string;
-  };
+  semanticDiff?: SemanticDiffAdvert;
+}
+
+interface SemanticDiffAdvert {
+  available: boolean;
+  semVersion?: string;
+  semSource?: string;
 }
 
 function getFileTabTitle(filePath: string): string {
@@ -752,6 +754,16 @@ const ReviewApp: React.FC = () => {
     openAllFilesPanel();
   }, [dockApi, openAllFilesPanel]);
 
+  const applySemanticDiffAdvert = useCallback((semanticDiff?: SemanticDiffAdvert) => {
+    if (!semanticDiff) return;
+    const available = semanticDiff.available === true;
+    setSemanticDiffAvailable(available);
+    if (!available) {
+      dockApi?.getPanel(REVIEW_SEMANTIC_DIFF_PANEL_ID)?.api.close();
+      if (isSemanticDiffActive) openAllFilesPanel();
+    }
+  }, [dockApi, isSemanticDiffActive, openAllFilesPanel]);
+
   // Open the default diff overview on first load.
   useEffect(() => {
     if (!dockApi || !needsInitialDiffPanel.current || files.length === 0) return;
@@ -846,11 +858,7 @@ const ReviewApp: React.FC = () => {
         viewedFiles?: string[];
         error?: string;
         isWSL?: boolean;
-        semanticDiff?: {
-          available: boolean;
-          semVersion?: string;
-          semSource?: string;
-        };
+        semanticDiff?: SemanticDiffAdvert;
         serverConfig?: { displayName?: string; gitUser?: string };
       }) => {
         // Initialize config store with server-provided values (config file > cookie > default)
@@ -1175,6 +1183,7 @@ const ReviewApp: React.FC = () => {
     rawPatch: string; gitRef: string;
     repoInfo?: { display: string; branch?: string };
     viewedFiles?: string[]; error?: string;
+    semanticDiff?: SemanticDiffAdvert;
   }) {
     const isPRSwitch = !!data.prMetadata;
     const nextFiles = parseDiffToFiles(data.rawPatch);
@@ -1202,6 +1211,7 @@ const ReviewApp: React.FC = () => {
       setViewedFiles(data.viewedFiles ? new Set(data.viewedFiles) : new Set());
     }
     setDiffError(data.error || null);
+    applySemanticDiffAdvert(data.semanticDiff);
     resetStagedFiles();
   }
 
@@ -1238,9 +1248,11 @@ const ReviewApp: React.FC = () => {
         gitContext?: GitContext;
         diffOptions?: DiffOption[];
         error?: string;
+        semanticDiff?: SemanticDiffAdvert;
       };
 
       const nextFiles = parseDiffToFiles(data.rawPatch);
+      applySemanticDiffAdvert(data.semanticDiff);
 
       if (options?.preserveFile) {
         // Whitespace toggle: update patch in-place, keep the active file.
@@ -1308,7 +1320,7 @@ const ReviewApp: React.FC = () => {
     } finally {
       setIsLoadingDiff(false);
     }
-  }, [dockApi, resetStagedFiles, selectedBase, diffHideWhitespace, files, activeFileIndex, openDiffFile]);
+  }, [dockApi, resetStagedFiles, selectedBase, diffHideWhitespace, files, activeFileIndex, openDiffFile, applySemanticDiffAdvert]);
 
   // Switch the base branch the current diff compares against.
   // Only triggers a refetch when the active mode actually uses a base.

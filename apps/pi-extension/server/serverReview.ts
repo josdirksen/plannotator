@@ -624,6 +624,7 @@ export async function startReviewServer(options: {
 						diffOptions: workspace.diffOptions,
 						hideWhitespace: currentHideWhitespace,
 						...(currentError ? { error: currentError } : {}),
+						semanticDiff: await getSemanticDiffAdvert(),
 					});
 					return;
 				}
@@ -668,6 +669,7 @@ export async function startReviewServer(options: {
 					hideWhitespace: currentHideWhitespace,
 					...(updatedContext ? { gitContext: updatedContext } : {}),
 					...(currentError ? { error: currentError } : {}),
+					semanticDiff: await getSemanticDiffAdvert(),
 				});
 			} catch (err) {
 				const message = err instanceof Error ? err.message : "Failed to switch diff";
@@ -695,6 +697,7 @@ export async function startReviewServer(options: {
 						gitRef: currentGitRef,
 						prDiffScope: currentPRDiffScope,
 						...(currentError ? { error: currentError } : {}),
+						semanticDiff: await getSemanticDiffAdvert(),
 					});
 					return;
 				}
@@ -721,6 +724,7 @@ export async function startReviewServer(options: {
 					rawPatch: currentPatch,
 					gitRef: currentGitRef,
 					prDiffScope: currentPRDiffScope,
+					semanticDiff: await getSemanticDiffAdvert(),
 				});
 			} catch (err) {
 				const message = err instanceof Error ? err.message : "Failed to switch PR diff scope";
@@ -802,6 +806,7 @@ export async function startReviewServer(options: {
 					repoInfo,
 					...(switchedViewedFiles.length > 0 && { viewedFiles: switchedViewedFiles }),
 					...(currentError ? { error: currentError } : {}),
+					semanticDiff: await getSemanticDiffAdvert(),
 				});
 			} catch (err) {
 				return json(res, { error: err instanceof Error ? err.message : "Failed to switch PR" }, 500);

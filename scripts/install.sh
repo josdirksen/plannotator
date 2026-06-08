@@ -459,9 +459,22 @@ install_sem_sidecar() {
         return 0
     fi
 
-    mkdir -p "$sem_dir"
-    cp "$extracted_sem" "$sem_bin"
-    chmod +x "$sem_bin"
+    if ! mkdir -p "$sem_dir"; then
+        echo "Skipping semantic diff sidecar install (directory creation failed)"
+        rm -rf "$tmp_sem_dir"
+        return 0
+    fi
+    if ! cp "$extracted_sem" "$sem_bin"; then
+        echo "Skipping semantic diff sidecar install (copy failed)"
+        rm -rf "$tmp_sem_dir"
+        return 0
+    fi
+    if ! chmod +x "$sem_bin"; then
+        echo "Skipping semantic diff sidecar install (chmod failed)"
+        rm -f "$sem_bin"
+        rm -rf "$tmp_sem_dir"
+        return 0
+    fi
     rm -rf "$tmp_sem_dir"
     echo "Semantic diff sidecar installed to ${sem_bin}"
 }

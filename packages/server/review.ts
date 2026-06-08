@@ -604,6 +604,7 @@ export async function startReviewServer(
                   diffOptions: workspace.diffOptions,
                   hideWhitespace: currentHideWhitespace,
                   ...(currentError && { error: currentError }),
+                  semanticDiff: await getSemanticDiffAdvert(),
                 });
               }
 
@@ -654,6 +655,7 @@ export async function startReviewServer(
                 hideWhitespace: currentHideWhitespace,
                 ...(updatedContext && { gitContext: updatedContext }),
                 ...(currentError && { error: currentError }),
+                semanticDiff: await getSemanticDiffAdvert(),
               });
             } catch (err) {
               const message =
@@ -684,6 +686,7 @@ export async function startReviewServer(
                   gitRef: currentGitRef,
                   prDiffScope: currentPRDiffScope,
                   ...(currentError && { error: currentError }),
+                  semanticDiff: await getSemanticDiffAdvert(),
                 });
               }
 
@@ -711,6 +714,7 @@ export async function startReviewServer(
                 rawPatch: currentPatch,
                 gitRef: currentGitRef,
                 prDiffScope: currentPRDiffScope,
+                semanticDiff: await getSemanticDiffAdvert(),
               });
             } catch (err) {
               const message =
@@ -837,6 +841,7 @@ export async function startReviewServer(
                 repoInfo,
                 ...(switchedViewedFiles.length > 0 && { viewedFiles: switchedViewedFiles }),
                 ...(currentError ? { error: currentError } : {}),
+                semanticDiff: await getSemanticDiffAdvert(),
               });
             } catch (err) {
               const message = err instanceof Error ? err.message : "Failed to switch PR";

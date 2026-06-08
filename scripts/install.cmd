@@ -1086,13 +1086,17 @@ if !ERRORLEVEL! neq 0 (
     echo Skipping semantic diff sidecar install ^(extract failed^)
     goto :sem_cleanup
 )
-if not exist "!SEM_EXTRACT!\sem.exe" (
+set "EXTRACTED_SEM="
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -Path $env:SEM_EXTRACT -Filter sem.exe -Recurse -File | Select-Object -First 1 -ExpandProperty FullName"`) do (
+    set "EXTRACTED_SEM=%%i"
+)
+if not defined EXTRACTED_SEM (
     echo Skipping semantic diff sidecar install ^(binary missing from archive^)
     goto :sem_cleanup
 )
 
 if not exist "!SEM_DIR!" mkdir "!SEM_DIR!"
-copy /y "!SEM_EXTRACT!\sem.exe" "!SEM_PATH!" >nul
+copy /y "!EXTRACTED_SEM!" "!SEM_PATH!" >nul
 if !ERRORLEVEL! equ 0 (
     echo Semantic diff sidecar installed to !SEM_PATH!
 ) else (

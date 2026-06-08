@@ -403,8 +403,6 @@ export function parseSemanticDiffJson(stdout: string, sem: ResolvedSem): Semanti
   };
 }
 
-export const DEFAULT_SEMANTIC_DIFF_FILE_EXTS = [".ts", ".tsx", ".js", ".jsx"];
-
 export function normalizeSemanticDiffFileExts(fileExts: string[] | undefined): string[] {
   return Array.from(new Set((fileExts ?? [])
     .map((ext) => ext.trim())

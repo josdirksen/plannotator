@@ -12,6 +12,11 @@ export interface PRSwitchResponse {
   repoInfo?: unknown;
   viewedFiles?: string[];
   error?: string;
+  semanticDiff?: {
+    available: boolean;
+    semVersion?: string;
+    semSource?: string;
+  };
 }
 
 export interface PRStackCallbacks {

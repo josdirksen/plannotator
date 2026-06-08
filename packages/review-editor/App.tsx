@@ -40,6 +40,7 @@ import { useExternalAnnotations } from '@plannotator/ui/hooks/useExternalAnnotat
 import { useAgentJobs } from '@plannotator/ui/hooks/useAgentJobs';
 import { exportEditorAnnotations } from '@plannotator/ui/utils/parser';
 import { ResizeHandle } from '@plannotator/ui/components/ResizeHandle';
+import { FolderTree } from 'lucide-react';
 import { DockviewReact, type DockviewReadyEvent, type DockviewApi } from 'dockview-react';
 import { ReviewHeaderMenu } from './components/ReviewHeaderMenu';
 import { ReviewSidebar } from './components/ReviewSidebar';
@@ -603,10 +604,14 @@ const ReviewApp: React.FC = () => {
   }, [askAI]);
 
   // Resizable panels
-  const panelResize = useResizablePanel({ storageKey: 'plannotator-review-panel-width' });
+  const panelResize = useResizablePanel({
+    storageKey: 'plannotator-review-panel-width',
+    onSnapClose: () => reviewSidebar.close(),
+  });
   const fileTreeResize = useResizablePanel({
     storageKey: 'plannotator-filetree-width',
     defaultWidth: 256, minWidth: 160, maxWidth: 400, side: 'left',
+    onSnapClose: () => setIsFileTreeOpen(false),
   });
   const isResizing = panelResize.isDragging || fileTreeResize.isDragging;
 
@@ -1833,9 +1838,7 @@ const ReviewApp: React.FC = () => {
                   }`}
                   title={isFileTreeOpen ? 'Hide file tree' : 'Show file tree'}
                 >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                  </svg>
+                  <FolderTree className="w-4 h-4" />
                 </button>
                 <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
               </>
@@ -2212,7 +2215,7 @@ const ReviewApp: React.FC = () => {
                 onStepSearchMatch={hasSearchableFiles ? stepSearchMatch : undefined}
                 repoRoot={prMetadata ? null : (activeWorktreePath ?? agentCwd ?? gitContext?.cwd ?? null)}
               />
-              <ResizeHandle {...fileTreeResize.handleProps} side="left" />
+              <ResizeHandle {...fileTreeResize.handleProps} side="left" onCollapse={() => setIsFileTreeOpen(false)} />
             </>
           )}
 
@@ -2294,7 +2297,7 @@ const ReviewApp: React.FC = () => {
           {/* Resize Handle + Sidebar */}
           {reviewSidebar.isOpen && (
             <>
-              <ResizeHandle {...panelResize.handleProps} side="right" />
+              <ResizeHandle {...panelResize.handleProps} side="right" onCollapse={() => reviewSidebar.close()} />
               <ReviewSidebar
                 isOpen
                 onClose={reviewSidebar.close}

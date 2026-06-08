@@ -102,6 +102,18 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* Type scale — fonts excluded on purpose (themes own --font-sans/--font-mono) */
+@theme {
+  --text-sm: 0.875rem; --text-sm--line-height: 1.45;
+  --text-base: 1rem; --text-base--line-height: 1.55;
+  --text-lg: 1.0625rem; --text-lg--line-height: 1.45;
+  --text-xl: 1.1875rem; --text-xl--line-height: 1.4;
+  --text-2xl: 1.375rem; --text-2xl--line-height: 1.3;
+  --text-3xl: 1.625rem; --text-3xl--line-height: 1.2;
+  --text-4xl: 1.875rem; --text-4xl--line-height: 1.15;
+  --text-5xl: 2rem; --text-5xl--line-height: 1.1;
+}
+
 /* Base styles — apply regardless of theme */
 @layer base {
   /* Extended tokens — derived from Plannotator's theme vars so they adapt to
@@ -123,12 +135,19 @@
     /* Comment-annotation color follows the theme's accent unless the theme
      * overrides it (neutral themes whose accent is an illegible gray). */
     --annotation-comment: var(--accent);
+    /* Sensible amber default so a "warning" color utility exists even for
+     * themes that don't define --warning. Matches the plannotator theme;
+     * per-theme files override these. */
+    --warning: oklch(0.75 0.15 85);
+    --warning-foreground: oklch(0.20 0.02 260);
     --card-ring: rgba(255, 255, 255, 0.08);
     --card-shadow:
       0 0 0 1px var(--card-ring), 0 1px 3px 0 rgba(0, 0, 0, 0.2), 0 2px 8px -2px rgba(0, 0, 0, 0.3);
   }
 
   .light {
+    --warning: oklch(0.55 0.18 85);
+    --warning-foreground: oklch(0.18 0.02 260);
     --card-ring: rgba(0, 0, 0, 0.06);
     --card-shadow:
       0 0 0 1px var(--card-ring), 0 1px 3px 0 rgba(0, 0, 0, 0.04),

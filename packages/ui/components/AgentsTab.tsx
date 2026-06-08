@@ -223,10 +223,10 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
   );
 }
 
-// Dropdown button + upward popover. Reused for the provider selector and the
+// Dropdown button + downward popover. Reused for the provider selector and the
 // model picker (whose 7–9 options rule out a segmented control). The popover
-// opens upward (`bottom-full`) because the launch panel sits at the sidebar's
-// bottom edge.
+// opens downward (`top-full`) because the launch panel is pinned to the top of
+// the tab.
 function SelectMenu({ value, options, onChange, icon, placeholder }: { value: string; options: Array<{ value: string; label: string }>; onChange: (v: string) => void; icon?: React.ReactNode; placeholder?: string }) {
   const [open, setOpen] = useState(false);
   const current = options.find((o) => o.value === value);

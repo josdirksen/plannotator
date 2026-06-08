@@ -292,6 +292,7 @@ const ReviewApp: React.FC = () => {
   const openDiffFile = useCallback((filePath: string) => {
     const file = files.find(candidate => candidate.path === filePath);
     if (!file) return;
+    semanticDiffAutoFallbackPending.current = false;
 
     if (!dockApi) {
       const fileIndex = files.findIndex(candidate => candidate.path === filePath);
@@ -764,6 +765,10 @@ const ReviewApp: React.FC = () => {
 
   const handleSemanticDiffLoadError = useCallback(() => {
     if (!semanticDiffAutoFallbackPending.current) return false;
+    if (dockApi?.activePanel?.id !== REVIEW_SEMANTIC_DIFF_PANEL_ID) {
+      semanticDiffAutoFallbackPending.current = false;
+      return false;
+    }
     semanticDiffAutoFallbackPending.current = false;
     dockApi?.getPanel(REVIEW_SEMANTIC_DIFF_PANEL_ID)?.api.close();
     openAllFilesPanel();
@@ -2246,7 +2251,7 @@ const ReviewApp: React.FC = () => {
               <FileTree
                 files={files}
                 activeFileIndex={activeFileIndex}
-                onSelectSemanticDiff={openSemanticDiffPanel}
+                onSelectSemanticDiff={() => openSemanticDiffPanel()}
                 isSemanticDiffActive={isSemanticDiffActive}
                 semanticDiffAvailable={semanticDiffAvailable}
                 onSelectAllFiles={openAllFilesPanel}

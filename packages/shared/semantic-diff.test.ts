@@ -150,7 +150,7 @@ describe("semantic diff runner", () => {
     });
   });
 
-  test("uses repo-local sem package from the reviewed cwd", async () => {
+  test("does not run a sem package from the reviewed cwd", async () => {
     const repoSem = "/repo/node_modules/@ataraxy-labs/sem/vendor/sem";
     const runtime = makeRuntime({
       cwd: "/server",
@@ -178,12 +178,10 @@ describe("semantic diff runner", () => {
       rawPatch: "diff --git a/src/a.ts b/src/a.ts\n@@ -0,0 +1 @@\n+export function fromRepoPackage() {}\n",
       cwd: "/repo",
     }, runtime)).resolves.toMatchObject({
-      status: "ok",
-      semSource: "package",
-      changes: [{ entityName: "fromRepoPackage" }],
+      status: "unavailable",
+      reason: "sem-not-found",
     });
-    expect(runtime.calls[0].command).toBe(repoSem);
-    expect(runtime.calls[1].command).toBe(repoSem);
+    expect(runtime.calls.map(call => call.command)).not.toContain(repoSem);
   });
 
   test("returns error instead of throwing when sem exits nonzero", async () => {

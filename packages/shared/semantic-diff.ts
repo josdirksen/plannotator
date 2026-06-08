@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, dirname, join, parse, resolve } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getPlannotatorDataDir } from "./data-dir";
 import type {
@@ -177,38 +177,6 @@ function isPathLike(value: string): boolean {
   return value.includes("/") || value.includes("\\") || value.startsWith(".");
 }
 
-function ancestorDirectories(start: string): string[] {
-  const dirs: string[] = [];
-  let current = resolve(start);
-  const root = parse(current).root;
-  while (current && !dirs.includes(current)) {
-    dirs.push(current);
-    if (current === root) break;
-    current = dirname(current);
-  }
-  return dirs;
-}
-
-function packageSemCandidates(runtime: SemanticDiffRuntime): SemCandidate[] {
-  const starts = [runtime.moduleDir, runtime.cwd];
-  const seen = new Set<string>();
-  const candidates: SemCandidate[] = [];
-  const binaryName = semBinaryName(runtime.platform);
-
-  for (const start of starts) {
-    for (const dir of ancestorDirectories(start)) {
-      const candidate = join(dir, "node_modules", "@ataraxy-labs", "sem", "vendor", binaryName);
-      if (seen.has(candidate)) continue;
-      seen.add(candidate);
-      if (runtime.fileExists(candidate)) {
-        candidates.push({ command: candidate, source: "package", explicit: false });
-      }
-    }
-  }
-
-  return candidates;
-}
-
 function pathCandidates(runtime: SemanticDiffRuntime): SemCandidate[] {
   if (runtime.platform === "win32") {
     const pathext = (runtime.env.PATHEXT || ".EXE;.CMD;.BAT;.COM")
@@ -242,7 +210,6 @@ function semCandidates(runtime: SemanticDiffRuntime): SemCandidate[] {
     candidates.push({ command: managed, source: "managed", explicit: false });
   }
 
-  candidates.push(...packageSemCandidates(runtime));
   candidates.push(...pathCandidates(runtime));
   return candidates;
 }

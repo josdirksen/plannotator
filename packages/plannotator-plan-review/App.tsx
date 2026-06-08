@@ -181,6 +181,10 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const [sourceInfo, setSourceInfo] = useState<string | undefined>();
   const [sourceConverted, setSourceConverted] = useState(false);
   const [renderAs, setRenderAs] = useState<'markdown' | 'html'>('markdown');
+  // HTML surfaces (rendered .html, not Turndown'd) get an edge-to-edge, full-viewport
+  // layout: no centered reading column, card chrome, sticky actions, or wide-mode toggle.
+  // Declared here (not near the viewer) because the sidebar effect above depends on it.
+  const isHtmlSurface = renderAs === 'html';
   const [rawHtml, setRawHtml] = useState('');
   // Parallel ref for raw HTML so the session-revision handler can detect an HTML
   // resubmission (where markdown stays empty and only rawHtml changes).
@@ -189,6 +193,9 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   // Session-level force-markdown preference (`--markdown`). When set, folder/linked HTML
   // files are converted instead of rendered raw — threaded into /api/doc as &convert=1.
   const [convertHtml, setConvertHtml] = useState(false);
+  // Hide the floating HTML annotation controls (toolstrip + action cluster) so the
+  // user can read the rendered page unobstructed. Selections/annotations are unaffected.
+  const [htmlToolsHidden, setHtmlToolsHidden] = useState(false);
   const [sourceFilePath, setSourceFilePath] = useState<string | undefined>();
   const [imageBaseDir, setImageBaseDir] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
@@ -354,11 +361,19 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   // Sync sidebar open state when preference changes in Settings
   useEffect(() => {
     if (wideModeType !== null) return;
+    // HTML surfaces have no table of contents and render edge-to-edge, so the left
+    // sidebar serves no purpose — keep it closed. Reset the guard so it re-applies
+    // normally if the user navigates back to a markdown file.
+    if (isHtmlSurface) {
+      sidebar.close();
+      lastAppliedTocEnabledRef.current = !tocEnabled;
+      return;
+    }
     if (lastAppliedTocEnabledRef.current === tocEnabled) return;
     lastAppliedTocEnabledRef.current = tocEnabled;
     if (tocEnabled && hasTocEntries) sidebar.open('toc');
     else if (!tocEnabled) sidebar.close();
-  }, [wideModeType, sidebar.close, sidebar.open, tocEnabled, hasTocEntries]);
+  }, [wideModeType, isHtmlSurface, sidebar.close, sidebar.open, tocEnabled, hasTocEntries]);
 
   // Auto-close the sidebar when blocks parse with no TOC entries. Fires
   // only on blocks/hasTocEntries change (not on sidebar state) so a user
@@ -1784,9 +1799,6 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
     return opt ? opt.px : 832;
   }, [planWidth]);
   const annotateReaderMaxWidth = canUseWideMode && wideModeType === 'wide' ? null : planMaxWidth;
-  // HTML surfaces (rendered .html, not Turndown'd) get an edge-to-edge, full-viewport
-  // layout: no centered reading column, card chrome, sticky actions, or wide-mode toggle.
-  const isHtmlSurface = renderAs === 'html';
   const selectedAIProvider = aiProviders.find(provider => provider.id === aiConfig.providerId) ?? null;
   const shouldShowPlanAIAnnouncement =
     showPlanAIAnnouncement &&
@@ -1831,6 +1843,9 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
       <div ref={rootRef} data-print-region="root" className={`${__embedded ? 'h-full' : 'h-screen'} flex flex-col bg-background overflow-hidden`}>
         <AppHeader
           headerLeft={headerLeft}
+          htmlSurface={isHtmlSurface}
+          htmlToolsHidden={htmlToolsHidden}
+          onToggleHtmlTools={() => setHtmlToolsHidden((v) => !v)}
           skipBuiltInSettings={!!externalOpenSettings}
           isApiMode={isApiMode}
           annotateMode={annotateMode}
@@ -1993,10 +2008,10 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
               )}
 
               {/* Annotation Toolstrip — the mode switcher (selection/redline input +
-                  comment/markup mode). Hidden only during plan diff. On an HTML surface
-                  it floats over the document (top-left, always visible) rather than
-                  occupying a header bar, keeping the iframe truly edge-to-edge. */}
-              {!goalSetupMode && !isPlanDiffActive && (
+                  comment/markup mode). Hidden during plan diff, and on HTML surfaces
+                  when the header's "Hide tools" toggle is on (leaving the rendered HTML
+                  free of overlay controls). On HTML it floats top-left over the doc. */}
+              {!goalSetupMode && !isPlanDiffActive && !(isHtmlSurface && htmlToolsHidden) && (
                 <div
                   data-print-hide
                   className={isHtmlSurface
@@ -2108,6 +2123,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                     onRemoveGlobalAttachment={handleRemoveGlobalAttachment}
                     maxWidth={isHtmlSurface ? null : annotateReaderMaxWidth}
                     fullViewport={isHtmlSurface}
+                    hideControls={htmlToolsHidden}
                     onAskAI={canUseAI ? handleAskAI : undefined}
                   />
                 ) : (

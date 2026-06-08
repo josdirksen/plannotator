@@ -80,6 +80,9 @@ export interface HtmlViewerProps {
   /** Render edge-to-edge: fill the viewport, drop the card chrome + action bar,
    *  and let the iframe own the full height instead of auto-resizing to content. */
   fullViewport?: boolean;
+  /** Hide the floating doc-level controls (attachments + global comment) in
+   *  full-viewport mode, so the user can read the page unobstructed. */
+  hideControls?: boolean;
   onAskAI?: (question: string, context: CommentAskAIContext) => void;
 }
 
@@ -98,6 +101,7 @@ export const HtmlViewer = forwardRef<ViewerHandle, HtmlViewerProps>(
       onRemoveGlobalAttachment,
       maxWidth,
       fullViewport,
+      hideControls,
       onAskAI,
     },
     ref,
@@ -264,7 +268,7 @@ export const HtmlViewer = forwardRef<ViewerHandle, HtmlViewerProps>(
             {/* Full-viewport mode has no card chrome, so float the same controls
                 over the top-right of the iframe (with a backdrop so they read over
                 any HTML). The selection toolbar is portaled separately. */}
-            {fullViewport && (
+            {fullViewport && !hideControls && (
               <div
                 data-print-hide
                 className="absolute top-3 right-3 z-10 flex items-center gap-1 md:gap-2 rounded-lg border border-border/50 bg-background/80 px-1.5 py-1 shadow-md backdrop-blur-sm"

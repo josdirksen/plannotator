@@ -13,6 +13,11 @@ import { cn } from '@plannotator/ui/lib/utils';
 import { CommentIcon } from '@plannotator/ui/components/icons/CommentIcon';
 
 interface AppHeaderProps {
+  /** HTML annotate surface: show a Hide/Show annotation-tools toggle in the header,
+   *  so hiding leaves the rendered HTML completely free of overlay controls. */
+  htmlSurface?: boolean;
+  htmlToolsHidden?: boolean;
+  onToggleHtmlTools?: () => void;
   // Slot for external content (e.g., shell sidebar trigger)
   headerLeft?: React.ReactNode;
   // When true, the built-in Settings modal is not mounted (unified dialog handles it)
@@ -80,6 +85,9 @@ interface AppHeaderProps {
 
 export const AppHeader = React.memo<AppHeaderProps>(({
   headerLeft,
+  htmlSurface,
+  htmlToolsHidden,
+  onToggleHtmlTools,
   skipBuiltInSettings,
   isApiMode,
   annotateMode,
@@ -135,6 +143,16 @@ export const AppHeader = React.memo<AppHeaderProps>(({
       <div className="flex items-center gap-2">
         {headerLeft}
         <AppHeaderLogo />
+        {htmlSurface && onToggleHtmlTools && (
+          <button
+            type="button"
+            onClick={onToggleHtmlTools}
+            className="ml-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors px-1.5 py-1 rounded cursor-pointer"
+            title={htmlToolsHidden ? 'Show annotation tools' : 'Hide annotation tools'}
+          >
+            {htmlToolsHidden ? 'Show tools' : 'Hide tools'}
+          </button>
+        )}
       </div>
 
       <div className="flex items-center gap-1 md:gap-2">

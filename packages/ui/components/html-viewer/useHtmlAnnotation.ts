@@ -183,7 +183,7 @@ export function useHtmlAnnotation({
         const iframe = iframeRef.current;
         const anchor = anchorRef.current;
         if (!iframe || !anchor) return;
-        const r = (e.data as { rect: { top: number; left: number; width: number; height: number } }).rect;
+        const r = (e.data as unknown as { rect: { top: number; left: number; width: number; height: number } }).rect;
         const iframeRect = iframe.getBoundingClientRect();
         anchor.style.top = `${iframeRect.top + r.top}px`;
         anchor.style.left = `${iframeRect.left + r.left + r.width / 2}px`;

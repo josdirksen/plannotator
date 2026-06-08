@@ -276,6 +276,34 @@ describe("pi review server", () => {
     }
   });
 
+  test("runs semantic diff from the local git context cwd in local review mode", async () => {
+    const dir = makeTempDir("plannotator-pi-sem-local-");
+    const repoDir = initRepo();
+    const cwdLogPath = join(dir, "cwd-log");
+    const gitContext = await getVcsContext(repoDir);
+    process.env.PLANNOTATOR_SEM_PATH = makeMockSem(dir, { runCwdLogPath: cwdLogPath });
+    process.env.PLANNOTATOR_PORT = String(await reservePort());
+
+    const server = await startReviewServer({
+      rawPatch: semanticRawPatch,
+      gitRef: "test",
+      origin: "pi",
+      diffType: "unstaged",
+      gitContext,
+      htmlContent: "<!doctype html><html><body>review</body></html>",
+    });
+
+    try {
+      const semanticPayload = await fetch(`${server.url}/api/semantic-diff`).then((response) => response.json()) as {
+        status: string;
+      };
+      expect(semanticPayload.status).toBe("ok");
+      expect(realpathSync(readFileSync(cwdLogPath, "utf-8").trim())).toBe(realpathSync(repoDir));
+    } finally {
+      server.stop();
+    }
+  });
+
   test("hides semantic diff from /api/diff when sem cannot be resolved", async () => {
     const dir = makeTempDir("plannotator-pi-sem-missing-server-");
     process.env.PLANNOTATOR_SEM_PATH = join(dir, "missing-sem");

@@ -21,7 +21,7 @@ import {
   type WorkspaceRepoRuntimeState,
 } from "./review-workspace";
 import { startReviewServer } from "./review";
-import type { DiffType, GitContext } from "./vcs";
+import { getVcsContext, type DiffType, type GitContext } from "./vcs";
 
 const tempDirs: string[] = [];
 const originalSemPath = process.env.PLANNOTATOR_SEM_PATH;
@@ -189,6 +189,34 @@ describe("review-workspace", () => {
         };
         expect(semanticPayload.status).toBe("ok");
         expect(realpathSync(readFileSync(cwdLogPath, "utf-8").trim())).toBe(realpathSync(agentCwd));
+      } finally {
+        server.stop();
+      }
+    });
+
+    it("runs semantic diff from the local git context cwd in local review mode", async () => {
+      const dir = makeTempDir("plannotator-sem-local-");
+      const repoDir = makeTempDir("plannotator-sem-local-repo-");
+      const cwdLogPath = join(dir, "cwd-log");
+      initRepo(repoDir);
+      const gitContext = await getVcsContext(repoDir);
+      process.env.PLANNOTATOR_SEM_PATH = makeMockSem(dir, { runCwdLogPath: cwdLogPath });
+
+      const server = await startReviewServer({
+        rawPatch,
+        gitRef: "test",
+        origin: "claude-code",
+        diffType: "unstaged",
+        gitContext,
+        htmlContent: "<!doctype html><html><body>review</body></html>",
+      });
+
+      try {
+        const semanticPayload = await fetch(`${server.url}/api/semantic-diff`).then((response) => response.json()) as {
+          status: string;
+        };
+        expect(semanticPayload.status).toBe("ok");
+        expect(realpathSync(readFileSync(cwdLogPath, "utf-8").trim())).toBe(realpathSync(repoDir));
       } finally {
         server.stop();
       }

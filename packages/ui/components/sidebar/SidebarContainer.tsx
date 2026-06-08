@@ -213,26 +213,8 @@ export const SidebarContainer: React.FC<SidebarContainerProps> = ({
             label="Archive"
           />
         )}
-        <div className="flex-1 min-w-0" />
-        <button
-          onClick={onClose}
-          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
-          title="Close sidebar"
-        >
-          <svg
-            className="w-3 h-3"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M15 19l-7-7 7-7"
-            />
-          </svg>
-        </button>
+        {/* No header close button — the sidebar collapses via the resize-handle
+            hover button (see ResizeHandle onCollapse). */}
       </div>
 
       {/* Content area */}

@@ -2309,7 +2309,7 @@ const App: React.FC = () => {
 
           {/* Left Sidebar: open state (TOC or Version Browser) */}
           {sidebar.isOpen && !goalSetupMode && (
-            <>
+            <div className="contents group/sidebar">
               <SidebarContainer
                 activeTab={sidebar.activeTab}
                 onTabChange={(tab) => {
@@ -2356,8 +2356,8 @@ const App: React.FC = () => {
                 onSelectMessage={handleSelectMessage}
                 messageAnnotationCounts={activeMessageAnnotationCounts}
               />
-              <ResizeHandle {...tocResize.handleProps} className="hidden lg:block" side="left" onCollapse={sidebar.close} />
-            </>
+              <ResizeHandle {...tocResize.handleProps} className="hidden lg:block z-[55]" side="left" onCollapse={sidebar.close} />
+            </div>
           )}
 
           {/* Document Area */}
@@ -2565,8 +2565,13 @@ const App: React.FC = () => {
             </div>
           </OverlayScrollArea>
 
+          {/* Right panel region — `group/sidebar` so the collapse button reveals when
+              hovering the whole panel, not just the thin handle. The handle and the
+              panel(s) are separate sibling conditionals, so they need a shared hover
+              ancestor (`contents` = no layout box). */}
+          <div className="contents group/sidebar">
           {/* Resize Handle */}
-          {isPanelOpen && wideModeType === null && !goalSetupMode && (rightSidebarTab === 'annotations' || canUseAI) && <ResizeHandle {...panelResize.handleProps} className="hidden md:block" side="right" onCollapse={() => setIsPanelOpen(false)} />}
+          {isPanelOpen && wideModeType === null && !goalSetupMode && (rightSidebarTab === 'annotations' || canUseAI) && <ResizeHandle {...panelResize.handleProps} className="hidden md:block z-[55]" side="right" onCollapse={() => setIsPanelOpen(false)} />}
 
           {/* Annotation Panel */}
           <AnnotationPanel
@@ -2602,26 +2607,30 @@ const App: React.FC = () => {
               }`}
               style={isMobile ? undefined : { width: `var(--rpanel-w, ${panelResize.width ?? 288}px)` }}
             >
-              <div className="px-3 flex items-center border-b border-border/50" style={{ height: 'var(--panel-header-h)' }}>
-                <div className="flex items-center gap-2 w-full min-w-0">
-                  <button
-                    onClick={() => setIsPanelOpen(false)}
-                    className="flex items-center justify-center w-5 h-5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
-                    title="Close sidebar"
-                    aria-label="Close AI sidebar"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
-                  </button>
-                  <SparklesIcon className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                  <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate">
-                    AI
-                  </h2>
-                  {aiMessages.length > 0 && (
-                    <span className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
-                      {aiMessages.length}
-                    </span>
+              <div className="border-b border-border/50">
+                <div className="flex h-10 items-center justify-between px-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <SparklesIcon className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                    <h2 className="text-xs font-medium text-foreground">
+                      AI
+                    </h2>
+                    {aiMessages.length > 0 && (
+                      <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary/10 px-1 font-mono text-[10px] font-medium tabular-nums text-primary">
+                        {aiMessages.length}
+                      </span>
+                    )}
+                  </div>
+                  {isMobile && (
+                    <button
+                      onClick={() => setIsPanelOpen(false)}
+                      className="relative rounded-md p-1.5 text-muted-foreground transition-colors before:absolute before:-inset-1.5 before:content-[''] hover:text-foreground md:hidden"
+                      title="Close panel"
+                      aria-label="Close AI panel"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
                   )}
                 </div>
               </div>
@@ -2638,6 +2647,7 @@ const App: React.FC = () => {
               />
             </aside>
           )}
+          </div>
         </div>
         </ScrollViewportContext.Provider>
 

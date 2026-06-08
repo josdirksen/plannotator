@@ -2092,21 +2092,6 @@ const ReviewApp: React.FC = () => {
 
             <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
 
-            <ReviewHeaderMenu
-              onOpenSettings={() => setOpenSettingsMenu(true)}
-              onOpenExport={() => setShowExportModal(true)}
-              onToggleFileTree={() => setIsFileTreeOpen(prev => !prev)}
-              onToggleSidebar={() => reviewSidebar.isOpen ? reviewSidebar.close() : reviewSidebar.open()}
-              isFileTreeOpen={isFileTreeOpen}
-              isSidebarOpen={reviewSidebar.isOpen}
-              appVersion={appVersion}
-              updateInfo={updateInfo}
-              origin={origin}
-              isWSL={isWSL}
-            />
-
-            <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
-
             {/* Sidebar tab toggles */}
             <button
               onClick={() => reviewSidebar.toggleTab('annotations')}
@@ -2158,13 +2143,28 @@ const ReviewApp: React.FC = () => {
                 )}
               </button>
             )}
+
+            <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
+
+            <ReviewHeaderMenu
+              onOpenSettings={() => setOpenSettingsMenu(true)}
+              onOpenExport={() => setShowExportModal(true)}
+              onToggleFileTree={() => setIsFileTreeOpen(prev => !prev)}
+              onToggleSidebar={() => reviewSidebar.isOpen ? reviewSidebar.close() : reviewSidebar.open()}
+              isFileTreeOpen={isFileTreeOpen}
+              isSidebarOpen={reviewSidebar.isOpen}
+              appVersion={appVersion}
+              updateInfo={updateInfo}
+              origin={origin}
+              isWSL={isWSL}
+            />
           </div>
         </header>
 
         {/* Main content */}
         <div className={`flex-1 flex overflow-hidden ${isResizing ? 'select-none' : ''}`}>
           {shouldShowFileTree && isFileTreeOpen && (
-            <>
+            <div className="contents group/sidebar">
               <FileTree
                 files={files}
                 activeFileIndex={activeFileIndex}
@@ -2215,8 +2215,8 @@ const ReviewApp: React.FC = () => {
                 onStepSearchMatch={hasSearchableFiles ? stepSearchMatch : undefined}
                 repoRoot={prMetadata ? null : (activeWorktreePath ?? agentCwd ?? gitContext?.cwd ?? null)}
               />
-              <ResizeHandle {...fileTreeResize.handleProps} side="left" onCollapse={() => setIsFileTreeOpen(false)} />
-            </>
+              <ResizeHandle {...fileTreeResize.handleProps} className="z-10" side="left" onCollapse={() => setIsFileTreeOpen(false)} />
+            </div>
           )}
 
           {/* Center dock area */}
@@ -2296,8 +2296,8 @@ const ReviewApp: React.FC = () => {
 
           {/* Resize Handle + Sidebar */}
           {reviewSidebar.isOpen && (
-            <>
-              <ResizeHandle {...panelResize.handleProps} side="right" onCollapse={() => reviewSidebar.close()} />
+            <div className="contents group/sidebar">
+              <ResizeHandle {...panelResize.handleProps} className="z-10" side="right" onCollapse={() => reviewSidebar.close()} />
               <ReviewSidebar
                 isOpen
                 onClose={reviewSidebar.close}
@@ -2335,7 +2335,7 @@ const ReviewApp: React.FC = () => {
                 onOpenJobDetail={handleOpenJobDetail}
                 onOpenPRPanel={handleOpenPRPanel}
               />
-            </>
+            </div>
           )}
         </div>
 

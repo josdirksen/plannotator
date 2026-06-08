@@ -315,19 +315,23 @@ export function useLinkedDoc(options: UseLinkedDocOptions): UseLinkedDocReturn {
     const root = savedPlanState.current
       ? {
           markdown: savedPlanState.current.markdown,
+          renderAs: savedPlanState.current.renderAs,
+          rawHtml: savedPlanState.current.rawHtml,
           annotations: [...savedPlanState.current.annotations],
           selectedAnnotationId: savedPlanState.current.selectedAnnotationId,
           globalAttachments: [...savedPlanState.current.globalAttachments],
         }
       : {
           markdown,
+          renderAs,
+          rawHtml,
           annotations: [...annotations],
           selectedAnnotationId,
           globalAttachments: [...globalAttachments],
         };
 
     return { root, docs };
-  }, [linkedDoc, annotations, globalAttachments, markdown, selectedAnnotationId]);
+  }, [linkedDoc, annotations, globalAttachments, markdown, renderAs, rawHtml, selectedAnnotationId]);
 
   const restoreSession = useCallback((state: LinkedDocSessionState) => {
     viewerRef.current?.clearAllHighlights();

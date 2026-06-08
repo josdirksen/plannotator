@@ -100,6 +100,8 @@ export function ReviewSemanticDiffPanel() {
     rawPatch,
     semanticDiffAvailable,
     onSemanticDiffUnavailable,
+    onSemanticDiffLoadError,
+    onSemanticDiffLoadSuccess,
     openDiffFile,
     onLineSelection,
   } = state;
@@ -124,9 +126,11 @@ export function ReviewSemanticDiffPanel() {
           return;
         }
         if (data.status === 'error') {
+          if (onSemanticDiffLoadError()) return;
           setLoadState({ status: 'error', error: data });
           return;
         }
+        onSemanticDiffLoadSuccess();
         setLoadState(data.changes.length === 0 && data.binaryChanges.length === 0
           ? { status: 'empty', data }
           : { status: 'ready', data });
@@ -134,11 +138,19 @@ export function ReviewSemanticDiffPanel() {
       .catch((error) => {
         if (controller.signal.aborted) return;
         console.error('Failed to load semantic diff:', error);
+        if (onSemanticDiffLoadError()) return;
         setLoadState({ status: 'error', error: error instanceof Error ? error : new Error(String(error)) });
       });
 
     return () => controller.abort();
-  }, [rawPatch, retryCount, semanticDiffAvailable, onSemanticDiffUnavailable]);
+  }, [
+    rawPatch,
+    retryCount,
+    semanticDiffAvailable,
+    onSemanticDiffUnavailable,
+    onSemanticDiffLoadError,
+    onSemanticDiffLoadSuccess,
+  ]);
 
   const groupedChanges = useMemo(() => {
     if (loadState.status !== 'ready' && loadState.status !== 'empty') return [];

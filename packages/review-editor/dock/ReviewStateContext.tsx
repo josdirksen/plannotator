@@ -101,6 +101,8 @@ export interface ReviewState {
   isSemanticDiffActive: boolean;
   semanticDiffAvailable: boolean;
   onSemanticDiffUnavailable: () => void;
+  onSemanticDiffLoadError: () => boolean;
+  onSemanticDiffLoadSuccess: () => void;
 
   // Tour
   openTourPanel: (jobId: string) => void;

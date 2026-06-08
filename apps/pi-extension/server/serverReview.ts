@@ -103,7 +103,7 @@ import {
 	semanticDiffFileExtsFromSearchParams,
 	SemanticDiffResponseCache,
 } from "../generated/semantic-diff.js";
-import type { SemanticDiffResponse } from "../generated/semantic-diff-types.js";
+import type { SemanticDiffAvailability, SemanticDiffResponse } from "../generated/semantic-diff-types.js";
 import {
 	canStageFiles,
 	detectRemoteDefaultCompareTarget,
@@ -311,6 +311,7 @@ export async function startReviewServer(options: {
 	}
 	const tour = createTourSession();
 	const semanticDiffCache = new SemanticDiffResponseCache();
+	const semanticDiffAvailabilityCache = new Map<string, Promise<SemanticDiffAvailability>>();
 
 	function createSemanticDiffRuntime(cwd: string) {
 		return {
@@ -319,8 +320,21 @@ export async function startReviewServer(options: {
 		};
 	}
 
+	function getSemanticDiffAvailabilityForCwd(cwd: string): Promise<SemanticDiffAvailability> {
+		const cached = semanticDiffAvailabilityCache.get(cwd);
+		if (cached) return cached;
+
+		const next: Promise<SemanticDiffAvailability> = getSemanticDiffAvailability(createSemanticDiffRuntime(cwd)).catch((error) => ({
+			available: false,
+			reason: "sem-probe-failed",
+			message: error instanceof Error ? error.message : String(error),
+		}));
+		semanticDiffAvailabilityCache.set(cwd, next);
+		return next;
+	}
+
 	async function getSemanticDiffAdvert() {
-		const availability = await getSemanticDiffAvailability(createSemanticDiffRuntime(resolveAgentCwd()));
+		const availability = await getSemanticDiffAvailabilityForCwd(resolveAgentCwd());
 		return {
 			available: availability.available,
 			...(availability.semVersion ? { semVersion: availability.semVersion } : {}),

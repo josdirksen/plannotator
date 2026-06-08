@@ -22,7 +22,7 @@ import {
   semanticDiffFileExtsFromSearchParams,
   SemanticDiffResponseCache,
 } from "@plannotator/shared/semantic-diff";
-import type { SemanticDiffResponse } from "@plannotator/shared/semantic-diff-types";
+import type { SemanticDiffAvailability, SemanticDiffResponse } from "@plannotator/shared/semantic-diff-types";
 import {
   getPRDiffScopeOptions,
   getPRStackInfo,
@@ -215,14 +215,28 @@ export async function startReviewServer(
     return workspace.getPromptContext();
   };
   const semanticDiffCache = new SemanticDiffResponseCache();
+  const semanticDiffAvailabilityCache = new Map<string, Promise<SemanticDiffAvailability>>();
 
   const createSemanticDiffRuntime = (cwd: string) => ({
     ...createDefaultSemanticDiffRuntime(),
     cwd,
   });
 
+  const getSemanticDiffAvailabilityForCwd = (cwd: string): Promise<SemanticDiffAvailability> => {
+    const cached = semanticDiffAvailabilityCache.get(cwd);
+    if (cached) return cached;
+
+    const next: Promise<SemanticDiffAvailability> = getSemanticDiffAvailability(createSemanticDiffRuntime(cwd)).catch((error) => ({
+      available: false,
+      reason: "sem-probe-failed",
+      message: error instanceof Error ? error.message : String(error),
+    }));
+    semanticDiffAvailabilityCache.set(cwd, next);
+    return next;
+  };
+
   const getSemanticDiffAdvert = async () => {
-    const availability = await getSemanticDiffAvailability(createSemanticDiffRuntime(resolveAgentCwd()));
+    const availability = await getSemanticDiffAvailabilityForCwd(resolveAgentCwd());
     return {
       available: availability.available,
       ...(availability.semVersion && { semVersion: availability.semVersion }),

@@ -6,7 +6,7 @@
  */
 
 import { afterEach, describe, expect, it } from "bun:test";
-import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -50,7 +50,7 @@ function initRepo(dir: string, initialBranch = "main"): void {
   git(dir, ["commit", "-m", "initial"]);
 }
 
-function makeMockSem(dir: string): string {
+function makeMockSem(dir: string, options: { versionCounterPath?: string } = {}): string {
   const semPath = join(dir, "sem");
   writeFileSync(
     semPath,
@@ -58,6 +58,7 @@ function makeMockSem(dir: string): string {
       "#!/usr/bin/env bash",
       "set -euo pipefail",
       'if [ "${1:-}" = "--version" ]; then',
+      ...(options.versionCounterPath ? [`  printf x >> ${JSON.stringify(options.versionCounterPath)}`] : []),
       '  echo "sem 0.8.0"',
       "  exit 0",
       "fi",
@@ -146,6 +147,27 @@ describe("review-workspace", () => {
             { entityType: "function", entityName: "created", filePath: "src/app.ts" },
           ],
         });
+      } finally {
+        server.stop();
+      }
+    });
+
+    it("caches semantic diff availability probes for the session cwd", async () => {
+      const dir = makeTempDir("plannotator-sem-cache-");
+      const versionCounterPath = join(dir, "version-count");
+      process.env.PLANNOTATOR_SEM_PATH = makeMockSem(dir, { versionCounterPath });
+
+      const server = await startReviewServer({
+        rawPatch,
+        gitRef: "test",
+        origin: "claude-code",
+        htmlContent: "<!doctype html><html><body>review</body></html>",
+      });
+
+      try {
+        await fetch(`${server.url}/api/diff`).then((response) => response.json());
+        await fetch(`${server.url}/api/diff`).then((response) => response.json());
+        expect(readFileSync(versionCounterPath, "utf-8")).toBe("x");
       } finally {
         server.stop();
       }

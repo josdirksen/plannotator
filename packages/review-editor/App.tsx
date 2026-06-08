@@ -282,6 +282,7 @@ const ReviewApp: React.FC = () => {
   const filesRef = useRef(files);
   filesRef.current = files;
   const needsInitialDiffPanel = useRef(true);
+  const semanticDiffAutoFallbackPending = useRef(false);
 
   // PR context (lifted from sidebar so center dock PR panels can access it)
   const { prContext, isLoading: isPRContextLoading, error: prContextError, fetchContext: fetchPRContext } = usePRContext(prMetadata ?? null);
@@ -724,6 +725,7 @@ const ReviewApp: React.FC = () => {
 
   const openAllFilesPanel = useCallback(() => {
     if (!dockApi) return;
+    semanticDiffAutoFallbackPending.current = false;
     const existing = dockApi.getPanel(REVIEW_ALL_FILES_PANEL_ID);
     if (existing) { existing.api.setActive(); return; }
     dockApi.addPanel({
@@ -733,8 +735,9 @@ const ReviewApp: React.FC = () => {
     });
   }, [dockApi]);
 
-  const openSemanticDiffPanel = useCallback(() => {
+  const openSemanticDiffPanel = useCallback((options?: { autoFallbackOnError?: boolean }) => {
     if (!dockApi) return;
+    semanticDiffAutoFallbackPending.current = options?.autoFallbackOnError === true;
     if (!semanticDiffAvailable) {
       openAllFilesPanel();
       return;
@@ -749,9 +752,22 @@ const ReviewApp: React.FC = () => {
   }, [dockApi, openAllFilesPanel, semanticDiffAvailable]);
 
   const handleSemanticDiffUnavailable = useCallback(() => {
+    semanticDiffAutoFallbackPending.current = false;
     setSemanticDiffAvailable(false);
     dockApi?.getPanel(REVIEW_SEMANTIC_DIFF_PANEL_ID)?.api.close();
     openAllFilesPanel();
+  }, [dockApi, openAllFilesPanel]);
+
+  const handleSemanticDiffLoadSuccess = useCallback(() => {
+    semanticDiffAutoFallbackPending.current = false;
+  }, []);
+
+  const handleSemanticDiffLoadError = useCallback(() => {
+    if (!semanticDiffAutoFallbackPending.current) return false;
+    semanticDiffAutoFallbackPending.current = false;
+    dockApi?.getPanel(REVIEW_SEMANTIC_DIFF_PANEL_ID)?.api.close();
+    openAllFilesPanel();
+    return true;
   }, [dockApi, openAllFilesPanel]);
 
   const applySemanticDiffAdvert = useCallback((semanticDiff?: SemanticDiffAdvert) => {
@@ -759,6 +775,7 @@ const ReviewApp: React.FC = () => {
     const available = semanticDiff.available === true;
     setSemanticDiffAvailable(available);
     if (!available) {
+      semanticDiffAutoFallbackPending.current = false;
       dockApi?.getPanel(REVIEW_SEMANTIC_DIFF_PANEL_ID)?.api.close();
       if (isSemanticDiffActive) openAllFilesPanel();
     }
@@ -769,7 +786,7 @@ const ReviewApp: React.FC = () => {
     if (!dockApi || !needsInitialDiffPanel.current || files.length === 0) return;
     needsInitialDiffPanel.current = false;
     if (semanticDiffAvailable) {
-      openSemanticDiffPanel();
+      openSemanticDiffPanel({ autoFallbackOnError: true });
     } else {
       openAllFilesPanel();
     }
@@ -1513,6 +1530,8 @@ const ReviewApp: React.FC = () => {
     isSemanticDiffActive,
     semanticDiffAvailable,
     onSemanticDiffUnavailable: handleSemanticDiffUnavailable,
+    onSemanticDiffLoadError: handleSemanticDiffLoadError,
+    onSemanticDiffLoadSuccess: handleSemanticDiffLoadSuccess,
     openTourPanel: handleOpenTour,
     onCodeNavRequest: handleCodeNavRequest,
     codeNavResult: codeNav.result,
@@ -1534,7 +1553,7 @@ const ReviewApp: React.FC = () => {
     aiHistoryForSelection, agentJobs.jobs, prMetadata, prContext,
     isPRContextLoading, prContextError, fetchPRContext, platformUser, openDiffFile,
     handleOpenTour, isAllFilesActive, isSemanticDiffActive, semanticDiffAvailable,
-    handleSemanticDiffUnavailable, handleAddAnnotationForFile,
+    handleSemanticDiffUnavailable, handleSemanticDiffLoadError, handleSemanticDiffLoadSuccess, handleAddAnnotationForFile,
     handleCodeNavRequest, codeNav.result, codeNav.isLoading, codeNav.activeSymbol,
   ]);
 

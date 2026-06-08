@@ -81,6 +81,7 @@ function defaultRunCommand(
 
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
+    let stdinError: string | undefined;
 
     const finish = (result: CommandResult) => {
       if (settled) return;
@@ -121,13 +122,22 @@ function defaultRunCommand(
         stdout: Buffer.concat(stdoutChunks).toString("utf-8"),
         stderr: Buffer.concat(stderrChunks).toString("utf-8"),
         exitCode: code ?? 1,
+        ...(stdinError && { error: stdinError }),
       });
     });
 
-    if (options.input !== undefined) {
-      proc.stdin?.write(options.input);
+    proc.stdin?.on("error", (error) => {
+      stdinError = error.message;
+    });
+
+    try {
+      if (options.input !== undefined) {
+        proc.stdin?.write(options.input);
+      }
+      proc.stdin?.end();
+    } catch (error) {
+      stdinError = error instanceof Error ? error.message : String(error);
     }
-    proc.stdin?.end();
   });
 }
 

@@ -72,3 +72,5 @@ export interface SemanticDiffAvailability {
   semVersion?: string;
   semSource?: string;
 }
+
+export type SemanticDiffAdvert = Pick<SemanticDiffAvailability, "available" | "semVersion" | "semSource">;

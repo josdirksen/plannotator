@@ -14,6 +14,7 @@ import { GitLabIcon } from '@plannotator/ui/components/GitLabIcon';
 import { RepoIcon } from '@plannotator/ui/components/RepoIcon';
 import { PullRequestIcon } from '@plannotator/ui/components/PullRequestIcon';
 import { getPlatformLabel, getMRLabel, getMRNumberLabel, getDisplayRepo } from '@plannotator/shared/pr-types';
+import type { SemanticDiffAdvert } from '@plannotator/shared/semantic-diff-types';
 import { configStore, useConfigValue } from '@plannotator/ui/config';
 import { loadDiffFont } from '@plannotator/ui/utils/diffFonts';
 import { getAgentSwitchSettings, getEffectiveAgentName } from '@plannotator/ui/utils/agentSwitch';
@@ -100,12 +101,6 @@ interface DiffData {
   prDiffScope?: PRDiffScope;
   prDiffScopeOptions?: PRDiffScopeOption[];
   semanticDiff?: SemanticDiffAdvert;
-}
-
-interface SemanticDiffAdvert {
-  available: boolean;
-  semVersion?: string;
-  semSource?: string;
 }
 
 function getFileTabTitle(filePath: string): string {
@@ -766,6 +761,7 @@ const ReviewApp: React.FC = () => {
   const handleSemanticDiffLoadError = useCallback(() => {
     if (!semanticDiffAutoFallbackPending.current) return false;
     if (dockApi?.activePanel?.id !== REVIEW_SEMANTIC_DIFF_PANEL_ID) {
+      // The user has already moved on; don't steal focus by auto-opening All files.
       semanticDiffAutoFallbackPending.current = false;
       return false;
     }

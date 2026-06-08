@@ -1,5 +1,6 @@
 import { useState, useCallback, type RefObject } from 'react';
 import type { PRDiffScope } from '@plannotator/shared/pr-stack';
+import type { SemanticDiffAdvert } from '@plannotator/shared/semantic-diff-types';
 
 export interface PRSwitchResponse {
   rawPatch: string;
@@ -12,11 +13,7 @@ export interface PRSwitchResponse {
   repoInfo?: unknown;
   viewedFiles?: string[];
   error?: string;
-  semanticDiff?: {
-    available: boolean;
-    semVersion?: string;
-    semSource?: string;
-  };
+  semanticDiff?: SemanticDiffAdvert;
 }
 
 export interface PRStackCallbacks {

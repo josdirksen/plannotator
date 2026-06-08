@@ -23,6 +23,8 @@ function makeRuntime(options: {
   env?: Record<string, string | undefined>;
   files?: string[];
   commands?: Record<string, MockCommand>;
+  pathDelimiter?: string;
+  platform?: NodeJS.Platform;
 } = {}): SemanticDiffRuntime & { calls: Array<{ command: string; args: string[]; input?: string }> } {
   const calls: Array<{ command: string; args: string[]; input?: string }> = [];
   const files = new Set(options.files ?? []);
@@ -33,8 +35,8 @@ function makeRuntime(options: {
     env: options.env ?? {},
     cwd: options.cwd ?? "/repo",
     dataDir: "/home/user/.plannotator",
-    pathDelimiter: ":",
-    platform: "linux",
+    pathDelimiter: options.pathDelimiter ?? ":",
+    platform: options.platform ?? "linux",
     fileExists(path) {
       return files.has(path);
     },
@@ -235,6 +237,49 @@ describe("semantic diff runner", () => {
       semSource: "managed",
     });
     expect(runtime.calls[0].command).toBe(managed);
+  });
+
+  test("does not fall back to bare sem on Windows when PATH resolution misses", async () => {
+    const runtime = makeRuntime({
+      platform: "win32",
+      pathDelimiter: ";",
+      env: {
+        PATH: "C:/repo;C:/tools",
+        PATHEXT: ".EXE",
+      },
+      commands: {
+        sem: { version: "sem 0.8.0" },
+      },
+    });
+
+    await expect(getSemanticDiffAvailability(runtime)).resolves.toMatchObject({
+      available: false,
+      reason: "sem-not-found",
+    });
+    expect(runtime.calls).toEqual([]);
+  });
+
+  test("resolves an absolute sem.exe from PATH on Windows", async () => {
+    const semPath = "C:/tools/sem.exe";
+    const runtime = makeRuntime({
+      platform: "win32",
+      pathDelimiter: ";",
+      env: {
+        PATH: "C:/tools",
+        PATHEXT: ".EXE",
+      },
+      files: [semPath],
+      commands: {
+        [semPath]: { version: "sem 0.8.0" },
+      },
+    });
+
+    await expect(getSemanticDiffAvailability(runtime)).resolves.toMatchObject({
+      available: true,
+      semVersion: "0.8.0",
+      semSource: "path",
+    });
+    expect(runtime.calls[0].command).toBe(semPath);
   });
 
   test("cache key accounts for patch, cwd, and file extensions", () => {

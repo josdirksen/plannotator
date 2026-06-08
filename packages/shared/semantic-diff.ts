@@ -196,6 +196,7 @@ function pathCandidates(runtime: SemanticDiffRuntime): SemCandidate[] {
         }
       }
     }
+    return [];
   }
 
   return [{ command: "sem", source: "path", explicit: false }];

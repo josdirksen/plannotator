@@ -972,6 +972,28 @@ describe("install shared behavior", () => {
     expect(cmdScript).toContain("predates");
   });
 
+  test("all installers install sem sidecar as a non-fatal optional dependency", () => {
+    const cmdScript = readFileSync(join(scriptsDir, "install.cmd"), "utf-8");
+
+    expect(sh).toContain('SEM_REPO="Ataraxy-Labs/sem"');
+    expect(sh).toContain('SEM_VERSION="v0.8.0"');
+    expect(sh).toContain("install_sem_sidecar");
+    expect(sh).toContain("Skipping semantic diff sidecar install");
+    expect(sh).toContain('${_config_dir}/vendor/sem/${SEM_VERSION}');
+
+    expect(ps).toContain('$semRepo = "Ataraxy-Labs/sem"');
+    expect(ps).toContain('$semVersion = "v0.8.0"');
+    expect(ps).toContain("function Install-SemSidecar");
+    expect(ps).toContain('if ($platform -eq "win32-x64")');
+    expect(ps).toContain("Skipping semantic diff sidecar install");
+
+    expect(cmdScript).toContain('set "SEM_REPO=Ataraxy-Labs/sem"');
+    expect(cmdScript).toContain('set "SEM_VERSION=v0.8.0"');
+    expect(cmdScript).toContain("call :InstallSemSidecar");
+    expect(cmdScript).toContain('if /i "!PLATFORM!"=="win32-x64" set "SEM_ASSET=sem-windows-x86_64.zip"');
+    expect(cmdScript).toContain("Skipping semantic diff sidecar install");
+  });
+
   test("install.sh and help text use vX.Y.Z placeholder not v0.17.1", () => {
     // Regression guard: the docs and --help text previously used v0.17.1
     // as a concrete pinned-version example. That tag predates provenance

@@ -15,6 +15,15 @@ import { type DiffType, type GitContext, runVcsDiff, getVcsFileContentsForDiff, 
 import { basename } from "node:path";
 import { parseWorktreeDiffType, resolveBaseBranch } from "@plannotator/shared/review-core";
 import {
+  createDefaultSemanticDiffRuntime,
+  getSemanticDiffAvailability,
+  runSemanticDiff,
+  semanticDiffCacheKey,
+  semanticDiffFileExtsFromSearchParams,
+  SemanticDiffResponseCache,
+} from "@plannotator/shared/semantic-diff";
+import type { SemanticDiffResponse } from "@plannotator/shared/semantic-diff-types";
+import {
   getPRDiffScopeOptions,
   getPRStackInfo,
   resolveStackInfo,
@@ -205,6 +214,39 @@ export async function startReviewServer(
     if (!workspace) return undefined;
     return workspace.getPromptContext();
   };
+  const semanticDiffCache = new SemanticDiffResponseCache();
+
+  const createSemanticDiffRuntime = (cwd: string) => ({
+    ...createDefaultSemanticDiffRuntime(),
+    cwd,
+  });
+
+  const getSemanticDiffAdvert = async () => {
+    const availability = await getSemanticDiffAvailability(createSemanticDiffRuntime(resolveAgentCwd()));
+    return {
+      available: availability.available,
+      ...(availability.semVersion && { semVersion: availability.semVersion }),
+      ...(availability.semSource && { semSource: availability.semSource }),
+    };
+  };
+
+  const getSemanticDiff = async (url: URL): Promise<SemanticDiffResponse> => {
+    const cwd = resolveAgentCwd();
+    const fileExts = semanticDiffFileExtsFromSearchParams(url.searchParams);
+    const cacheKey = semanticDiffCacheKey({ rawPatch: currentPatch, cwd, fileExts });
+    const cached = semanticDiffCache.get(cacheKey, currentPatch);
+    if (cached) return cached;
+
+    const result = await runSemanticDiff(
+      { rawPatch: currentPatch, cwd, fileExts },
+      createSemanticDiffRuntime(cwd),
+    );
+    if (result.status === "ok") {
+      semanticDiffCache.set(cacheKey, currentPatch, result);
+    }
+    return result;
+  };
+
   const agentJobs = createAgentJobHandler({
     mode: "review",
     getServerUrl: () => serverUrl,
@@ -511,8 +553,14 @@ export async function startReviewServer(
               }),
               ...(isPRMode && initialViewedFiles.length > 0 && { viewedFiles: initialViewedFiles }),
               ...(currentError && { error: currentError }),
+              semanticDiff: await getSemanticDiffAdvert(),
               serverConfig: getServerConfig(gitUser),
             });
+          }
+
+          // API: Get semantic diff content
+          if (url.pathname === "/api/semantic-diff" && req.method === "GET") {
+            return Response.json(await getSemanticDiff(url));
           }
 
           // API: Switch diff type (requires local file access)

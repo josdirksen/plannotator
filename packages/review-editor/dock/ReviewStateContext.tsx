@@ -18,6 +18,7 @@ import type { FeedbackDiffContext } from '../utils/exportFeedback';
 export interface ReviewState {
   // Files & diff
   files: DiffFile[];
+  rawPatch: string;
   focusedFileIndex: number;
   focusedFilePath: string | null;
   diffStyle: 'split' | 'unified';
@@ -97,6 +98,9 @@ export interface ReviewState {
   openDiffFile: (filePath: string) => void;
   onAllFilesVisibleFileChange: (filePath: string | null) => void;
   isAllFilesActive: boolean;
+  isSemanticDiffActive: boolean;
+  semanticDiffAvailable: boolean;
+  onSemanticDiffUnavailable: () => void;
 
   // Tour
   openTourPanel: (jobId: string) => void;

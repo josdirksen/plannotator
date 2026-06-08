@@ -73,6 +73,7 @@ import {
   REVIEW_PR_SUMMARY_PANEL_ID,
   REVIEW_PR_COMMENTS_PANEL_ID,
   REVIEW_PR_CHECKS_PANEL_ID,
+  REVIEW_SEMANTIC_DIFF_PANEL_ID,
   REVIEW_ALL_FILES_PANEL_ID,
   REVIEW_CODE_NAV_PANEL_ID,
 } from './dock/reviewPanelTypes';
@@ -98,6 +99,11 @@ interface DiffData {
   prStackInfo?: PRStackInfo | null;
   prDiffScope?: PRDiffScope;
   prDiffScopeOptions?: PRDiffScopeOption[];
+  semanticDiff?: {
+    available: boolean;
+    semVersion?: string;
+    semSource?: string;
+  };
 }
 
 function getFileTabTitle(filePath: string): string {
@@ -112,6 +118,8 @@ const ReviewApp: React.FC = () => {
   const [annotations, setAnnotations] = useState<CodeAnnotation[]>([]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [isAllFilesActive, setIsAllFilesActive] = useState(false);
+  const [isSemanticDiffActive, setIsSemanticDiffActive] = useState(false);
+  const [semanticDiffAvailable, setSemanticDiffAvailable] = useState(false);
   const [isDiffPanelActive, setIsDiffPanelActive] = useState(false);
   const [allFilesVisibleFile, setAllFilesVisibleFile] = useState<string | null>(null);
   const [pendingSelection, setPendingSelection] = useState<SelectedLineRange | null>(null);
@@ -444,7 +452,9 @@ const ReviewApp: React.FC = () => {
       existing.api.setTitle(`References: ${request.symbol}`);
       existing.api.setActive();
     } else {
-      const refPanel = isAllFilesActive
+      const refPanel = isSemanticDiffActive
+        ? REVIEW_SEMANTIC_DIFF_PANEL_ID
+        : isAllFilesActive
         ? REVIEW_ALL_FILES_PANEL_ID
         : REVIEW_DIFF_PANEL_ID;
       dockApi.addPanel({
@@ -455,7 +465,7 @@ const ReviewApp: React.FC = () => {
         initialHeight: 250,
       });
     }
-  }, [codeNav.resolve, dockApi, isAllFilesActive, gitContext, agentCwd]);
+  }, [codeNav.resolve, dockApi, isAllFilesActive, isSemanticDiffActive, gitContext, agentCwd]);
 
   // Check AI capabilities on mount
   useEffect(() => {
@@ -594,8 +604,14 @@ const ReviewApp: React.FC = () => {
 
     // Sync activeFileIndex when user switches between dock tabs
     event.api.onDidActivePanelChange((panel) => {
-      if (!panel) { setIsAllFilesActive(false); setIsDiffPanelActive(false); return; }
+      if (!panel) {
+        setIsAllFilesActive(false);
+        setIsSemanticDiffActive(false);
+        setIsDiffPanelActive(false);
+        return;
+      }
       setIsAllFilesActive(panel.id === REVIEW_ALL_FILES_PANEL_ID);
+      setIsSemanticDiffActive(panel.id === REVIEW_SEMANTIC_DIFF_PANEL_ID);
       setIsDiffPanelActive(isReviewDiffPanelId(panel.id));
       if (!isReviewDiffPanelId(panel.id)) return;
       const filePath = getReviewDiffPanelFilePath(panel.params);
@@ -614,7 +630,10 @@ const ReviewApp: React.FC = () => {
         event.api.totalPanels === 1 && event.api.groups.length === 1
           ? event.api.groups[0]?.panels[0]
           : undefined;
-      const hideHeaders = lonePanel?.id === REVIEW_DIFF_PANEL_ID || lonePanel?.id === REVIEW_ALL_FILES_PANEL_ID;
+      const hideHeaders =
+        lonePanel?.id === REVIEW_DIFF_PANEL_ID ||
+        lonePanel?.id === REVIEW_SEMANTIC_DIFF_PANEL_ID ||
+        lonePanel?.id === REVIEW_ALL_FILES_PANEL_ID;
       for (const group of event.api.groups) {
         group.header.hidden = hideHeaders;
       }
@@ -712,12 +731,37 @@ const ReviewApp: React.FC = () => {
     });
   }, [dockApi]);
 
-  // Open the all-files panel on first load.
+  const openSemanticDiffPanel = useCallback(() => {
+    if (!dockApi) return;
+    if (!semanticDiffAvailable) {
+      openAllFilesPanel();
+      return;
+    }
+    const existing = dockApi.getPanel(REVIEW_SEMANTIC_DIFF_PANEL_ID);
+    if (existing) { existing.api.setActive(); return; }
+    dockApi.addPanel({
+      id: REVIEW_SEMANTIC_DIFF_PANEL_ID,
+      component: REVIEW_PANEL_TYPES.SEMANTIC_DIFF,
+      title: 'Semantic diff',
+    });
+  }, [dockApi, openAllFilesPanel, semanticDiffAvailable]);
+
+  const handleSemanticDiffUnavailable = useCallback(() => {
+    setSemanticDiffAvailable(false);
+    dockApi?.getPanel(REVIEW_SEMANTIC_DIFF_PANEL_ID)?.api.close();
+    openAllFilesPanel();
+  }, [dockApi, openAllFilesPanel]);
+
+  // Open the default diff overview on first load.
   useEffect(() => {
     if (!dockApi || !needsInitialDiffPanel.current || files.length === 0) return;
     needsInitialDiffPanel.current = false;
-    openAllFilesPanel();
-  }, [dockApi, files, openAllFilesPanel]);
+    if (semanticDiffAvailable) {
+      openSemanticDiffPanel();
+    } else {
+      openAllFilesPanel();
+    }
+  }, [dockApi, files, openAllFilesPanel, openSemanticDiffPanel, semanticDiffAvailable]);
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -802,6 +846,11 @@ const ReviewApp: React.FC = () => {
         viewedFiles?: string[];
         error?: string;
         isWSL?: boolean;
+        semanticDiff?: {
+          available: boolean;
+          semVersion?: string;
+          semSource?: string;
+        };
         serverConfig?: { displayName?: string; gitUser?: string };
       }) => {
         // Initialize config store with server-provided values (config file > cookie > default)
@@ -850,6 +899,7 @@ const ReviewApp: React.FC = () => {
         }
         if (data.error) setDiffError(data.error);
         if (data.isWSL) setIsWSL(true);
+        setSemanticDiffAvailable(data.semanticDiff?.available === true);
         // Mark diff type setup as pending on first run (local mode only)
         if (data.diffType && data.mode !== 'workspace' && !data.prMetadata && data.gitContext && data.gitContext.vcsType !== 'p4' && data.gitContext.vcsType !== 'jj' && needsDiffTypeSetup()) {
           setDiffTypeSetupPending(true);
@@ -865,6 +915,7 @@ const ReviewApp: React.FC = () => {
         });
         setFiles(demoFiles);
         setWorkspaceDiffOptions(null);
+        setSemanticDiffAvailable(false);
       })
       .finally(() => setIsLoading(false));
   }, []);
@@ -1380,6 +1431,7 @@ const ReviewApp: React.FC = () => {
   // Build ReviewState value for dock panel context
   const reviewStateValue = useMemo<ReviewState>(() => ({
     files,
+    rawPatch: diffData?.rawPatch ?? '',
     focusedFileIndex: activeFileIndex,
     focusedFilePath: files[activeFileIndex]?.path ?? null,
     diffStyle,
@@ -1446,13 +1498,16 @@ const ReviewApp: React.FC = () => {
     openDiffFile,
     onAllFilesVisibleFileChange: setAllFilesVisibleFile,
     isAllFilesActive,
+    isSemanticDiffActive,
+    semanticDiffAvailable,
+    onSemanticDiffUnavailable: handleSemanticDiffUnavailable,
     openTourPanel: handleOpenTour,
     onCodeNavRequest: handleCodeNavRequest,
     codeNavResult: codeNav.result,
     codeNavIsLoading: codeNav.isLoading,
     codeNavActiveSymbol: codeNav.activeSymbol,
   }), [
-    files, activeFileIndex, diffStyle, diffOverflow, diffIndicators,
+    files, diffData?.rawPatch, activeFileIndex, diffStyle, diffOverflow, diffIndicators,
     diffLineDiffType, diffShowLineNumbers, diffShowBackground,
     diffExpandUnchanged, diffFontFamily, diffFontSize, activeDiffBase, committedBase, feedbackDiffContext, prReviewScopeLabel, prDiffScope,
     allAnnotations, externalAnnotations,
@@ -1466,7 +1521,8 @@ const ReviewApp: React.FC = () => {
     handleAskAI, handleViewAIResponse, handleClickAIMarker,
     aiHistoryForSelection, agentJobs.jobs, prMetadata, prContext,
     isPRContextLoading, prContextError, fetchPRContext, platformUser, openDiffFile,
-    handleOpenTour, isAllFilesActive, handleAddAnnotationForFile,
+    handleOpenTour, isAllFilesActive, isSemanticDiffActive, semanticDiffAvailable,
+    handleSemanticDiffUnavailable, handleAddAnnotationForFile,
     handleCodeNavRequest, codeNav.result, codeNav.isLoading, codeNav.activeSymbol,
   ]);
 
@@ -2159,6 +2215,9 @@ const ReviewApp: React.FC = () => {
               <FileTree
                 files={files}
                 activeFileIndex={activeFileIndex}
+                onSelectSemanticDiff={openSemanticDiffPanel}
+                isSemanticDiffActive={isSemanticDiffActive}
+                semanticDiffAvailable={semanticDiffAvailable}
                 onSelectAllFiles={openAllFilesPanel}
                 isAllFilesActive={isAllFilesActive}
                 scrollHighlightIndex={isAllFilesActive && allFilesVisibleFile ? files.findIndex(f => f.path === allFilesVisibleFile) : undefined}

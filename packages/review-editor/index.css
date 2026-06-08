@@ -294,6 +294,137 @@ diffs-container {
   background: oklch(from var(--primary) l c h / 0.3);
 }
 
+/* Semantic diff terminal view */
+.semantic-diff-panel {
+  height: 100%;
+  min-width: 0;
+  overflow: auto;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.semantic-diff-terminal {
+  width: max-content;
+  min-width: min(100%, 42rem);
+  max-width: 100%;
+  padding: 1.5rem;
+  font-family: var(--diff-font-override, var(--font-mono));
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+}
+
+.semantic-diff-file {
+  margin: 0 0 1.25rem;
+}
+
+.semantic-diff-box-line,
+.semantic-diff-loading,
+.semantic-diff-empty,
+.semantic-diff-error,
+.semantic-diff-summary {
+  white-space: pre;
+  color: var(--muted-foreground);
+}
+
+.semantic-diff-error {
+  color: var(--destructive);
+}
+
+.semantic-diff-path {
+  color: var(--foreground);
+}
+
+.semantic-diff-fill {
+  color: oklch(from var(--border) l c h / 0.9);
+  overflow: hidden;
+}
+
+.semantic-diff-row {
+  display: flex;
+  align-items: baseline;
+  width: 100%;
+  min-height: 1.75rem;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.semantic-diff-retry {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  margin-top: 0.25rem;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  cursor: pointer;
+}
+
+.semantic-diff-row:focus-visible,
+.semantic-diff-retry:focus-visible {
+  outline: 1px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .semantic-diff-row:hover,
+  .semantic-diff-retry:hover {
+    background: oklch(from var(--foreground) l c h / 0.045);
+  }
+}
+
+.semantic-diff-pipe {
+  width: 2ch;
+  color: var(--muted-foreground);
+}
+
+.semantic-diff-row-body {
+  display: grid;
+  grid-template-columns: 2ch 10ch minmax(18ch, 1fr) max-content;
+  column-gap: 1ch;
+  align-items: baseline;
+  min-width: 0;
+  padding-right: 1ch;
+}
+
+.semantic-diff-symbol-added {
+  color: var(--success);
+}
+
+.semantic-diff-symbol-deleted {
+  color: var(--destructive);
+}
+
+.semantic-diff-symbol-modified,
+.semantic-diff-symbol-renamed,
+.semantic-diff-symbol-moved,
+.semantic-diff-symbol-reordered {
+  color: var(--primary);
+}
+
+.semantic-diff-kind,
+.semantic-diff-status {
+  color: var(--muted-foreground);
+}
+
+.semantic-diff-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.semantic-diff-summary {
+  margin-top: 0.25rem;
+}
+
 /* =====================================================
    Conventional Comments — Diagnostic-style labels
    Visual language: VS Code severity indicators.

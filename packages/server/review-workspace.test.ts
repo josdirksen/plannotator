@@ -6,7 +6,7 @@
  */
 
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -24,6 +24,7 @@ import { startReviewServer } from "./review";
 import type { DiffType, GitContext } from "./vcs";
 
 const tempDirs: string[] = [];
+const originalSemPath = process.env.PLANNOTATOR_SEM_PATH;
 
 function makeTempDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -49,13 +50,138 @@ function initRepo(dir: string, initialBranch = "main"): void {
   git(dir, ["commit", "-m", "initial"]);
 }
 
+function makeMockSem(dir: string): string {
+  const semPath = join(dir, "sem");
+  writeFileSync(
+    semPath,
+    [
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      'if [ "${1:-}" = "--version" ]; then',
+      '  echo "sem 0.8.0"',
+      "  exit 0",
+      "fi",
+      "cat >/dev/null",
+      "cat <<'JSON'",
+      JSON.stringify({
+        summary: { fileCount: 1, added: 1, modified: 0, deleted: 0, moved: 0, renamed: 0, reordered: 0, binary: 0, orphan: 0, total: 1 },
+        changes: [
+          {
+            entityId: "src/app.ts::function::created",
+            changeType: "added",
+            entityType: "function",
+            entityName: "created",
+            filePath: "src/app.ts",
+            startLine: 1,
+            endLine: 3,
+          },
+        ],
+        binaryChanges: [],
+      }),
+      "JSON",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+  chmodSync(semPath, 0o755);
+  return semPath;
+}
+
 afterEach(() => {
+  if (originalSemPath === undefined) {
+    delete process.env.PLANNOTATOR_SEM_PATH;
+  } else {
+    process.env.PLANNOTATOR_SEM_PATH = originalSemPath;
+  }
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 describe("review-workspace", () => {
+  describe("semantic diff API", () => {
+    const rawPatch = [
+      "diff --git a/src/app.ts b/src/app.ts",
+      "new file mode 100644",
+      "index 0000000..1111111",
+      "--- /dev/null",
+      "+++ b/src/app.ts",
+      "@@ -0,0 +1,3 @@",
+      "+export function created() {",
+      "+  return true;",
+      "+}",
+      "",
+    ].join("\n");
+
+    it("advertises semantic diff availability and serves parsed sem output", async () => {
+      const dir = makeTempDir("plannotator-sem-server-");
+      process.env.PLANNOTATOR_SEM_PATH = makeMockSem(dir);
+
+      const server = await startReviewServer({
+        rawPatch,
+        gitRef: "test",
+        origin: "claude-code",
+        htmlContent: "<!doctype html><html><body>review</body></html>",
+      });
+
+      try {
+        const diffPayload = await fetch(`${server.url}/api/diff`).then((response) => response.json()) as {
+          semanticDiff?: { available: boolean; semVersion?: string; semSource?: string };
+        };
+        expect(diffPayload.semanticDiff).toMatchObject({
+          available: true,
+          semVersion: "0.8.0",
+          semSource: "env",
+        });
+
+        const semanticPayload = await fetch(`${server.url}/api/semantic-diff?fileExt=.ts`).then((response) => response.json()) as {
+          status: string;
+          summary?: { added: number; fileCount: number };
+          changes?: Array<{ entityType: string; entityName: string; filePath: string }>;
+        };
+        expect(semanticPayload).toMatchObject({
+          status: "ok",
+          summary: { added: 1, fileCount: 1 },
+          changes: [
+            { entityType: "function", entityName: "created", filePath: "src/app.ts" },
+          ],
+        });
+      } finally {
+        server.stop();
+      }
+    });
+
+    it("hides semantic diff from /api/diff when sem cannot be resolved", async () => {
+      const dir = makeTempDir("plannotator-sem-missing-server-");
+      process.env.PLANNOTATOR_SEM_PATH = join(dir, "missing-sem");
+
+      const server = await startReviewServer({
+        rawPatch,
+        gitRef: "test",
+        origin: "claude-code",
+        htmlContent: "<!doctype html><html><body>review</body></html>",
+      });
+
+      try {
+        const diffPayload = await fetch(`${server.url}/api/diff`).then((response) => response.json()) as {
+          semanticDiff?: { available: boolean };
+        };
+        expect(diffPayload.semanticDiff).toEqual({ available: false });
+
+        const semanticPayload = await fetch(`${server.url}/api/semantic-diff`).then((response) => response.json()) as {
+          status: string;
+          reason?: string;
+        };
+        expect(semanticPayload).toMatchObject({
+          status: "unavailable",
+          reason: "sem-path-missing",
+        });
+      } finally {
+        server.stop();
+      }
+    });
+  });
+
   describe("prefixPatchPaths", () => {
     it("prefixes diff headers with the repo label", () => {
       const patch = [

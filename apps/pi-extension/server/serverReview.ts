@@ -96,6 +96,15 @@ import {
 	extractChangedFiles,
 } from "../generated/code-nav.js";
 import {
+	createDefaultSemanticDiffRuntime,
+	getSemanticDiffAvailability,
+	runSemanticDiff,
+	semanticDiffCacheKey,
+	semanticDiffFileExtsFromSearchParams,
+	SemanticDiffResponseCache,
+} from "../generated/semantic-diff.js";
+import type { SemanticDiffResponse } from "../generated/semantic-diff-types.js";
+import {
 	canStageFiles,
 	detectRemoteDefaultCompareTarget,
 	getVcsContext,
@@ -301,6 +310,40 @@ export async function startReviewServer(options: {
 		return workspace.getPromptContext();
 	}
 	const tour = createTourSession();
+	const semanticDiffCache = new SemanticDiffResponseCache();
+
+	function createSemanticDiffRuntime(cwd: string) {
+		return {
+			...createDefaultSemanticDiffRuntime(),
+			cwd,
+		};
+	}
+
+	async function getSemanticDiffAdvert() {
+		const availability = await getSemanticDiffAvailability(createSemanticDiffRuntime(resolveAgentCwd()));
+		return {
+			available: availability.available,
+			...(availability.semVersion ? { semVersion: availability.semVersion } : {}),
+			...(availability.semSource ? { semSource: availability.semSource } : {}),
+		};
+	}
+
+	async function getSemanticDiff(url: URL): Promise<SemanticDiffResponse> {
+		const cwd = resolveAgentCwd();
+		const fileExts = semanticDiffFileExtsFromSearchParams(url.searchParams);
+		const cacheKey = semanticDiffCacheKey({ rawPatch: currentPatch, cwd, fileExts });
+		const cached = semanticDiffCache.get(cacheKey, currentPatch);
+		if (cached) return cached;
+
+		const result = await runSemanticDiff(
+			{ rawPatch: currentPatch, cwd, fileExts },
+			createSemanticDiffRuntime(cwd),
+		);
+		if (result.status === "ok") {
+			semanticDiffCache.set(cacheKey, currentPatch, result);
+		}
+		return result;
+	}
 
 	const agentJobs = createAgentJobHandler({
 		mode: "review",
@@ -543,8 +586,11 @@ export async function startReviewServer(options: {
 				}),
 				...(isPRMode && initialViewedFiles.length > 0 && { viewedFiles: initialViewedFiles }),
 				...(currentError && { error: currentError }),
+				semanticDiff: await getSemanticDiffAdvert(),
 				serverConfig: getServerConfig(gitUser),
 			});
+		} else if (url.pathname === "/api/semantic-diff" && req.method === "GET") {
+			json(res, await getSemanticDiff(url));
 		} else if (url.pathname === "/api/diff/switch" && req.method === "POST") {
 			if (!hasLocalAccess && !workspace) {
 				json(res, { error: "Not available without local file access" }, 400);

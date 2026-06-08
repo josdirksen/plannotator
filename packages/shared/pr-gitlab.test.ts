@@ -1,77 +1,40 @@
 import { describe, expect, test } from "bun:test";
-import { fetchGlMR, parsePaginatedArray } from "./pr-gitlab";
+import { fetchGlMR } from "./pr-gitlab";
 import type { PRRuntime } from "./pr-types";
 
-describe("parsePaginatedArray", () => {
-  test("parses a single-page array", () => {
-    const stdout = JSON.stringify([{ a: 1 }, { a: 2 }]);
-    expect(parsePaginatedArray<{ a: number }>(stdout)).toEqual([{ a: 1 }, { a: 2 }]);
-  });
-
-  test("merges adjacent JSON arrays from --paginate output", () => {
-    const stdout = JSON.stringify([{ a: 1 }]) + JSON.stringify([{ a: 2 }, { a: 3 }]);
-    expect(parsePaginatedArray<{ a: number }>(stdout)).toEqual([
-      { a: 1 },
-      { a: 2 },
-      { a: 3 },
-    ]);
-  });
-
-  test("merges three or more pages with whitespace between them", () => {
-    const stdout = [
-      JSON.stringify([1, 2]),
-      JSON.stringify([3, 4]),
-      JSON.stringify([5]),
-    ].join("\n");
-    expect(parsePaginatedArray<number>(stdout)).toEqual([1, 2, 3, 4, 5]);
-  });
-
-  test("handles strings containing brackets without splitting prematurely", () => {
-    // Diff content frequently contains `][` inside JSON strings — must not be
-    // confused with a page boundary.
-    const page1 = [{ diff: "before][after", new_path: "a" }];
-    const page2 = [{ diff: "second", new_path: "b" }];
-    const stdout = JSON.stringify(page1) + JSON.stringify(page2);
-    expect(parsePaginatedArray(stdout)).toEqual([...page1, ...page2]);
-  });
-
-  test("handles escaped quotes inside strings", () => {
-    const page1 = [{ diff: 'has \\"quote\\" and ] bracket', new_path: "a" }];
-    const page2 = [{ diff: "second", new_path: "b" }];
-    const stdout = JSON.stringify(page1) + JSON.stringify(page2);
-    expect(parsePaginatedArray(stdout)).toEqual([...page1, ...page2]);
-  });
-
-  test("returns empty array for empty input", () => {
-    expect(parsePaginatedArray("")).toEqual([]);
-    expect(parsePaginatedArray("   \n")).toEqual([]);
-  });
-
-  test("handles empty pages mixed with non-empty ones", () => {
-    const stdout = "[]" + JSON.stringify([{ a: 1 }]) + "[]";
-    expect(parsePaginatedArray<{ a: number }>(stdout)).toEqual([{ a: 1 }]);
-  });
-});
-
 describe("fetchGlMR", () => {
-  test("reconstructs a unified patch that can flow into semantic diff", async () => {
+  test("uses GitLab raw diffs so binary markers and collapsed files are preserved", async () => {
     const calls: string[] = [];
+    const rawPatch = [
+      "diff --git a/src/app.ts b/src/app.ts",
+      "index 0000000000000000000000000000000000000000..1111111111111111111111111111111111111111 100644",
+      "--- a/src/app.ts",
+      "+++ b/src/app.ts",
+      "@@ -0,0 +1,3 @@",
+      "+export function created() {",
+      "+  return true;",
+      "+}",
+      "diff --git a/package-lock.json b/package-lock.json",
+      "index 2222222222222222222222222222222222222222..3333333333333333333333333333333333333333 100644",
+      "--- a/package-lock.json",
+      "+++ b/package-lock.json",
+      "@@ -1,3 +1,3 @@",
+      "-  \"old\": true",
+      "+  \"new\": true",
+      "diff --git a/tests/snap.png b/tests/snap.png",
+      "new file mode 100644",
+      "index 0000000000000000000000000000000000000000..4444444444444444444444444444444444444444",
+      "Binary files /dev/null and b/tests/snap.png differ",
+      "",
+    ].join("\n");
+
     const runtime: PRRuntime = {
       async runCommand(command, args) {
         calls.push([command, ...args].join(" "));
         const endpoint = args[1];
-        if (endpoint === "projects/group%2Fproject/merge_requests/42/diffs?per_page=100") {
+        if (endpoint === "projects/group%2Fproject/merge_requests/42/raw_diffs") {
           return {
-            stdout: JSON.stringify([
-              {
-                diff: "@@ -0,0 +1,3 @@\n+export function created() {\n+  return true;\n+}\n",
-                old_path: "src/app.ts",
-                new_path: "src/app.ts",
-                new_file: true,
-                deleted_file: false,
-                renamed_file: false,
-              },
-            ]),
+            stdout: rawPatch,
             stderr: "",
             exitCode: 0,
           };
@@ -119,11 +82,10 @@ describe("fetchGlMR", () => {
       baseBranch: "main",
       headBranch: "feature/app",
     });
-    expect(result.rawPatch).toContain("diff --git a/src/app.ts b/src/app.ts");
-    expect(result.rawPatch).toContain("new file mode 100644");
-    expect(result.rawPatch).toContain("--- /dev/null");
-    expect(result.rawPatch).toContain("+++ b/src/app.ts");
-    expect(result.rawPatch).toContain("@@ -0,0 +1,3 @@");
-    expect(calls).toContain("glab api projects/group%2Fproject/merge_requests/42/diffs?per_page=100 --paginate");
+    expect(result.rawPatch).toBe(rawPatch);
+    expect(result.rawPatch).toContain("diff --git a/package-lock.json b/package-lock.json");
+    expect(result.rawPatch).toContain("Binary files /dev/null and b/tests/snap.png differ");
+    expect(calls).toContain("glab api projects/group%2Fproject/merge_requests/42/raw_diffs");
+    expect(calls.some((call) => call.includes("/diffs?per_page=100"))).toBe(false);
   });
 });

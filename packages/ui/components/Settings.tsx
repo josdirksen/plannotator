@@ -1201,6 +1201,21 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
 
                     <div className="border-t border-border" />
 
+                    {/* Grid Background */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-medium">Grid Background</div>
+                        <div className="text-xs text-muted-foreground">Show the plan as a floating card on a grid</div>
+                      </div>
+                      <button role="switch" aria-checked={gridEnabled}
+                        onClick={() => configStore.set('gridEnabled', !gridEnabled)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${gridEnabled ? 'bg-primary' : 'bg-muted'}`}>
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${gridEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                      </button>
+                    </div>
+
+                    <div className="border-t border-border" />
+
                     {/* Plan Width */}
                     <div className="space-y-3">
                       <div>
@@ -1302,21 +1317,6 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
                           </div>
                         );
                       })()}
-                    </div>
-
-                    <div className="border-t border-border" />
-
-                    {/* Grid Background */}
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-sm font-medium">Grid Background</div>
-                        <div className="text-xs text-muted-foreground">Show the plan as a floating card on a grid</div>
-                      </div>
-                      <button role="switch" aria-checked={gridEnabled}
-                        onClick={() => configStore.set('gridEnabled', !gridEnabled)}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${gridEnabled ? 'bg-primary' : 'bg-muted'}`}>
-                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${gridEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                      </button>
                     </div>
 
                     <div className="border-t border-border" />

@@ -15,6 +15,11 @@ interface AnnotationToolstripProps {
    */
   compact?: boolean;
   /**
+   * Show the "how does this work?" help link. Default true; hidden on the
+   * floating HTML toolstrip where space is tight.
+   */
+  showHelpLink?: boolean;
+  /**
    * Icon-only mode: no button ever expands to show a label, even the active
    * one. Used in the sticky header lane on mobile so the toolstrip stays
    * narrow and leaves room for the diff badges.
@@ -29,6 +34,7 @@ export const AnnotationToolstrip: React.FC<AnnotationToolstripProps> = ({
   onModeChange,
   taterMode,
   compact = false,
+  showHelpLink = true,
   iconOnly = false,
 }) => {
   const [showHelp, setShowHelp] = useState(false);
@@ -145,7 +151,7 @@ export const AnnotationToolstrip: React.FC<AnnotationToolstripProps> = ({
         </div>
 
         {/* Help */}
-        {!compact && (
+        {!compact && showHelpLink && (
           <button
             onClick={() => setShowHelp(true)}
             className="ml-2 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors hidden sm:block"

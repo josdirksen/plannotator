@@ -266,6 +266,12 @@ const App: React.FC = () => {
   // card-chromed markdown column. Branch the document-area containers on this.
   const isHtmlSurface = renderAs === 'html';
   const [rawHtml, setRawHtml] = useState('');
+  // Session-level force-markdown preference (`--markdown`). When set, folder/linked HTML
+  // files are converted instead of rendered raw — threaded into /api/doc as &convert=1.
+  const [convertHtml, setConvertHtml] = useState(false);
+  // Hide the floating HTML annotation controls (toolstrip + action cluster) so the
+  // user can read the rendered page unobstructed. Selections/annotations are unaffected.
+  const [htmlToolsHidden, setHtmlToolsHidden] = useState(false);
   const [sourceFilePath, setSourceFilePath] = useState<string | undefined>();
   const [imageBaseDir, setImageBaseDir] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
@@ -429,7 +435,10 @@ const App: React.FC = () => {
     setIsPanelOpen(prev => rightSidebarTab === 'ai' ? !prev : true);
   }, [dismissPlanAIAnnouncement, exitWideMode, rightSidebarTab, wideModeType]);
 
-  // Sync sidebar open state when preference changes in Settings
+  // Sync sidebar open state when the "Auto-open Sidebar" preference changes in
+  // Settings. Deliberately does NOT react to the document or render mode —
+  // switching files (e.g. in annotate-folder) leaves the sidebar exactly as the
+  // user left it.
   useEffect(() => {
     if (wideModeType !== null) return;
     if (lastAppliedTocEnabledRef.current === uiPrefs.tocEnabled) return;
@@ -489,6 +498,7 @@ const App: React.FC = () => {
   const linkedDocHook = useLinkedDoc({
     markdown, annotations, selectedAnnotationId, globalAttachments,
     setMarkdown, setAnnotations, setSelectedAnnotationId, setGlobalAttachments,
+    renderAs, rawHtml, setRenderAs, setRawHtml,
     viewerRef, sidebar: linkedDocSidebar, sourceFilePath, sourceConverted,
   });
 
@@ -704,10 +714,10 @@ const App: React.FC = () => {
     const dirState = fileBrowser.dirs.find(d => d.path === dirPath);
     const buildUrl = dirState?.isVault
       ? (path: string) => `/api/reference/obsidian/doc?vaultPath=${encodeURIComponent(dirPath)}&path=${encodeURIComponent(path)}`
-      : (path: string) => `/api/doc?path=${encodeURIComponent(path)}&base=${encodeURIComponent(dirPath)}`;
+      : (path: string) => `/api/doc?path=${encodeURIComponent(path)}&base=${encodeURIComponent(dirPath)}${convertHtml ? '&convert=1' : ''}`;
     linkedDocHook.open(absolutePath, buildUrl, 'files');
     fileBrowser.setActiveFile(absolutePath);
-  }, [linkedDocHook, fileBrowser]);
+  }, [linkedDocHook, fileBrowser, convertHtml]);
 
   // Route linked doc opens through the correct endpoint based on current context
   const handleOpenLinkedDoc = React.useCallback((docPath: string) => {
@@ -720,7 +730,7 @@ const App: React.FC = () => {
       // When viewing a file browser doc, resolve links relative to current file's directory
       const baseDir = linkedDocHook.filepath?.replace(/\/[^/]+$/, '') || fileBrowser.activeDirPath;
       linkedDocHook.open(docPath, (path) =>
-        `/api/doc?path=${encodeURIComponent(path)}&base=${encodeURIComponent(baseDir)}`
+        `/api/doc?path=${encodeURIComponent(path)}&base=${encodeURIComponent(baseDir)}${convertHtml ? '&convert=1' : ''}`
       );
     } else {
       // Pass the current file's directory as base for relative path resolution
@@ -729,13 +739,13 @@ const App: React.FC = () => {
         : imageBaseDir?.includes('/') ? imageBaseDir : undefined;
       if (baseDir) {
         linkedDocHook.open(docPath, (path) =>
-          `/api/doc?path=${encodeURIComponent(path)}&base=${encodeURIComponent(baseDir)}`
+          `/api/doc?path=${encodeURIComponent(path)}&base=${encodeURIComponent(baseDir)}${convertHtml ? '&convert=1' : ''}`
         );
       } else {
         linkedDocHook.open(docPath);
       }
     }
-  }, [fileBrowser.dirs, fileBrowser.activeDirPath, fileBrowser.activeFile, linkedDocHook, imageBaseDir]);
+  }, [fileBrowser.dirs, fileBrowser.activeDirPath, fileBrowser.activeFile, linkedDocHook, imageBaseDir, convertHtml]);
 
   // Wrap linked doc back to also clear file browser active file
   const handleLinkedDocBack = React.useCallback(() => {
@@ -1016,9 +1026,12 @@ const App: React.FC = () => {
         if (!res.ok) throw new Error('Not in API mode');
         return res.json();
       })
-      .then((data: { plan: string; origin?: Origin; mode?: 'annotate' | 'annotate-last' | 'annotate-folder' | 'archive' | 'goal-setup'; goalSetup?: GoalSetupBundle; filePath?: string; sourceInfo?: string; sourceConverted?: boolean; gate?: boolean; renderAs?: 'html' | 'markdown'; rawHtml?: string; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string; host?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; archivePlans?: ArchivedPlan[]; projectRoot?: string; isWSL?: boolean; serverConfig?: { displayName?: string; gitUser?: string }; recentMessages?: PickerMessage[] }) => {
+      .then((data: { plan: string; origin?: Origin; mode?: 'annotate' | 'annotate-last' | 'annotate-folder' | 'archive' | 'goal-setup'; goalSetup?: GoalSetupBundle; filePath?: string; sourceInfo?: string; sourceConverted?: boolean; gate?: boolean; renderAs?: 'html' | 'markdown'; rawHtml?: string; convertHtml?: boolean; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string; host?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; archivePlans?: ArchivedPlan[]; projectRoot?: string; isWSL?: boolean; serverConfig?: { displayName?: string; gitUser?: string }; recentMessages?: PickerMessage[] }) => {
         // Initialize config store with server-provided values (config file > cookie > default)
         configStore.init(data.serverConfig);
+        // Session-level force-markdown preference (--markdown); threaded into folder/linked
+        // /api/doc requests so on-demand HTML files convert too.
+        setConvertHtml(data.convertHtml ?? false);
         setAISessionEnabled(data.mode !== 'archive' && data.mode !== 'goal-setup');
         // gitUser drives the "Use git name" button in Settings; stays undefined (button hidden) when unavailable
         setGitUser(data.serverConfig?.gitUser);
@@ -1753,7 +1766,9 @@ const App: React.FC = () => {
   const aiSourceConverted = linkedDocHook.isActive
     ? (linkedDocHook.getDocAnnotations().get(linkedDocHook.filepath ?? '')?.isConverted ?? false)
     : sourceConverted;
-  const aiRenderAs = linkedDocHook.isActive ? 'markdown' : renderAs;
+  // renderAs now tracks the active file (plan, linked doc, or folder file), so the AI
+  // sees the current surface's mode — raw HTML for an .html file, markdown otherwise.
+  const aiRenderAs = renderAs;
   const aiDocumentMode = annotateMode || linkedDocHook.isActive;
   const hasAIDocumentContext =
     !aiDocumentMode ||
@@ -2211,6 +2226,9 @@ const App: React.FC = () => {
       <TooltipProvider delayDuration={900} skipDelayDuration={200} disableHoverableContent>
       <div data-print-region="root" className="h-screen flex flex-col bg-background overflow-hidden">
         <AppHeader
+          htmlSurface={isHtmlSurface}
+          htmlToolsHidden={htmlToolsHidden}
+          onToggleHtmlTools={() => setHtmlToolsHidden((v) => !v)}
           isApiMode={isApiMode}
           annotateMode={annotateMode}
           archiveMode={archive.archiveMode}
@@ -2303,7 +2321,7 @@ const App: React.FC = () => {
               showMessagesTab={annotateSource === 'message' && recentMessages.length > 1}
               hasMessageAnnotations={activeMessageAnnotationCounts.size > 0}
               hasFileAnnotations={hasFileAnnotations}
-              className="hidden lg:flex absolute left-0 top-0 z-10"
+              className="hidden lg:flex absolute left-0 top-0 z-20"
             />
           )}
 
@@ -2403,15 +2421,25 @@ const App: React.FC = () => {
                 />
               )}
 
-              {/* Annotation Toolstrip (hidden during plan diff and archive mode) */}
-              {!goalSetupMode && !isPlanDiffActive && !archive.archiveMode && (
-                <div data-print-hide className="w-full mb-3 md:mb-4 flex items-center justify-start" style={annotateReaderMaxWidth == null ? undefined : { maxWidth: annotateReaderMaxWidth }}>
+              {/* Annotation Toolstrip — the mode switcher (selection/redline input +
+                  comment/markup mode). Hidden during plan diff, and on HTML surfaces
+                  when the header's "Hide tools" toggle is on (leaving the rendered HTML
+                  free of overlay controls). On HTML it floats top-left over the doc. */}
+              {!goalSetupMode && !isPlanDiffActive && !archive.archiveMode && !(isHtmlSurface && htmlToolsHidden) && (
+                <div
+                  data-print-hide
+                  className={isHtmlSurface
+                    ? `absolute top-3 ${sidebar.isOpen ? 'left-3' : 'left-10'} z-20 flex items-center rounded-lg border border-border/50 bg-background/85 px-1.5 py-1 shadow-md backdrop-blur-sm`
+                    : "w-full mb-3 md:mb-4 flex items-center justify-start"}
+                  style={isHtmlSurface || annotateReaderMaxWidth == null ? undefined : { maxWidth: annotateReaderMaxWidth }}
+                >
                   <AnnotationToolstrip
                     inputMethod={inputMethod}
                     onInputMethodChange={handleInputMethodChange}
                     mode={editorMode}
                     onModeChange={handleEditorModeChange}
                     taterMode={taterMode}
+                    showHelpLink={!isHtmlSurface}
                   />
                 </div>
               )}
@@ -2454,7 +2482,7 @@ const App: React.FC = () => {
                 <div className="w-full flex justify-center">
                   <div className="w-full max-w-3xl p-12 text-center text-muted-foreground">
                     <p className="text-lg font-medium mb-2">Select a file to annotate</p>
-                    <p className="text-sm">Pick a markdown file from the sidebar to begin.</p>
+                    <p className="text-sm">Pick a markdown or HTML file from the sidebar to begin.</p>
                   </div>
                 </div>
               )}
@@ -2503,11 +2531,13 @@ const App: React.FC = () => {
                     onSelectAnnotation={handleSelectAnnotation}
                     selectedAnnotationId={selectedAnnotationId}
                     mode={editorMode}
+                    inputMethod={inputMethod}
                     globalAttachments={globalAttachments}
                     onAddGlobalAttachment={handleAddGlobalAttachment}
                     onRemoveGlobalAttachment={handleRemoveGlobalAttachment}
-                    maxWidth={null}
-                    fullViewport
+                    maxWidth={isHtmlSurface ? null : annotateReaderMaxWidth}
+                    fullViewport={isHtmlSurface}
+                    hideControls={htmlToolsHidden}
                     onAskAI={canUseAI ? handleAskAI : undefined}
                   />
                 ) : (

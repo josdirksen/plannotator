@@ -358,22 +358,17 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
     setIsPanelOpen(prev => rightSidebarTab === 'ai' ? !prev : true);
   }, [dismissPlanAIAnnouncement, exitWideMode, rightSidebarTab, wideModeType]);
 
-  // Sync sidebar open state when preference changes in Settings
+  // Sync sidebar open state when the "Auto-open Sidebar" preference changes in
+  // Settings. Deliberately does NOT react to the document or render mode —
+  // switching files (e.g. in annotate-folder) leaves the sidebar exactly as the
+  // user left it.
   useEffect(() => {
     if (wideModeType !== null) return;
-    // HTML surfaces have no table of contents and render edge-to-edge, so the left
-    // sidebar serves no purpose — keep it closed. Reset the guard so it re-applies
-    // normally if the user navigates back to a markdown file.
-    if (isHtmlSurface) {
-      sidebar.close();
-      lastAppliedTocEnabledRef.current = !tocEnabled;
-      return;
-    }
     if (lastAppliedTocEnabledRef.current === tocEnabled) return;
     lastAppliedTocEnabledRef.current = tocEnabled;
     if (tocEnabled && hasTocEntries) sidebar.open('toc');
     else if (!tocEnabled) sidebar.close();
-  }, [wideModeType, isHtmlSurface, sidebar.close, sidebar.open, tocEnabled, hasTocEntries]);
+  }, [wideModeType, sidebar.close, sidebar.open, tocEnabled, hasTocEntries]);
 
   // Auto-close the sidebar when blocks parse with no TOC entries. Fires
   // only on blocks/hasTocEntries change (not on sidebar state) so a user
@@ -1932,7 +1927,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
               showVersionsTab={versionInfo !== null && versionInfo.totalVersions > 1}
               showFilesTab={showFilesTab}
               hasFileAnnotations={hasFileAnnotations}
-              className="hidden lg:flex absolute left-0 top-0 z-10"
+              className="hidden lg:flex absolute left-0 top-0 z-20"
             />
           )}
 
@@ -2015,7 +2010,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                 <div
                   data-print-hide
                   className={isHtmlSurface
-                    ? "absolute top-3 left-3 z-20 flex items-center rounded-lg border border-border/50 bg-background/85 px-1.5 py-1 shadow-md backdrop-blur-sm"
+                    ? `absolute top-3 ${sidebar.isOpen ? 'left-3' : 'left-10'} z-20 flex items-center rounded-lg border border-border/50 bg-background/85 px-1.5 py-1 shadow-md backdrop-blur-sm`
                     : "w-full mb-3 md:mb-4 flex items-center justify-start"}
                   style={isHtmlSurface || annotateReaderMaxWidth == null ? undefined : { maxWidth: annotateReaderMaxWidth }}
                 >

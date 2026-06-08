@@ -1,6 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { Agent } from '../hooks/useAgents';
 import { getAgentSwitchSettings, saveAgentSwitchSettings, type AgentSwitchSettings } from '../utils/agentSwitch';
+import { Button } from './ui/button';
+import { cn } from '../lib/utils';
+import { Check, ChevronDown } from 'lucide-react';
 
 interface ApproveDropdownProps {
   onApprove: () => void;
@@ -23,12 +26,6 @@ function isSelected(agentId: string, setting: AgentSwitchSettings): boolean {
   if (setting.switchTo === 'disabled') return false;
   return agentId.toLowerCase() === setting.switchTo.toLowerCase();
 }
-
-const Checkmark = () => (
-  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-  </svg>
-);
 
 export const ApproveDropdown: React.FC<ApproveDropdownProps> = ({
   onApprove,
@@ -81,20 +78,24 @@ export const ApproveDropdown: React.FC<ApproveDropdownProps> = ({
   return (
     <div className="relative" ref={dropdownRef}>
       {/* Mobile: simple button */}
-      <button
+      <Button
+        variant="success"
+        size="xs"
         onClick={handleApproveClick}
         disabled={disabled}
-        className={`md:hidden px-2 py-1 rounded-md text-xs font-medium transition-all ${baseClasses}`}
+        className={cn('md:hidden', baseClasses)}
       >
         {isLoading ? '...' : 'OK'}
-      </button>
+      </Button>
 
       {/* Desktop: split button */}
       <div className="hidden md:flex items-stretch">
-        <button
+        <Button
+          variant="success"
+          size="xs"
           onClick={handleApproveClick}
           disabled={disabled}
-          className={`px-2.5 py-1 rounded-l-md text-xs font-medium transition-all ${baseClasses}`}
+          className={cn('rounded-r-none', baseClasses)}
         >
           {isLoading ? 'Approving...' : (
             agentLabel ? (
@@ -106,16 +107,16 @@ export const ApproveDropdown: React.FC<ApproveDropdownProps> = ({
               </span>
             ) : 'Approve'
           )}
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="success"
+          size="xs"
           onClick={() => setIsOpen(!isOpen)}
           disabled={disabled}
-          className={`px-1.5 py-1 rounded-r-md border-l border-success-foreground/20 text-xs transition-all ${baseClasses}`}
+          className={cn('rounded-l-none border-l border-success-foreground/20 px-1.5', baseClasses)}
         >
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
+          <ChevronDown className="w-3 h-3" />
+        </Button>
       </div>
 
       {/* Dropdown */}
@@ -136,7 +137,7 @@ export const ApproveDropdown: React.FC<ApproveDropdownProps> = ({
                     : 'text-popover-foreground hover:bg-muted'
                 }`}
               >
-                <span className="w-4 flex-shrink-0">{selected && <Checkmark />}</span>
+                <span className="w-4 flex-shrink-0">{selected && <Check className="w-3.5 h-3.5" />}</span>
                 <span className="truncate">{agent.name}</span>
               </button>
             );
@@ -146,7 +147,7 @@ export const ApproveDropdown: React.FC<ApproveDropdownProps> = ({
               onClick={() => setIsOpen(false)}
               className="w-full px-3 py-1.5 text-left text-xs transition-colors flex items-center gap-2 text-primary bg-primary/10 font-medium"
             >
-              <span className="w-4 flex-shrink-0"><Checkmark /></span>
+              <span className="w-4 flex-shrink-0"><Check className="w-3.5 h-3.5" /></span>
               <span className="truncate">{setting.customName}</span>
               <span className="text-[10px] text-muted-foreground ml-auto">(custom)</span>
             </button>
@@ -160,7 +161,7 @@ export const ApproveDropdown: React.FC<ApproveDropdownProps> = ({
                 : 'text-popover-foreground hover:bg-muted'
             }`}
           >
-            <span className="w-4 flex-shrink-0">{isNoSwitch && <Checkmark />}</span>
+            <span className="w-4 flex-shrink-0">{isNoSwitch && <Check className="w-3.5 h-3.5" />}</span>
             No switch
           </button>
         </div>

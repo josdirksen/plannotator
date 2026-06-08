@@ -4,13 +4,20 @@ import type { Agent } from '@plannotator/ui/hooks/useAgents';
 import type { UpdateInfo } from '@plannotator/ui/hooks/useUpdateCheck';
 import { FeedbackButton, ApproveButton, ExitButton } from '@plannotator/ui/components/ToolbarButtons';
 import { ApproveDropdown } from '@plannotator/ui/components/ApproveDropdown';
-import { Settings } from '@plannotator/ui/components/Settings';
+import { SettingsDialog } from '@plannotator/ui/components/settings/SettingsDialog';
 import { PlanHeaderMenu } from '@plannotator/ui/components/PlanHeaderMenu';
 import type { CallbackConfig } from '@plannotator/ui/utils/callback';
-import type { UIPreferences } from '@plannotator/ui/utils/uiPreferences';
 import { SparklesIcon } from '@plannotator/ui/components/SparklesIcon';
+import { Button } from '@plannotator/ui/components/ui/button';
+import { cn } from '@plannotator/ui/lib/utils';
+import { CommentIcon } from '@plannotator/ui/components/icons/CommentIcon';
 
 interface AppHeaderProps {
+  /** HTML annotate surface: show a Hide/Show annotation-tools toggle in the header,
+   *  so hiding leaves the rendered HTML completely free of overlay controls. */
+  htmlSurface?: boolean;
+  htmlToolsHidden?: boolean;
+  onToggleHtmlTools?: () => void;
   // Slot for external content (e.g., shell sidebar trigger)
   headerLeft?: React.ReactNode;
   // When true, the built-in Settings modal is not mounted (unified dialog handles it)
@@ -46,9 +53,7 @@ interface AppHeaderProps {
   callbackConfig: CallbackConfig | null;
 
   // Settings props
-  taterMode: boolean;
   mobileSettingsOpen: boolean;
-  gitUser: string | undefined;
 
   // Handlers — App owns all decision logic, header just calls these
   onCallbackFeedback: () => void;
@@ -62,9 +67,6 @@ interface AppHeaderProps {
   onApprove: () => void;
   onAnnotationPanelToggle: () => void;
   onAIChatToggle: () => void;
-  onTaterModeChange: (enabled: boolean) => void;
-  onIdentityChange: (oldId: string, newId: string) => void;
-  onUIPreferencesChange: (prefs: UIPreferences) => void;
   onOpenSettings: () => void;
   onCloseSettings: () => void;
   onOpenExport: () => void;
@@ -83,6 +85,9 @@ interface AppHeaderProps {
 
 export const AppHeader = React.memo<AppHeaderProps>(({
   headerLeft,
+  htmlSurface,
+  htmlToolsHidden,
+  onToggleHtmlTools,
   skipBuiltInSettings,
   isApiMode,
   annotateMode,
@@ -108,9 +113,7 @@ export const AppHeader = React.memo<AppHeaderProps>(({
   availableAgents,
   showAnnotationsWarning,
   callbackConfig,
-  taterMode,
   mobileSettingsOpen,
-  gitUser,
   onCallbackFeedback,
   onCallbackApprove,
   onAnnotateExit,
@@ -122,9 +125,6 @@ export const AppHeader = React.memo<AppHeaderProps>(({
   onApprove,
   onAnnotationPanelToggle,
   onAIChatToggle,
-  onTaterModeChange,
-  onIdentityChange,
-  onUIPreferencesChange,
   onOpenSettings,
   onCloseSettings,
   onOpenExport,
@@ -143,6 +143,16 @@ export const AppHeader = React.memo<AppHeaderProps>(({
       <div className="flex items-center gap-2">
         {headerLeft}
         <AppHeaderLogo />
+        {htmlSurface && onToggleHtmlTools && (
+          <button
+            type="button"
+            onClick={onToggleHtmlTools}
+            className="ml-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors px-1.5 py-1 rounded cursor-pointer"
+            title={htmlToolsHidden ? 'Show annotation tools' : 'Hide annotation tools'}
+          >
+            {htmlToolsHidden ? 'Show tools' : 'Hide tools'}
+          </button>
+        )}
       </div>
 
       <div className="flex items-center gap-1 md:gap-2">
@@ -249,52 +259,43 @@ export const AppHeader = React.memo<AppHeaderProps>(({
 
         {/* Annotations panel toggle */}
         {!goalSetupMode && (
-          <button
+          <Button
+            variant="ghost"
+            size="xs"
             onClick={onAnnotationPanelToggle}
-            className={`p-1.5 rounded-md text-xs font-medium transition-all ${
-              isPanelOpen
-                ? 'bg-primary/15 text-primary'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-            }`}
             title={isPanelOpen ? 'Hide annotations' : 'Show annotations'}
+            className={cn('p-1.5', isPanelOpen ? 'bg-primary/15 text-primary hover:bg-primary/15 hover:text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-            </svg>
-          </button>
+            <CommentIcon className="size-4" />
+          </Button>
         )}
         {!goalSetupMode && aiAvailable && (
-          <button
+          <Button
+            variant="ghost"
+            size="xs"
             onClick={onAIChatToggle}
-            className={`relative p-1.5 rounded-md text-xs font-medium transition-all ${
-              isAIChatOpen
-                ? 'bg-primary/15 text-primary'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-            }`}
             title={isAIChatOpen ? 'Hide AI chat' : 'Show AI chat'}
             aria-label={isAIChatOpen ? 'Hide AI chat' : 'Show AI chat'}
+            className={cn('relative p-1.5', isAIChatOpen ? 'bg-primary/15 text-primary hover:bg-primary/15 hover:text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}
           >
             <SparklesIcon className="w-4 h-4" />
             {aiHasMessages && !isAIChatOpen && (
               <span className="absolute top-0 right-0 w-1.5 h-1.5 rounded-full bg-primary" />
             )}
-          </button>
+          </Button>
         )}
 
-        {/* Settings dialog (controlled, button hidden — opened from PlanHeaderMenu) */}
+        {/* Standalone settings dialog (portal / non-embedded plan editor).
+            When embedded in the frontend shell, externalOpenSettings is set so
+            skipBuiltInSettings is true and the gear routes to the shell's
+            daemon-backed dialog instead — this one is not mounted. */}
         {!skipBuiltInSettings && (
-          <div className="hidden">
-            <Settings
-              taterMode={taterMode}
-              onTaterModeChange={onTaterModeChange}
-              onIdentityChange={onIdentityChange}
-              origin={origin}
-              onUIPreferencesChange={onUIPreferencesChange}
-              externalOpen={mobileSettingsOpen}
-              onExternalClose={onCloseSettings}
-              gitUser={gitUser}
-            />
-          </div>
+          <SettingsDialog
+            open={mobileSettingsOpen}
+            onOpenChange={(next) => (next ? onOpenSettings() : onCloseSettings())}
+            sessionContext={null}
+            daemonAvailable={false}
+          />
         )}
 
         <PlanHeaderMenu

@@ -93,6 +93,9 @@ type AnnotateInput = {
   gate?: boolean;
   rawHtml?: string;
   renderHtml?: boolean;
+  /** Session-level force-markdown preference (`--markdown`). The frontend threads this
+   *  into folder/linked-doc `/api/doc` requests so on-demand HTML files convert too. */
+  convertHtml?: boolean;
 };
 
 function getRequestCwd(request: { cwd?: string }): string {
@@ -268,7 +271,11 @@ async function resolveAnnotateInput(
   const parsedArgs = hasRawArgs ? parseAnnotateArgs(request.args ?? "") : undefined;
   const structuredFilePath = typeof request.filePath === "string" ? request.filePath : "";
   const gate = request.gate ?? parsedArgs?.gate ?? false;
-  const renderHtml = request.renderHtml ?? (typeof request.rawHtml === "string" ? true : parsedArgs?.renderHtml ?? false);
+  // HTML now renders raw by default. `--markdown` (or structured `convertHtml`) is the
+  // explicit opt-out that forces Turndown conversion. `--render-html`/`renderHtml` is the
+  // deprecated no-op (its old effect is now the default). Inline `rawHtml` still implies render.
+  const forceMarkdown = request.convertHtml ?? parsedArgs?.markdown ?? false;
+  let renderHtml = request.renderHtml ?? (typeof request.rawHtml === "string" ? true : parsedArgs?.renderHtml ?? false);
 
   let markdown = directMarkdown ? request.markdown! : "";
   let rawHtml = request.rawHtml;
@@ -333,12 +340,13 @@ async function resolveAnnotateInput(
             throw new Error(`File too large (${Math.round(htmlFile.size / 1024 / 1024)}MB, max 10MB): ${resolvedTarget}`);
           }
           const html = await htmlFile.text();
-          if (renderHtml) {
-            rawHtml = html;
-            markdown = "";
-          } else {
+          if (forceMarkdown) {
             markdown = htmlToMarkdown(html);
             sourceConverted = true;
+          } else {
+            rawHtml = html;
+            markdown = "";
+            renderHtml = true;
           }
           filePath = resolvedTarget;
           sourceInfo = basename(resolvedTarget);
@@ -371,6 +379,7 @@ async function resolveAnnotateInput(
     gate,
     ...(rawHtml !== undefined && { rawHtml }),
     renderHtml,
+    convertHtml: forceMarkdown,
   };
 }
 
@@ -580,6 +589,11 @@ export function createDaemonSessionFactory(options: DaemonSessionFactoryOptions)
 
   const RESUBMIT_STATUSES = new Set(["awaiting-resubmission"]);
   const RESUBMIT_OR_IDLE_STATUSES = new Set(["awaiting-resubmission", "idle"]);
+  // Folder-annotate is user-launched and meant to be one-session-per-folder, so
+  // a repeat open reuses ANY live session for that folder — including one that's
+  // still active — not only one awaiting resubmission. Single-file / last
+  // annotate keep the resubmit-only semantics (those are agent-driven).
+  const LIVE_STATUSES = new Set(["active", "idle", "awaiting-resubmission"]);
 
   function findMatchingSession(store: DaemonFetchContext["store"], matchKey: string, matchStatuses = RESUBMIT_STATUSES) {
     for (const [sessionId, ref] of sessionRefs) {
@@ -699,9 +713,16 @@ export function createDaemonSessionFactory(options: DaemonSessionFactoryOptions)
           : undefined;
 
       if (matchKey) {
-        const existing = findMatchingSession(context.store, matchKey);
+        const existing = findMatchingSession(
+          context.store,
+          matchKey,
+          isFolder ? LIVE_STATUSES : undefined,
+        );
         if (existing) {
-          if (existing.session.updateContent) {
+          // Folders carry no document (empty markdown + no rawHtml) — skip to avoid
+          // pushing an empty revision. But an HTML file's content lives in rawHtml with
+          // empty markdown, so guard on either so HTML resubmissions still update.
+          if (existing.session.updateContent && (input.markdown || input.rawHtml)) {
             existing.session.updateContent(input.markdown, input.rawHtml);
           }
           if (context.endpoint.isRemote && sharingEnabled && input.markdown) {

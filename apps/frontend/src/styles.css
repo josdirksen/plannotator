@@ -1,158 +1,38 @@
-@import "@fontsource-variable/inter";
+/*
+ * Frontend (daemon shell) stylesheet entry.
+ *
+ * The design system — fonts, theme tokens, Tailwind, the animate plugin, the
+ * @theme/@theme inline bridge, the @layer base surfaces, the editor animations,
+ * ::selection, reduced-motion, AND the plan-review rules — lives in the SHARED
+ * file packages/ui/design-system.css and is imported below. The portal imports
+ * the SAME file, so both apps render identically. Do NOT inline design-system
+ * CSS here; edit the shared file instead.
+ *
+ * This entry only adds the frontend-SHELL-only bits the portal must not get:
+ *   - @source scans for the frontend src tree + the code-review app surface
+ *   - shell decoration (.grid-pattern), the TanStack/shadcn sidebar transitions,
+ *     slide-in-right, the shell print layout, the tab-bar scrollbar hide, and
+ *     the scroll-shadow mask.
+ */
+
+/* Shared design system (must be the first statement — it is the @import root). */
+@import "@plannotator/ui/design-system.css";
+
+/* Frontend-shell-only typeface: Instrument Sans (the AppSidebar wordmark).
+ * Kept out of the shared design system so the portal never bundles it. */
 @import "@fontsource-variable/instrument-sans";
-@import "@fontsource-variable/geist-mono";
-@import "@plannotator/ui/theme.css";
-@import "tailwindcss";
 
-@plugin "tailwindcss-animate";
-
+/*
+ * Frontend-only @source globs — these stay anchored to this file
+ * (apps/frontend/src/styles.css). The shared design-system file already owns
+ * the ../../../packages/ui/{components,hooks} and plannotator-plan-review
+ * scans, so they are intentionally omitted here. Tailwind v4 merges @source
+ * across the processed entry, so shared + these = today's full coverage.
+ */
 @source "../src/**/*.{ts,tsx}";
 @source "../../../packages/plannotator-code-review/**/*.{ts,tsx}";
-@source "../../../packages/plannotator-plan-review/**/*.{ts,tsx}";
-@source "../../../packages/ui/components/**/*.{ts,tsx}";
-@source "../../../packages/ui/hooks/**/*.{ts,tsx}";
 
-/*
- * Theme bridge — Plannotator uses .theme-{name} (dark default) + .light modifier.
- * Dark is the default state (no .light class). Light mode adds .light to <html>.
- * The dark: variant matches "not light" so prototype components work as-is.
- */
-@custom-variant dark (&:not(.light *));
-
-@theme {
-  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono Variable", "SF Mono", ui-monospace, monospace;
-  --text-sm: 0.875rem;
-  --text-sm--line-height: 1.45;
-  --text-base: 1rem;
-  --text-base--line-height: 1.55;
-  --text-lg: 1.0625rem;
-  --text-lg--line-height: 1.45;
-  --text-xl: 1.1875rem;
-  --text-xl--line-height: 1.4;
-  --text-2xl: 1.375rem;
-  --text-2xl--line-height: 1.3;
-  --text-3xl: 1.625rem;
-  --text-3xl--line-height: 1.2;
-  --text-4xl: 1.875rem;
-  --text-4xl--line-height: 1.15;
-  --text-5xl: 2rem;
-  --text-5xl--line-height: 1.1;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-success: var(--success);
-  --color-success-foreground: var(--success-foreground);
-  --color-warning: var(--warning);
-  --color-warning-foreground: var(--warning-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-surface-0: var(--surface-0);
-  --color-surface-1: var(--surface-1);
-  --color-surface-2: var(--surface-2);
-}
-
-/*
- * Extended tokens — derived from Plannotator's theme vars so they
- * adapt to all 50+ themes. These cover gaps between Plannotator's
- * token set and what the prototype components expect.
- */
-@layer base {
-  :root {
-    --surface-0: color-mix(in oklch, var(--muted) 40%, var(--background));
-    --surface-1: var(--muted);
-    --surface-2: color-mix(in oklch, var(--muted) 70%, var(--foreground));
-    --sidebar: var(--card);
-    --sidebar-foreground: var(--foreground);
-    --sidebar-primary: var(--primary);
-    --sidebar-primary-foreground: var(--primary-foreground);
-    --sidebar-accent: var(--muted);
-    --sidebar-accent-foreground: var(--foreground);
-    --sidebar-border: var(--border);
-    --sidebar-ring: var(--ring);
-    --card-ring: rgba(255, 255, 255, 0.08);
-    --card-shadow:
-      0 0 0 1px var(--card-ring), 0 1px 3px 0 rgba(0, 0, 0, 0.2), 0 2px 8px -2px rgba(0, 0, 0, 0.3);
-  }
-
-  .light {
-    --card-ring: rgba(0, 0, 0, 0.06);
-    --card-shadow:
-      0 0 0 1px var(--card-ring), 0 1px 3px 0 rgba(0, 0, 0, 0.04),
-      0 2px 8px -2px rgba(0, 0, 0, 0.06);
-  }
-
-  * {
-    @apply border-border outline-ring/50;
-  }
-
-  body {
-    @apply bg-background text-foreground;
-    font-size: 13px;
-    font-weight: 450;
-  }
-
-  code,
-  .font-mono {
-    letter-spacing: -0.02em;
-    font-weight: 450;
-  }
-}
-
-/* Custom scrollbar — overrides theme.css with rounder thumbs and ring hover color */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
-
-*::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-*::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 9999px;
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background: var(--ring);
-}
-
-/* Grid background — Plannotator legacy view */
+/* Grid background — Plannotator legacy view (frontend shell only) */
 .grid-pattern {
   background-image:
     linear-gradient(to right, oklch(0.9 0.01 260 / 0.6) 1px, transparent 1px),
@@ -160,35 +40,43 @@
   background-size: 24px 24px;
 }
 
-/* Sidebar — override theme.css global transition-property so left/right/width animate */
-[data-slot="sidebar-wrapper"],
-[data-slot="sidebar-wrapper"] * {
+/* Global app sidebar ONLY — override theme.css's color-only global transition so
+   the sidebar's own left/right/width animate on open/close. Scoped to
+   [data-slot="sidebar"] (NOT the -wrapper, which is the whole app): if it reaches
+   main content or the in-plan panels, every element animates its width and
+   drag-resizing any panel trails 150ms behind the cursor. */
+[data-slot="sidebar"],
+[data-slot="sidebar"] * {
   transition-property:
     color, background-color, border-color, box-shadow, left, right, width, height, padding, opacity,
     transform;
 }
 
-/* Sidebar panel — smooth open/close, disabled during drag resize */
-[data-sidebar-panel] {
-  transition: width 200ms cubic-bezier(0.16, 1, 0.3, 1);
+/* The in-plan resize-handle collapse button reveals on hover of its *whole*
+   adjacent sidebar, not just the thin handle. Pure CSS via :has() on the shared
+   panes container — no JS, no state, no layout wrappers. The button still also
+   reveals on direct handle hover (group-hover, in ResizeHandle). */
+[data-plan-panes]:has([data-plan-sidebar="left"]:hover) [data-collapse="left"],
+[data-plan-panes]:has([data-plan-sidebar="right"]:hover) [data-collapse="right"] {
+  opacity: 1;
 }
 
-body[style*="user-select"] [data-sidebar-panel] {
-  transition: none;
+/* Same whole-sidebar hover-reveal for the code-review file tree + review
+   sidebar. Separate attributes from the plan panes so the two screens stay
+   independent; the button still also reveals on direct handle hover. */
+[data-cr-panes]:has([data-cr-sidebar="left"]:hover) [data-collapse="left"],
+[data-cr-panes]:has([data-cr-sidebar="right"]:hover) [data-collapse="right"] {
+  opacity: 1;
 }
 
-/* Animations */
-@keyframes fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* While drag-resizing the app sidebar, kill the width transition so the panel
+   tracks the cursor 1:1 instead of trailing the 200ms ease. The gap spacer and
+   the fixed container are the direct children of [data-slot="sidebar"]. */
+html[data-sidebar-resizing] [data-slot="sidebar"] > div {
+  transition: none !important;
 }
 
+/* Slide-in animation — frontend shell surfaces */
 @keyframes slide-in-right {
   from {
     transform: translateX(100%);
@@ -198,38 +86,7 @@ body[style*="user-select"] [data-sidebar-panel] {
   }
 }
 
-@keyframes toolbar-enter {
-  from {
-    opacity: 0;
-    transform: translate(-50%, 8px);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-50%, 0);
-  }
-}
-
-[data-toolbar] {
-  animation: toolbar-enter 180ms ease-out both;
-}
-
-@keyframes approve-pulse {
-  0% {
-    box-shadow: 0 0 0 0 oklch(0.55 0.18 145 / 0.4);
-  }
-  70% {
-    box-shadow: 0 0 0 6px oklch(0.55 0.18 145 / 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 oklch(0.55 0.18 145 / 0);
-  }
-}
-
-[data-approved] {
-  animation: approve-pulse 600ms ease-out;
-}
-
-/* Print styles */
+/* Print styles — frontend shell layout */
 @media print {
   body {
     background: white !important;
@@ -266,22 +123,4 @@ body[style*="user-select"] [data-sidebar-panel] {
     black calc(100% - 8px),
     transparent 100%
   );
-}
-
-/* Custom selection */
-::selection {
-  color: #fff;
-  background-color: oklch(0.45 0.15 264);
-}
-
-/* Reduced motion */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
 }

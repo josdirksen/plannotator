@@ -134,16 +134,28 @@ export const CommentPopover: React.FC<CommentPopoverProps> = ({
     };
   }, [anchorEl, anchorRect, mode, wasDragged]);
 
-  // Focus textarea on mount and mode changes
+  // Focus textarea on mount and mode changes. Retry across a couple of frames:
+  // when the popover is opened from an HTML iframe interaction (type-to-comment),
+  // a single setTimeout can lose the focus race against the iframe, so re-assert
+  // until the textarea actually holds focus.
   useEffect(() => {
-    const id = setTimeout(() => {
+    const rafs: number[] = [];
+    const focusEnd = () => {
       const el = textareaRef.current;
-      if (el) {
+      if (el && document.activeElement !== el) {
         el.focus();
         el.selectionStart = el.selectionEnd = el.value.length;
       }
-    }, 0);
-    return () => clearTimeout(id);
+    };
+    const id = setTimeout(focusEnd, 0);
+    rafs.push(requestAnimationFrame(() => {
+      focusEnd();
+      rafs.push(requestAnimationFrame(focusEnd));
+    }));
+    return () => {
+      clearTimeout(id);
+      rafs.forEach(cancelAnimationFrame);
+    };
   }, [mode]);
 
   // Click-outside for popover mode

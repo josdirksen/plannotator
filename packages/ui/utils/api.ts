@@ -44,6 +44,17 @@ export function apiFetch(input: string, init?: RequestInit): Promise<Response> {
   return fetch(apiPath(input), init);
 }
 
+/**
+ * Whether a real daemon/session API base is resolvable. False in the portal /
+ * standalone plan editor, where no session base (`window.__PLANNOTATOR_API_BASE__`)
+ * and no global base have been set — there `getApiBase()` falls back to the bare
+ * `/api` default that would 404. Callers use this to skip doomed server requests.
+ */
+export function hasResolvableApiBase(): boolean {
+  if (typeof window === "undefined") return false;
+  return Boolean(window.__PLANNOTATOR_API_BASE__ || globalFetchBase);
+}
+
 export function getApiOriginAndBase(): string {
   if (typeof window === "undefined") return "/api";
   return `${window.location.origin}${getApiBase()}`;

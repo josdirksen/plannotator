@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>C2 — Cards + drill-down</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style> body{font-family:'Inter',system-ui,sans-serif} .mono{font-family:'JetBrains Mono',monospace} </style>
+</head>
+<body class="min-h-screen bg-zinc-50 text-zinc-900 antialiased">
+  <!--
+    C2 — CARDS + DRILL-DOWN.  Card grid, but a card expands in place to reveal
+    worktrees and PRs (the current list's drill-down), each launchable. Top-level
+    card = quick Review/Annotate on the root; expand for finer targets.
+  -->
+  <header class="border-b border-zinc-200 bg-white">
+    <div class="mx-auto flex max-w-4xl items-center gap-3 px-6 py-3">
+      <div class="grid size-6 place-items-center rounded-md bg-violet-600 text-xs font-bold text-white">P</div>
+      <span class="text-[14px] font-semibold tracking-tight">Plannotator</span>
+      <a href="#" class="ml-auto text-[12px] text-zinc-500 hover:text-zinc-800">History →</a>
+      <button class="text-[12px] text-zinc-500 hover:text-zinc-800">+ Add project</button>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-4xl px-6 py-7">
+    <h2 class="mb-3 text-[11px] font-medium uppercase tracking-wider text-zinc-400">Projects</h2>
+    <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+
+      <!-- expanded card -->
+      <div class="rounded-xl border border-zinc-200 bg-white shadow-sm lg:col-span-2">
+        <div class="flex items-center gap-3 p-4">
+          <svg class="size-4 text-violet-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          <div class="flex-1">
+            <div class="flex items-center gap-2"><span class="text-[14px] font-semibold">plannotator</span><span class="flex items-center gap-1 text-[11px] text-emerald-600"><span class="size-1.5 rounded-full bg-emerald-500"></span>3</span></div>
+            <p class="mono text-[11px] text-zinc-400">~/work/plannotator · feat/ui2-plan</p>
+          </div>
+          <button class="rounded-lg bg-blue-50 px-2.5 py-1.5 text-[12px] font-medium text-blue-700 hover:bg-blue-100">Review</button>
+          <button class="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[12px] font-medium text-amber-700 hover:bg-amber-100">Annotate</button>
+          <svg class="size-4 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+        </div>
+        <!-- drill-down -->
+        <div class="border-t border-zinc-100 bg-zinc-50/70 px-4 py-3">
+          <div class="mb-1.5 flex gap-3 text-[11px] font-medium">
+            <span class="border-b-2 border-violet-500 pb-0.5 text-violet-700">Worktrees</span>
+            <span class="pb-0.5 text-zinc-400">PRs · 4</span>
+          </div>
+          <div class="space-y-0.5 text-[12px]">
+            <div class="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-white">
+              <span class="text-zinc-400">⌥</span><span class="flex-1">feat/folder-annotate</span>
+              <span class="flex gap-1 opacity-0 group-hover:opacity-100"><span class="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">Review</span><span class="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">Annotate</span></span>
+            </div>
+            <div class="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-white">
+              <span class="text-zinc-400">⌥</span><span class="flex-1">feat/ui2-code-review</span>
+              <span class="flex gap-1 opacity-0 group-hover:opacity-100"><span class="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">Review</span><span class="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">Annotate</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- collapsed cards -->
+      <div class="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+        <div class="flex items-center gap-3">
+          <svg class="size-4 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          <div class="flex-1"><div class="text-[14px] font-semibold">visual-explainer</div><p class="mono text-[11px] text-zinc-400">~/oss/visual-explainer</p></div>
+          <svg class="size-4 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+        </div>
+      </div>
+      <div class="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+        <div class="flex items-center gap-3">
+          <svg class="size-4 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          <div class="flex-1"><div class="text-[14px] font-semibold">cmark-gfm</div><p class="mono text-[11px] text-zinc-400">~/oss/cmark-gfm</p></div>
+          <svg class="size-4 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <h2 class="mb-2 mt-7 text-[11px] font-medium uppercase tracking-wider text-zinc-400">Active sessions</h2>
+    <div class="flex flex-wrap gap-2">
+      <a href="#" class="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white py-1 pl-2 pr-3 text-[12px] shadow-sm hover:border-zinc-300"><span class="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-700">Plan</span> Real-time Collaboration</a>
+      <a href="#" class="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white py-1 pl-2 pr-3 text-[12px] shadow-sm hover:border-zinc-300"><span class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">Review</span> PR #832</a>
+    </div>
+  </main>
+</body>
+</html>

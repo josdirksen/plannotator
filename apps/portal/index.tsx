@@ -1,7 +1,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from '@plannotator/plan-review';
-import '@plannotator/plan-review/styles';
+// Shared design system — same stylesheet the frontend uses, so the portal's
+// plan editor looks identical. This folds in the plan-review-specific rules too.
+import '@plannotator/ui/design-system.css';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

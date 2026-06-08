@@ -401,6 +401,90 @@ describe("createDaemonSessionFactory", () => {
     expect(planBody.plan).toBe("");
   });
 
+  test("renders a local .html file as raw HTML by default (no flag)", async () => {
+    const cwd = tempDir("plannotator-daemon-cwd-");
+    writeFileSync(join(cwd, "report.html"), "<main><h1>Report A</h1></main>");
+    const store = new DaemonSessionStore({ now: () => 1_000 });
+    const factory = createDaemonSessionFactory({});
+    const context = daemonContext(store);
+
+    const record = await factory({
+      request: { action: "annotate", origin: "opencode", cwd, filePath: "report.html" },
+    }, context);
+
+    const planBody = await (await record.handleRequest!(
+      new Request("http://127.0.0.1:4321/api/plan"),
+      new URL("http://127.0.0.1:4321/api/plan"),
+    )).json();
+    expect(planBody.renderAs).toBe("html");
+    expect(planBody.rawHtml).toContain("Report A");
+    expect(planBody.plan).toBe("");
+    expect(planBody.convertHtml).toBe(false);
+  });
+
+  test("converts a local .html file to markdown with --markdown", async () => {
+    const cwd = tempDir("plannotator-daemon-cwd-");
+    writeFileSync(join(cwd, "report.html"), "<main><h1>Report A</h1></main>");
+    const store = new DaemonSessionStore({ now: () => 1_000 });
+    const factory = createDaemonSessionFactory({});
+    const context = daemonContext(store);
+
+    const record = await factory({
+      request: { action: "annotate", origin: "opencode", cwd, args: "report.html --markdown" },
+    }, context);
+
+    const planBody = await (await record.handleRequest!(
+      new Request("http://127.0.0.1:4321/api/plan"),
+      new URL("http://127.0.0.1:4321/api/plan"),
+    )).json();
+    expect(planBody.renderAs).toBe("markdown");
+    expect(planBody.plan).toContain("Report A");
+    expect(planBody.sourceConverted).toBe(true);
+    expect(planBody.convertHtml).toBe(true);
+  });
+
+  // Regression: an HTML file's content lives in rawHtml with empty markdown. The
+  // reactivation guard previously keyed on input.markdown, so a resubmitted .html
+  // never updated in place. Verify the new content reaches the reused session.
+  test("HTML resubmission updates the in-place session content", async () => {
+    const cwd = tempDir("plannotator-daemon-cwd-");
+    const filePath = join(cwd, "report.html");
+    writeFileSync(filePath, "<main><h1>Report A</h1></main>");
+    const store = new DaemonSessionStore({ now: () => 1_000 });
+    const factory = createDaemonSessionFactory({});
+    const context = daemonContext(store);
+
+    const first = await factory({
+      request: { action: "annotate", origin: "opencode", cwd, filePath: "report.html" },
+    }, context);
+
+    // Submit feedback → session suspends to awaiting-resubmission (never completes).
+    await first.handleRequest!(
+      new Request("http://127.0.0.1:4321/api/feedback", {
+        method: "POST",
+        body: JSON.stringify({ feedback: "redo", annotations: [] }),
+      }),
+      new URL("http://127.0.0.1:4321/api/feedback"),
+    );
+    const suspended = await store.waitForResult<{ feedback: string }>(first.id);
+    expect(suspended.status).toBe("awaiting-resubmission");
+
+    // Agent regenerates the HTML and resubmits the same file.
+    writeFileSync(filePath, "<main><h1>Report B — revised</h1></main>");
+    const second = await factory({
+      request: { action: "annotate", origin: "opencode", cwd, filePath: "report.html" },
+    }, context);
+    expect(second.id).toBe(first.id); // matched + reactivated in place
+
+    const planBody = await (await second.handleRequest!(
+      new Request("http://127.0.0.1:4321/api/plan"),
+      new URL("http://127.0.0.1:4321/api/plan"),
+    )).json();
+    expect(planBody.renderAs).toBe("html");
+    expect(planBody.rawHtml).toContain("Report B — revised");
+    expect(planBody.rawHtml).not.toContain("Report A");
+  });
+
   test("creates a goal-setup interview session and completes through submit", async () => {
     const cwd = tempDir("plannotator-daemon-cwd-");
     const store = new DaemonSessionStore({ now: () => 1_000 });

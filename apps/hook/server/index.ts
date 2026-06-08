@@ -59,7 +59,7 @@ import { cleanupDaemonState, discoverDaemon, waitForDaemonShutdown } from "@plan
 import { startDaemonRuntime } from "@plannotator/server/daemon/runtime";
 import { createDaemonSessionFactory } from "@plannotator/server/daemon/session-factory";
 import { getDaemonStartCommand } from "@plannotator/server/daemon/start-command";
-import { createDaemonBrowserAuthUrl } from "@plannotator/server/daemon/state";
+import { createDaemonBrowserUrl } from "@plannotator/server/daemon/state";
 import { formatRemoteShareNotice } from "@plannotator/server/share-url";
 import { AGENT_CONFIG, type Origin } from "@plannotator/shared/agents";
 import type { DaemonSessionSummary } from "@plannotator/shared/daemon-protocol";
@@ -151,6 +151,11 @@ if (hookFlag) gateFlag = true;
 const renderHtmlIdx = args.indexOf("--render-html");
 const renderHtmlFlag = renderHtmlIdx !== -1;
 if (renderHtmlFlag) args.splice(renderHtmlIdx, 1);
+// HTML renders raw by default now; `--markdown` is the explicit opt-out that forces
+// Turndown conversion (`--render-html` above is the deprecated no-op).
+const markdownIdx = args.indexOf("--markdown");
+const markdownFlag = markdownIdx !== -1;
+if (markdownFlag) args.splice(markdownIdx, 1);
 
 // Stdout matrix for annotate / annotate-last / copilot annotate-last (#570).
 //
@@ -263,7 +268,7 @@ async function runDaemonCommand(): Promise<void> {
     console.log(JSON.stringify({
       ok: true,
       status: daemon.status,
-      browserUrl: createDaemonBrowserAuthUrl(daemon.state),
+      browserUrl: createDaemonBrowserUrl(daemon.state),
     }));
     process.exit(0);
   }
@@ -302,7 +307,7 @@ async function runDaemonCommand(): Promise<void> {
         ok: true,
         alreadyRunning: true,
         status: existing.status,
-        browserUrl: createDaemonBrowserAuthUrl(existing.state),
+        browserUrl: createDaemonBrowserUrl(existing.state),
       }));
       process.exit(0);
     }
@@ -341,7 +346,7 @@ async function runDaemonCommand(): Promise<void> {
             ok: true,
             started: true,
             status: daemon.status,
-            browserUrl: createDaemonBrowserAuthUrl(daemon.state),
+            browserUrl: createDaemonBrowserUrl(daemon.state),
           }));
           process.exit(0);
         }
@@ -395,7 +400,7 @@ async function runDaemonCommand(): Promise<void> {
       process.exit(1);
     }
 
-    console.log(JSON.stringify({ ok: true, started: true, browserUrl: createDaemonBrowserAuthUrl(runtime.state), status: {
+    console.log(JSON.stringify({ ok: true, started: true, browserUrl: createDaemonBrowserUrl(runtime.state), status: {
       pid: runtime.state.pid,
       endpoint: {
         hostname: runtime.state.hostname,
@@ -620,7 +625,7 @@ function registerDaemonSessionInterruptCleanup(
   };
 }
 
-async function runDaemonSessionRequest(request: PluginRequest, options: { pluginError?: boolean } = {}): Promise<{
+async function runDaemonSessionRequest(request: PluginRequest, options: { pluginError?: boolean; announceUrl?: boolean } = {}): Promise<{
   result: PluginActionResult;
   session: PluginSessionInfo;
 }> {
@@ -656,6 +661,16 @@ async function runDaemonSessionRequest(request: PluginRequest, options: { plugin
       process.stderr.write(formatRemoteShareNotice(created.session.remoteShare));
     } else if (daemon.state.isRemote) {
       process.stderr.write(`\n  Open this forwarded Plannotator session URL:\n  ${created.session.url}\n\n`);
+    } else if (options.announceUrl) {
+      // Local interactive commands otherwise say nothing while they block on the
+      // result. Print the session URL (to stderr — stdout carries the feedback
+      // the slash command captures) so the session is never a silent black box,
+      // and note whether a tab was opened or it streamed into an open window.
+      const label = created.session.mode.replace(/-/g, " ");
+      const where = created.browserAction === "notified"
+        ? "sent to your open Plannotator window"
+        : "opened in your browser";
+      process.stderr.write(`\n  Plannotator ${label} session ready — ${where}:\n  ${created.session.url}\n\n`);
     }
     if (options.pluginError) {
       emitPluginSessionReady(session);
@@ -806,7 +821,7 @@ if (args[0] === "sessions") {
       console.error(`Session #${n} not found. ${sessions.length} active session(s).`);
       process.exit(1);
     }
-    await openBrowser(createDaemonBrowserAuthUrl(daemon.state, new URL(session.url).pathname), { isRemote: daemon.status.endpoint.isRemote });
+    await openBrowser(createDaemonBrowserUrl(daemon.state, new URL(session.url).pathname), { isRemote: daemon.status.endpoint.isRemote });
     console.error(`Opened ${session.mode} session in browser: ${session.url}`);
     process.exit(0);
   }
@@ -834,7 +849,7 @@ if (args[0] === "sessions") {
     args: args.slice(1).join(" "),
     sharingEnabled,
     shareBaseUrl,
-  });
+  }, { announceUrl: true });
   const result = outcome.result as { approved?: boolean; feedback?: string; prompt?: string; exit?: boolean };
 
   if (result.exit) {
@@ -851,7 +866,7 @@ if (args[0] === "sessions") {
 
   const rawFilePath = args[1];
   if (!rawFilePath) {
-    console.error("Usage: plannotator annotate <file.md | file.html | https://... | folder/>  [--no-jina] [--gate] [--json] [--hook]");
+    console.error("Usage: plannotator annotate <file.md | file.html | https://... | folder/>  [--no-jina] [--gate] [--json] [--hook] [--markdown]");
     process.exit(1);
   }
 
@@ -864,10 +879,11 @@ if (args[0] === "sessions") {
     jinaApiKey: process.env.JINA_API_KEY,
     gate: gateFlag,
     renderHtml: renderHtmlFlag,
+    convertHtml: markdownFlag,
     sharingEnabled,
     shareBaseUrl,
     pasteApiUrl,
-  });
+  }, { announceUrl: true });
   emitAnnotateOutcome(outcome.result as { feedback: string; prompt?: string; exit?: boolean; approved?: boolean });
   process.exit(0);
 
@@ -1008,7 +1024,7 @@ if (args[0] === "sessions") {
     sharingEnabled,
     shareBaseUrl,
     pasteApiUrl,
-  });
+  }, { announceUrl: true });
 
   emitAnnotateOutcome(outcome.result as { feedback: string; prompt?: string; exit?: boolean; approved?: boolean });
   process.exit(0);
@@ -1045,7 +1061,7 @@ if (args[0] === "sessions") {
     bundle,
     stage,
     goalSlug: bundle.goalSlug,
-  });
+  }, { announceUrl: true });
 
   if (outcome?.result) {
     const result = outcome.result as import("@plannotator/shared/plugin-protocol").PluginGoalSetupResult;
@@ -1102,7 +1118,7 @@ if (args[0] === "sessions") {
     sharingEnabled,
     shareBaseUrl,
     pasteApiUrl,
-  });
+  }, { announceUrl: true });
   const result = outcome.result as { approved?: boolean; feedback?: string; prompt?: string };
 
   // Output Copilot CLI permission decision format
@@ -1162,7 +1178,7 @@ if (args[0] === "sessions") {
     sharingEnabled,
     shareBaseUrl,
     pasteApiUrl,
-  });
+  }, { announceUrl: true });
 
   emitAnnotateOutcome(outcome.result as { feedback: string; prompt?: string; exit?: boolean; approved?: boolean });
   process.exit(0);

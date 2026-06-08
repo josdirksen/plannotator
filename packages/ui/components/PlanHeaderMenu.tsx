@@ -9,6 +9,9 @@ import { useTheme } from './ThemeProvider';
 import { SunIcon, MoonIcon, SystemIcon } from './icons/themeIcons';
 import { ReviewAgentsIcon } from './ReviewAgentsIcon';
 import { MenuVersionSection } from './MenuVersionSection';
+import { Button } from './ui/button';
+import { cn } from '../lib/utils';
+import { Menu, X, Settings as SettingsLucide, Upload, Download, Printer, Link as LinkLucide, LogIn } from 'lucide-react';
 import type { UpdateInfo } from '../hooks/useUpdateCheck';
 import type { Origin } from '@plannotator/shared/agents';
 
@@ -52,26 +55,24 @@ export const PlanHeaderMenu: React.FC<PlanHeaderMenuProps> = ({
   return (
     <ActionMenu
       renderTrigger={({ isOpen, toggleMenu }) => (
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
           onClick={() => {
             if (!isOpen && showUpdateDot) updateInfo?.dismiss();
             toggleMenu();
           }}
-          className={`relative flex items-center gap-1.5 p-1.5 md:px-2.5 md:py-1 rounded-md text-xs font-medium transition-colors ${
-            isOpen
-              ? 'bg-muted text-foreground'
-              : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-          }`}
           title="Options"
           aria-label="Options"
           aria-expanded={isOpen}
+          className={cn('relative', isOpen ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}
         >
-          {isOpen ? <CloseIcon /> : <MenuIcon />}
+          {isOpen ? <X className="size-4" /> : <Menu className="size-4" />}
           <span className="hidden md:inline">Options</span>
           {showUpdateDot && (
             <span className="absolute top-0.5 right-0.5 md:-top-0.5 md:-right-0.5 w-2 h-2 rounded-full bg-primary ring-2 ring-background" />
           )}
-        </button>
+        </Button>
       )}
     >
       {({ closeMenu }) => (
@@ -106,7 +107,7 @@ export const PlanHeaderMenu: React.FC<PlanHeaderMenuProps> = ({
               closeMenu();
               onOpenSettings();
             }}
-            icon={<SettingsIcon />}
+            icon={<SettingsLucide className="w-3.5 h-3.5" />}
             label="Settings"
           />
           <ActionMenuItem
@@ -114,7 +115,7 @@ export const PlanHeaderMenu: React.FC<PlanHeaderMenuProps> = ({
               closeMenu();
               onOpenExport();
             }}
-            icon={<ExportIcon />}
+            icon={<Upload className="w-3.5 h-3.5" />}
             label="Export"
           />
           {agentInstructionsEnabled && (
@@ -136,7 +137,7 @@ export const PlanHeaderMenu: React.FC<PlanHeaderMenuProps> = ({
               closeMenu();
               onDownloadAnnotations();
             }}
-            icon={<DownloadIcon />}
+            icon={<Download className="w-3.5 h-3.5" />}
             label="Download Annotations"
           />
           <ActionMenuItem
@@ -144,7 +145,7 @@ export const PlanHeaderMenu: React.FC<PlanHeaderMenuProps> = ({
               closeMenu();
               onPrint();
             }}
-            icon={<PrintIcon />}
+            icon={<Printer className="w-3.5 h-3.5" />}
             label="Print / Save as PDF"
             subtitle="Choose 'Save as PDF' in the print dialog"
           />
@@ -154,7 +155,7 @@ export const PlanHeaderMenu: React.FC<PlanHeaderMenuProps> = ({
                 closeMenu();
                 onCopyShareLink();
               }}
-              icon={<LinkIcon />}
+              icon={<LinkLucide className="w-3.5 h-3.5" />}
               label="Copy Share Link"
             />
           )}
@@ -164,7 +165,7 @@ export const PlanHeaderMenu: React.FC<PlanHeaderMenuProps> = ({
                 closeMenu();
                 onOpenImport();
               }}
-              icon={<ImportIcon />}
+              icon={<LogIn className="w-3.5 h-3.5" />}
               label="Import Review"
             />
           )}
@@ -183,54 +184,5 @@ export const PlanHeaderMenu: React.FC<PlanHeaderMenuProps> = ({
     </ActionMenu>
   );
 };
-
-const MenuIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-  </svg>
-);
-
-const CloseIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-  </svg>
-);
-
-const SettingsIcon = () => (
-  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-  </svg>
-);
-
-const ExportIcon = () => (
-  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-  </svg>
-);
-
-const DownloadIcon = () => (
-  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-  </svg>
-);
-
-const PrintIcon = () => (
-  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-  </svg>
-);
-
-const LinkIcon = () => (
-  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-  </svg>
-);
-
-const ImportIcon = () => (
-  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" />
-  </svg>
-);
 
 

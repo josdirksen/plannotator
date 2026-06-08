@@ -34,7 +34,7 @@ class ToolbarErrorBoundary extends React.Component<
 }
 
 import { CommentPopover, type CommentAskAIContext } from './CommentPopover';
-import { TaterSpriteSitting } from './TaterSpriteSitting';
+import { TaterSpriteSitting } from './sprites';
 import { AttachmentsButton } from './AttachmentsButton';
 import { GraphvizBlock } from './GraphvizBlock';
 import { MermaidBlock } from './MermaidBlock';
@@ -60,6 +60,9 @@ interface ViewerProps {
   mode: EditorMode;
   inputMethod?: InputMethod;
   taterMode: boolean;
+  /** When true, the doc is a floating card on the grid (shadow-xl + border).
+   *  When false (default), it's a flat/subtle card — matches the prototype's grid-off look. */
+  gridEnabled?: boolean;
   globalAttachments?: ImageAttachment[];
   onAddGlobalAttachment?: (image: ImageAttachment) => void;
   onRemoveGlobalAttachment?: (path: string) => void;
@@ -73,6 +76,9 @@ interface ViewerProps {
    *  resolve against the doc's own directory rather than only cwd. */
   codePathBaseDir?: string;
   linkedDocInfo?: { filepath: string; onBack: () => void; label?: string; backLabel?: string } | null;
+  /** Render the linked-doc breadcrumb badge (default true; off in folder-annotate
+   *  mode where the sidebar file browser is the way back). */
+  showLinkedDocBadge?: boolean;
   // Plan diff props
   planDiffStats?: { additions: number; deletions: number; modifications: number } | null;
   isPlanDiffActive?: boolean;
@@ -148,6 +154,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   mode,
   inputMethod = 'drag',
   taterMode,
+  gridEnabled = false,
   globalAttachments = [],
   onAddGlobalAttachment,
   onRemoveGlobalAttachment,
@@ -162,6 +169,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   onOpenLinkedDoc,
   onOpenCodeFile,
   linkedDocInfo,
+  showLinkedDocBadge = true,
   imageBaseDir,
   codePathBaseDir,
   copyLabel,
@@ -522,12 +530,12 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
       <article
         ref={containerRef}
         data-print-region="article"
-        className={`w-full bg-card rounded-xl shadow-xl p-5 md:p-8 lg:p-10 xl:p-12 relative border border-border/50 ${inputMethod === 'pinpoint' ? 'cursor-crosshair' : ''}`}
+        className={`w-full bg-card rounded-xl py-5 md:py-8 lg:py-10 xl:py-12 relative ${gridEnabled ? 'px-5 md:px-8 lg:px-10 xl:px-12 shadow-xl border border-border/50' : ''} ${inputMethod === 'pinpoint' ? 'cursor-crosshair' : ''}`}
         style={{ WebkitTouchCallout: 'none' } as React.CSSProperties}
       >
         {/* Repo info + plan diff badge + demo badge + linked doc badge - top left */}
         {(repoInfo || hasPreviousVersion || showDemoBadge || linkedDocInfo || sourceInfo) && (
-          <div data-print-hide className="absolute top-3 left-3 md:top-4 md:left-5">
+          <div data-print-hide className={`absolute top-3 md:top-4 ${gridEnabled ? 'left-3 md:left-5' : 'left-0'}`}>
             <DocBadges
               layout="column"
               repoInfo={repoInfo}
@@ -537,6 +545,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
               onPlanDiffToggle={onPlanDiffToggle}
               showDemoBadge={showDemoBadge}
               linkedDocInfo={linkedDocInfo}
+              showLinkedDocBadge={showLinkedDocBadge}
               sourceInfo={sourceInfo}
             />
           </div>
@@ -546,7 +555,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
         {stickyActions && <div ref={stickySentinelRef} className="h-0 w-0 float-right" aria-hidden="true" />}
 
         {/* Header buttons - top right */}
-        <div data-print-hide data-sticky-actions className={`${stickyActions ? 'sticky top-3' : ''} z-30 float-right flex items-start gap-1 md:gap-2 rounded-lg p-1 md:p-2 transition-colors duration-150 ${isStuck ? 'bg-card/95 backdrop-blur-sm shadow-sm' : ''} -mr-3 mt-6 md:-mr-5 md:-mt-5 lg:-mr-7 lg:-mt-7 xl:-mr-9 xl:-mt-9`}>
+        <div data-print-hide data-sticky-actions className={`${stickyActions ? 'sticky top-3' : ''} z-30 float-right flex items-start gap-1 md:gap-2 rounded-lg p-1 md:p-2 transition-colors duration-150 ${isStuck ? 'bg-card/95 backdrop-blur-sm shadow-sm' : ''} ${gridEnabled ? '-mr-3 md:-mr-5 lg:-mr-7 xl:-mr-9' : '-mr-1 md:-mr-2'} mt-6 md:-mt-5 lg:-mt-7 xl:-mt-9`}>
           {/* Attachments button */}
           {onAddGlobalAttachment && onRemoveGlobalAttachment && (
             <AttachmentsButton

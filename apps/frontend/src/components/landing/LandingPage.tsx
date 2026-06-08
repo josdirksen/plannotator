@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   Code2,
+  FileText,
   Folder,
   FolderPlus,
   ChevronRight,
@@ -13,11 +14,12 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PullRequestIcon } from "@plannotator/ui/components/PullRequestIcon";
+import { prettyPath } from "@plannotator/shared/project";
 import { ASCII_BANNER } from "./ascii-banner";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useProjectStore, projectStore } from "../../stores/project-store";
 import { GitDashboard } from "./git-dashboard/GitDashboard";
-import { ConjoinedSessionsHistory } from "./ConjoinedSessionsHistory";
+import { ActiveSessionsList } from "./ActiveSessionsList";
 import { FullSessionsHistoryView } from "./FullSessionsHistoryView";
 import { useDaemonEventStore } from "../../daemon/events/event-store";
 import { daemonApiClient } from "../../daemon/api/client";
@@ -32,99 +34,36 @@ interface LandingPageProps {
   onAddProject: () => void;
 }
 
-interface Selection {
-  key: string;
-  cwd: string;
-  label: string;
-  prUrl?: string;
-}
-
-function selectionKey(sel: Omit<Selection, "key">): string {
-  return sel.prUrl ?? sel.cwd;
-}
+export type LaunchFn = (cwd: string, action: "review" | "annotate", prUrl?: string) => void;
 
 export function LandingPage({ onAddProject }: LandingPageProps) {
   const projects = useProjectStore((s) => s.projects);
   const sessions = useDaemonEventStore((s) => s.sessions);
-  const [selections, setSelections] = useState<Map<string, Selection>>(new Map());
-  useEffect(() => {
-    const cwds = new Set(projects.map((p) => p.cwd));
-    setSelections((prev) => {
-      const next = new Map<string, Selection>();
-      for (const [k, sel] of prev) {
-        if (cwds.has(sel.cwd)) next.set(k, sel);
-      }
-      return next.size === prev.size ? prev : next;
-    });
-  }, [projects]);
-  const [loading, setLoading] = useState<string | null>(null);
+  const [launching, setLaunching] = useState(false);
   const [viewIndex, setViewIndex] = useState(() =>
     typeof window !== "undefined" && window.location.hash === "#dashboard" ? 1 : 0,
   );
   const navigate = useNavigate();
 
-  const toggleSelection = useCallback((sel: Omit<Selection, "key">) => {
-    setSelections((prev) => {
-      const key = selectionKey(sel);
-      const next = new Map(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.set(key, { ...sel, key });
-      }
-      return next;
-    });
-  }, []);
-
-  const selectionCount = selections.size;
-
-  const handleAction = useCallback(
-    async (action: "review") => {
-      if (selectionCount === 0) return;
-      setLoading(action);
-      const items = [...selections.values()];
-
-      const results = await Promise.allSettled(
-        items.map(async (sel) => {
-          const result = await daemonApiClient.createReviewSession(sel.cwd, sel.prUrl);
-          return { sel, result };
-        }),
-      );
-      setLoading(null);
-
-      let firstSessionId: string | null = null;
-      let successCount = 0;
-      const failures: { label: string; message: string }[] = [];
-
-      for (const outcome of results) {
-        if (outcome.status === "fulfilled" && outcome.value.result.ok) {
-          successCount++;
-          if (!firstSessionId) firstSessionId = outcome.value.result.data.session.id;
+  const launch = useCallback<LaunchFn>(
+    async (cwd, action, prUrl) => {
+      if (launching) return;
+      setLaunching(true);
+      try {
+        const result =
+          action === "annotate"
+            ? await daemonApiClient.createAnnotateFolderSession(cwd)
+            : await daemonApiClient.createReviewSession(cwd, prUrl);
+        if (result.ok) {
+          void navigate({ to: "/s/$sessionId", params: { sessionId: result.data.session.id } });
         } else {
-          const label = outcome.status === "fulfilled" ? outcome.value.sel.label : "Unknown";
-          const message =
-            outcome.status === "fulfilled" && !outcome.value.result.ok
-              ? outcome.value.result.error.message
-              : outcome.status === "rejected"
-                ? String(outcome.reason)
-                : "Unknown error";
-          failures.push({ label, message });
+          toast.error("Failed to launch", { description: result.error.message });
         }
-      }
-
-      if (firstSessionId) {
-        setSelections(new Map());
-        void navigate({ to: "/s/$sessionId", params: { sessionId: firstSessionId } });
-        if (successCount > 1) {
-          toast.success(`Launched ${successCount} sessions`);
-        }
-      }
-
-      for (const fail of failures) {
-        toast.error(fail.label, { description: fail.message });
+      } finally {
+        setLaunching(false);
       }
     },
-    [selections, selectionCount, navigate],
+    [launching, navigate],
   );
 
   return (
@@ -170,63 +109,45 @@ export function LandingPage({ onAddProject }: LandingPageProps) {
                         <div>
                           <div className="mb-2 flex items-center justify-between">
                             <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                              Select project
-                            </span>
-                            <button
-                              type="button"
-                              onClick={onAddProject}
-                              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-foreground/80 hover:bg-surface-1 hover:text-foreground"
-                            >
-                              <FolderPlus className="size-3.5" />
-                              Add project
-                            </button>
-                          </div>
-                          <ProjectTable
-                            projects={projects}
-                            selections={selections}
-                            onToggle={toggleSelection}
-                          />
-
-                          <div className="mt-6">
-                            <span className="mb-2 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                              Launch
+                              Projects
                             </span>
                             <div className="flex items-center gap-2">
                               <button
                                 type="button"
-                                disabled={selectionCount === 0 || loading === "review"}
-                                onClick={() => handleAction("review")}
-                                className={cn(
-                                  "inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-[12px] font-medium",
-                                  "hover:bg-surface-1 active:scale-[0.97]",
-                                  "disabled:pointer-events-none disabled:opacity-40",
-                                )}
+                                onClick={onAddProject}
+                                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-foreground/80 hover:bg-surface-1 hover:text-foreground"
                               >
-                                <Code2 className="size-3.5" />
-                                {loading === "review"
-                                  ? "Starting…"
-                                  : selectionCount > 1
-                                    ? `Code Review (${selectionCount})`
-                                    : "Code Review"}
+                                <FolderPlus className="size-3.5" />
+                                Add project
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setViewIndex(1)}
-                                className="ml-auto text-[12px] text-muted-foreground hover:text-foreground"
+                                className="text-[12px] text-muted-foreground hover:text-foreground"
                               >
                                 Git Dashboard →
                               </button>
                             </div>
                           </div>
+                          <ProjectTable projects={projects} launch={launch} launching={launching} />
                         </div>
                       )}
 
                       {(projects.length > 0 || sessions.length > 0) && (
                         <div>
-                          <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                            Sessions &amp; history
+                          <div className="mb-2 flex items-center justify-between">
+                            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                              Active sessions
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setViewIndex(2)}
+                              className="text-[12px] text-muted-foreground hover:text-foreground"
+                            >
+                              History →
+                            </button>
                           </div>
-                          <ConjoinedSessionsHistory onFullView={() => setViewIndex(2)} />
+                          <ActiveSessionsList />
                         </div>
                       )}
 
@@ -260,12 +181,12 @@ export function LandingPage({ onAddProject }: LandingPageProps) {
 
 function ProjectTable({
   projects,
-  selections,
-  onToggle,
+  launch,
+  launching,
 }: {
   projects: ProjectEntry[];
-  selections: Map<string, Selection>;
-  onToggle: (sel: Omit<Selection, "key">) => void;
+  launch: LaunchFn;
+  launching: boolean;
 }) {
   const topLevel = projects.filter((p) => !p.parentCwd);
   const worktreeChildren = (parentCwd: string) => projects.filter((p) => p.parentCwd === parentCwd);
@@ -280,8 +201,8 @@ function ProjectTable({
             project={project}
             children={children}
             isFirst={i === 0}
-            selections={selections}
-            onToggle={onToggle}
+            launch={launch}
+            launching={launching}
           />
         );
       })}
@@ -293,21 +214,20 @@ function ProjectNode({
   project,
   children,
   isFirst,
-  selections,
-  onToggle,
+  launch,
+  launching,
 }: {
   project: ProjectEntry;
   children: ProjectEntry[];
   isFirst: boolean;
-  selections: Map<string, Selection>;
-  onToggle: (sel: Omit<Selection, "key">) => void;
+  launch: LaunchFn;
+  launching: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [worktrees, setWorktrees] = useState<WorktreeEntry[]>([]);
   const [worktreesFetched, setWorktreesFetched] = useState(false);
   const [prs, setPrs] = useState<PRListItem[]>([]);
   const [prPlatform, setPrPlatform] = useState<string | null>(null);
-  const [prDefaultBranch, setPrDefaultBranch] = useState("main");
   const [prError, setPrError] = useState<string | null>(null);
   const [prsLoading, setPrsLoading] = useState(false);
   const [prsFetchedAt, setPrsFetchedAt] = useState(0);
@@ -332,7 +252,6 @@ function ProjectNode({
       if (result.ok) {
         setPrs(result.data.prs);
         setPrPlatform(result.data.platform);
-        if (result.data.defaultBranch) setPrDefaultBranch(result.data.defaultBranch);
         setPrError(result.data.error ?? null);
       }
       setPrsLoading(false);
@@ -341,7 +260,6 @@ function ProjectNode({
   }, [expanded, project.cwd, prsFetchedAt, prsLoading]);
 
   const hasWorktrees = hasChildren || worktrees.length > 0;
-  const isSelected = selections.has(project.cwd);
 
   const handleRemove = useCallback(async () => {
     const ok = window.confirm(
@@ -362,30 +280,67 @@ function ProjectNode({
         <div>
           <div
             className={cn(
-              "flex w-full items-center gap-3 px-3 py-2 text-[13px]",
+              "group flex w-full items-center gap-3 px-3 py-2 text-[13px]",
               !isFirst && "border-t border-border",
-              isSelected ? "bg-primary/10 text-foreground" : "text-foreground hover:bg-surface-1",
+              "text-foreground hover:bg-surface-1",
             )}
           >
             <button
               type="button"
-              onClick={() => onToggle({ cwd: project.cwd, label: project.name })}
-              className="flex flex-1 items-center gap-3 text-left"
+              onClick={() => setExpanded((prev) => !prev)}
+              className="flex min-w-0 flex-1 items-center gap-3 text-left"
             >
-              <Folder className="size-3.5 shrink-0" />
-              <span className="font-medium">{project.name}</span>
-              {project.branch && (
-                <span className="text-[11px] text-muted-foreground">{project.branch}</span>
-              )}
-              <span className="ml-auto truncate text-[11px] text-muted-foreground">
-                {project.cwd}
-              </span>
+              <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate font-medium">{project.name}</span>
+                  {project.branch && (
+                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                      {project.branch}
+                    </span>
+                  )}
+                </div>
+                <div
+                  className="truncate font-mono text-[11px] text-muted-foreground/70"
+                  title={project.cwd}
+                >
+                  {prettyPath(project.cwd)}
+                </div>
+              </div>
             </button>
+            <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+              <button
+                type="button"
+                aria-label="Review project"
+                title="Review"
+                disabled={launching}
+                onClick={() => launch(project.cwd, "review")}
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium hover:bg-surface-1 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40"
+              >
+                <Code2 className="size-3.5" />
+                Review
+              </button>
+              <button
+                type="button"
+                aria-label="Annotate project"
+                title="Annotate"
+                disabled={launching}
+                onClick={() => launch(project.cwd, "annotate")}
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium hover:bg-surface-1 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40"
+              >
+                <FileText className="size-3.5" />
+                Annotate
+              </button>
+            </div>
             <button
               type="button"
               aria-label={expanded ? "Collapse" : "Expand"}
               onClick={() => setExpanded((prev) => !prev)}
-              className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              className={cn(
+                "shrink-0 rounded p-0.5 text-muted-foreground transition-opacity hover:bg-muted hover:text-foreground",
+                "focus-visible:opacity-100 group-hover:opacity-100",
+                expanded ? "opacity-100" : "opacity-0",
+              )}
             >
               {expanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
             </button>
@@ -393,36 +348,33 @@ function ProjectNode({
 
           {expanded && (
             <div className="border-t border-border bg-muted/50 px-3 py-2 pl-9">
-              <Tabs defaultValue="prs">
+              <Tabs defaultValue="worktrees">
                 <TabsList className="mb-1.5 gap-1">
-                  <TabsTrigger value="prs" className="px-2 py-0.5 text-[11px]">
-                    PRs
-                  </TabsTrigger>
                   <TabsTrigger value="worktrees" className="px-2 py-0.5 text-[11px]">
                     Worktrees
                   </TabsTrigger>
+                  <TabsTrigger value="prs" className="px-2 py-0.5 text-[11px]">
+                    PRs
+                  </TabsTrigger>
                 </TabsList>
+                <TabsContent value="worktrees">
+                  <WorktreeList
+                    children={children}
+                    worktrees={worktrees}
+                    hasWorktrees={hasWorktrees}
+                    launch={launch}
+                    launching={launching}
+                  />
+                </TabsContent>
                 <TabsContent value="prs">
                   <PRList
                     prs={prs}
                     loading={prsLoading}
                     error={prError}
                     platform={prPlatform}
-                    defaultBranch={prDefaultBranch}
                     projectCwd={project.cwd}
-                    projectName={project.name}
-                    selections={selections}
-                    onToggle={onToggle}
-                  />
-                </TabsContent>
-                <TabsContent value="worktrees">
-                  <WorktreeList
-                    children={children}
-                    worktrees={worktrees}
-                    hasWorktrees={hasWorktrees}
-                    projectName={project.name}
-                    selections={selections}
-                    onToggle={onToggle}
+                    launch={launch}
+                    launching={launching}
                   />
                 </TabsContent>
               </Tabs>
@@ -448,27 +400,23 @@ function ProjectNode({
 function PRRow({
   pr,
   projectCwd,
-  projectName,
-  selections,
-  onToggle,
+  launch,
+  launching,
 }: {
   pr: PRListItem;
   projectCwd: string;
-  projectName: string;
-  selections: Map<string, Selection>;
-  onToggle: (sel: Omit<Selection, "key">) => void;
+  launch: LaunchFn;
+  launching: boolean;
 }) {
   return (
     <button
       type="button"
-      onClick={() =>
-        onToggle({ cwd: projectCwd, label: `${projectName} / #${pr.number}`, prUrl: pr.url })
-      }
+      disabled={launching}
+      onClick={() => launch(projectCwd, "review", pr.url)}
       className={cn(
         "flex items-center gap-2 rounded-md border px-2 py-1 text-left text-[11px]",
-        selections.has(pr.url)
-          ? "border-primary/40 bg-primary/10 text-foreground"
-          : "border-border bg-background text-foreground/80 hover:border-foreground/20 hover:text-foreground",
+        "border-border bg-background text-foreground/80 hover:border-foreground/20 hover:text-foreground",
+        "disabled:pointer-events-none disabled:opacity-40",
       )}
     >
       <PullRequestIcon
@@ -507,15 +455,13 @@ function StackIcon({ className }: { className?: string }) {
 function StackGroup({
   stack,
   projectCwd,
-  projectName,
-  selections,
-  onToggle,
+  launch,
+  launching,
 }: {
   stack: PRStack;
   projectCwd: string;
-  projectName: string;
-  selections: Map<string, Selection>;
-  onToggle: (sel: Omit<Selection, "key">) => void;
+  launch: LaunchFn;
+  launching: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -537,9 +483,8 @@ function StackGroup({
               key={pr.id}
               pr={pr}
               projectCwd={projectCwd}
-              projectName={projectName}
-              selections={selections}
-              onToggle={onToggle}
+              launch={launch}
+              launching={launching}
             />
           ))}
         </div>
@@ -553,21 +498,17 @@ function PRList({
   loading,
   error,
   platform,
-  defaultBranch,
   projectCwd,
-  projectName,
-  selections,
-  onToggle,
+  launch,
+  launching,
 }: {
   prs: PRListItem[];
   loading: boolean;
   error: string | null;
   platform: string | null;
-  defaultBranch: string;
   projectCwd: string;
-  projectName: string;
-  selections: Map<string, Selection>;
-  onToggle: (sel: Omit<Selection, "key">) => void;
+  launch: LaunchFn;
+  launching: boolean;
 }) {
   const [showAll, setShowAll] = useState(false);
   const visible = useMemo(
@@ -634,9 +575,8 @@ function PRList({
           key={stack.label}
           stack={stack}
           projectCwd={projectCwd}
-          projectName={projectName}
-          selections={selections}
-          onToggle={onToggle}
+          launch={launch}
+          launching={launching}
         />
       ))}
       {loose.map((pr) => (
@@ -644,9 +584,8 @@ function PRList({
           key={pr.id}
           pr={pr}
           projectCwd={projectCwd}
-          projectName={projectName}
-          selections={selections}
-          onToggle={onToggle}
+          launch={launch}
+          launching={launching}
         />
       ))}
       {!showAll && hiddenCount > 0 && (
@@ -666,16 +605,14 @@ function WorktreeList({
   children,
   worktrees,
   hasWorktrees,
-  projectName,
-  selections,
-  onToggle,
+  launch,
+  launching,
 }: {
   children: ProjectEntry[];
   worktrees: WorktreeEntry[];
   hasWorktrees: boolean;
-  projectName: string;
-  selections: Map<string, Selection>;
-  onToggle: (sel: Omit<Selection, "key">) => void;
+  launch: LaunchFn;
+  launching: boolean;
 }) {
   if (!hasWorktrees) {
     return <div className="py-1 text-[11px] text-muted-foreground">No worktrees</div>;
@@ -694,23 +631,46 @@ function WorktreeList({
   return (
     <div className="flex flex-col gap-1">
       {allWorktrees.map((wt) => (
-        <button
+        <div
           key={wt.path}
-          type="button"
-          onClick={() => onToggle({ cwd: wt.path, label: `${projectName} / ${wt.branch}` })}
           className={cn(
-            "flex items-center gap-2 rounded-md border px-2 py-1 text-left text-[11px]",
-            selections.has(wt.path)
-              ? "border-primary/40 bg-primary/10 text-foreground"
-              : "border-border bg-background text-foreground/80 hover:border-foreground/20 hover:text-foreground",
+            "group flex items-center gap-2 rounded-md border px-2 py-1 text-[11px]",
+            "border-border bg-background text-foreground/80 hover:border-foreground/20 hover:text-foreground",
           )}
         >
           <Folder className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate">{wt.branch}</span>
-          <span className="ml-auto shrink-0 truncate text-[10px] text-muted-foreground">
-            {wt.path}
+          <span className="shrink-0 truncate">{wt.branch}</span>
+          <span
+            className="ml-auto min-w-0 truncate font-mono text-[10px] text-muted-foreground/70"
+            title={wt.path}
+          >
+            {prettyPath(wt.path)}
           </span>
-        </button>
+          <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+            <button
+              type="button"
+              aria-label={`Review ${wt.branch}`}
+              title="Review"
+              disabled={launching}
+              onClick={() => launch(wt.path, "review")}
+              className="inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium hover:bg-surface-1 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40"
+            >
+              <Code2 className="size-3" />
+              Review
+            </button>
+            <button
+              type="button"
+              aria-label={`Annotate ${wt.branch}`}
+              title="Annotate"
+              disabled={launching}
+              onClick={() => launch(wt.path, "annotate")}
+              className="inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium hover:bg-surface-1 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40"
+            >
+              <FileText className="size-3" />
+              Annotate
+            </button>
+          </div>
+        </div>
       ))}
     </div>
   );

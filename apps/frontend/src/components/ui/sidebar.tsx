@@ -1,10 +1,11 @@
 "use client";
 
-import { PanelLeft } from "lucide-react";
 import { Slot } from "@radix-ui/react-slot";
 import type { VariantProps } from "class-variance-authority";
 import { cva } from "class-variance-authority";
 import * as React from "react";
+
+import { PanelLeftIcon } from "@plannotator/ui/components/icons/PanelLeftIcon";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -273,7 +274,7 @@ function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<t
       data-slot="sidebar-trigger"
       variant="ghost"
       size="icon"
-      iconLeft={<PanelLeft />}
+      iconLeft={<PanelLeftIcon />}
       className={cn("h-7 w-7 hover:bg-muted hover:text-foreground", className)}
       onClick={(event) => {
         onClick?.(event);

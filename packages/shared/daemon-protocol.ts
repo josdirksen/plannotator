@@ -92,6 +92,12 @@ export interface DaemonSessionSummary {
   projectCwd?: string;
   /** Sub-scope the session sits in under its project (worktree / sub-repo), if any. */
   worktree?: DaemonWorktreeRef;
+  /**
+   * Resubmission match key (e.g. `annotate:<scope>:folder:<path>`). Exposed so the
+   * sidebar can identify a folder-annotate session and fold it into the folder's
+   * own "Annotate" row instead of listing it as a separate session.
+   */
+  matchKey?: string;
 }
 
 /** A sub-scope a session sits in under its owning project: a git worktree or sub-repo. */
@@ -114,6 +120,12 @@ export interface DaemonCreateSessionRequest {
 export interface DaemonCreateSessionResponse {
   ok: true;
   session: DaemonSessionSummary;
+  /**
+   * How the daemon presented the freshly created session: "opened" launched a
+   * new browser tab, "notified" streamed it into an already-focused frontend.
+   * Absent for frontend-initiated sessions (no presentation step runs).
+   */
+  browserAction?: "opened" | "notified";
 }
 
 export interface DaemonSessionBootstrapResponse {

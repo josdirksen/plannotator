@@ -1,37 +1,26 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
-  getUIPreferences,
-  saveUIPreferences,
   PLAN_WIDTH_OPTIONS,
-  type UIPreferences,
   type PlanWidth,
 } from '../../utils/uiPreferences';
 import { configStore, useConfigValue } from '../../config';
 import { ToggleSwitch } from './shared';
 
-interface PlanDisplayTabProps {
-  onUIPreferencesChange?: (prefs: UIPreferences) => void;
-}
-
-export const PlanDisplayTab: React.FC<PlanDisplayTabProps> = ({ onUIPreferencesChange }) => {
+export const PlanDisplayTab: React.FC = () => {
   const taterMode = useConfigValue('taterMode');
-  const [uiPrefs, setUiPrefs] = useState<UIPreferences>(() => getUIPreferences());
+  const gridEnabled = useConfigValue('gridEnabled');
+  const planWidth = useConfigValue('planWidth');
+  const tocEnabled = useConfigValue('tocEnabled');
+  const stickyActionsEnabled = useConfigValue('stickyActionsEnabled');
 
-  const handleChange = (updates: Partial<UIPreferences>) => {
-    const next = { ...uiPrefs, ...updates };
-    setUiPrefs(next);
-    saveUIPreferences(next);
-    onUIPreferencesChange?.(next);
-  };
-
-  const active = PLAN_WIDTH_OPTIONS.find((o) => o.id === uiPrefs.planWidth) ?? PLAN_WIDTH_OPTIONS[0];
-  const cardPctMap: Record<PlanWidth, number> = { compact: 48, default: 70, wide: 94 };
+  const active = PLAN_WIDTH_OPTIONS.find((o) => o.id === planWidth) ?? PLAN_WIDTH_OPTIONS[0];
+  const cardPctMap: Record<PlanWidth, number> = { compact: 48, default: 70, wide: 94, ultrawide: 100 };
 
   return (
     <div className="space-y-5">
       <ToggleSwitch
-        checked={uiPrefs.tocEnabled}
-        onChange={(v) => handleChange({ tocEnabled: v })}
+        checked={tocEnabled}
+        onChange={(v) => configStore.getState().set('tocEnabled', v)}
         label="Auto-open Sidebar"
         description="Open sidebar with Table of Contents on load"
       />
@@ -39,10 +28,19 @@ export const PlanDisplayTab: React.FC<PlanDisplayTabProps> = ({ onUIPreferencesC
       <div className="border-t border-border" />
 
       <ToggleSwitch
-        checked={uiPrefs.stickyActionsEnabled}
-        onChange={(v) => handleChange({ stickyActionsEnabled: v })}
+        checked={stickyActionsEnabled}
+        onChange={(v) => configStore.getState().set('stickyActionsEnabled', v)}
         label="Sticky Actions"
         description="Keep action buttons visible while scrolling"
+      />
+
+      <div className="border-t border-border" />
+
+      <ToggleSwitch
+        checked={gridEnabled}
+        onChange={(v) => configStore.getState().set('gridEnabled', v)}
+        label="Grid Background"
+        description="Show the grid pattern behind the plan document"
       />
 
       <div className="border-t border-border" />
@@ -57,9 +55,9 @@ export const PlanDisplayTab: React.FC<PlanDisplayTabProps> = ({ onUIPreferencesC
             <button
               key={opt.id}
               type="button"
-              onClick={() => handleChange({ planWidth: opt.id })}
+              onClick={() => configStore.getState().set('planWidth', opt.id)}
               className={`flex-1 px-3 py-1.5 text-xs rounded-md ${
-                uiPrefs.planWidth === opt.id
+                planWidth === opt.id
                   ? 'bg-background text-foreground shadow-sm font-medium'
                   : 'text-foreground/70 hover:text-foreground'
               }`}
@@ -110,7 +108,7 @@ export const PlanDisplayTab: React.FC<PlanDisplayTabProps> = ({ onUIPreferencesC
           </div>
         </div>
         <div className="text-[10px] text-muted-foreground">
-          {active.px}px — {active.hint}
+          {active.px === null ? 'Full width' : `${active.px}px`} — {active.hint}
         </div>
       </div>
 

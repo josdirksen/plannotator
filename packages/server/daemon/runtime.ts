@@ -1,7 +1,7 @@
 import { getServerHostname, getServerPort, isRemoteSession } from "../remote";
 import { openBrowser } from "../browser";
 import { loadConfig } from "@plannotator/shared/config";
-import { acquireDaemonLock, createDaemonState, createDaemonBrowserAuthUrl, removeDaemonState, writeDaemonState, type DaemonLock, type DaemonState, type DaemonStateOptions } from "./state";
+import { acquireDaemonLock, createDaemonState, createDaemonBrowserUrl, removeDaemonState, writeDaemonState, type DaemonLock, type DaemonState, type DaemonStateOptions } from "./state";
 import { DaemonSessionStore, listSnapshots, type DaemonSessionRecord } from "./session-store";
 import { createDaemonFetchHandler, type DaemonFetchContext, type DaemonFetchHandler, type SessionBrowserAction } from "./server";
 import type { DaemonCreateSessionRequest } from "@plannotator/shared/daemon-protocol";
@@ -100,7 +100,11 @@ export async function startDaemonRuntime(options: StartDaemonRuntimeOptions): Pr
     async function presentSession(record: DaemonSessionRecord, eventHub: DaemonEventHub): Promise<SessionBrowserAction> {
       const config = loadConfig();
       const frontendState = eventHub.getFrontendState();
-      if (!config.legacyTabMode && frontendState.connected && frontendState.anyVisible) {
+
+      // REMOTE: we can't drive the user's browser, so keep the stream-into-the-
+      // visible-tab behavior when one is connected; otherwise open (which prints
+      // the forwarded URL).
+      if (isRemote && !config.legacyTabMode && frontendState.connected && frontendState.anyVisible) {
         eventHub.publishDaemonEvent({
           type: "session-notify",
           at: new Date().toISOString(),
@@ -108,7 +112,17 @@ export async function startDaemonRuntime(options: StartDaemonRuntimeOptions): Pr
         });
         return "notified";
       }
-      const url = createDaemonBrowserAuthUrl(state, new URL(record.url).pathname);
+
+      // LOCAL (and the remote fallback): always open the session URL in a focused
+      // tab. This is the only thing that reliably SURFACES the session across every
+      // window/Space layout. We deliberately do NOT try to reuse an existing tab:
+      // `document.hidden` only says "I'm the active tab in MY window", which is
+      // true for a Plannotator window even when the user is looking at a different
+      // window/Space — so "a tab is visible" ≠ "the user is looking at Plannotator".
+      // Opening the URL focuses the session in the window the user is actually in.
+      // (Tab-per-session is the cost; never leaving the user hanging is the win. A
+      // no-new-tab "quiet/dashboard" mode is a future opt-in.)
+      const url = createDaemonBrowserUrl(state, new URL(record.url).pathname);
       await openBrowser(url, { isRemote });
       return "opened";
     }

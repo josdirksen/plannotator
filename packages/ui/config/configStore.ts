@@ -11,7 +11,7 @@
 
 import { createStore, useStore } from 'zustand';
 import { SETTINGS, type SettingName, type SettingsMap } from './settings';
-import { apiFetch } from '../utils/api';
+import { apiFetch, hasResolvableApiBase } from '../utils/api';
 
 /** Infer the value type from a SettingDef */
 export type SettingValue<K extends SettingName> = SettingsMap[K] extends { defaultValue: infer D }
@@ -43,6 +43,14 @@ let pendingServerWrites: Record<string, unknown> = {};
 let serverSyncTimer: ReturnType<typeof setTimeout> | null = null;
 
 function scheduleServerSync(): void {
+  // No daemon/session base (portal / standalone plan editor): cookies are the
+  // only store. Skip the POST entirely instead of firing a request that 404s
+  // against the bare `/api` fallback. Drop any queued writes so they don't
+  // accumulate. Cookie writes already happened in `set()`.
+  if (!hasResolvableApiBase()) {
+    pendingServerWrites = {};
+    return;
+  }
   if (serverSyncTimer) clearTimeout(serverSyncTimer);
   serverSyncTimer = setTimeout(() => {
     const payload = { ...pendingServerWrites };

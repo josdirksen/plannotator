@@ -11,7 +11,6 @@ if [ ! -f "$DAEMON_JSON" ]; then
 fi
 
 PORT=$(python3 -c "import json; print(json.load(open('$DAEMON_JSON'))['port'])")
-TOKEN=$(python3 -c "import json; print(json.load(open('$DAEMON_JSON'))['authToken'])")
 BASE="http://localhost:$PORT"
 
 echo "Daemon at $BASE"
@@ -19,7 +18,6 @@ echo "Creating plan session..."
 
 curl -s -X POST "$BASE/daemon/sessions" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "request": {
       "action": "plan",

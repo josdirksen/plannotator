@@ -85,6 +85,13 @@ export function connectDaemonEvents(
   let currentActiveSessionId: string | null = null;
   const pendingNotifications: { id: string; mode: string; project: string; label: string }[] = [];
 
+  // Report whether this is the FOREGROUND tab in its window (!document.hidden).
+  // This is the reliable active-tab signal the daemon uses to decide reuse-this-
+  // tab vs open-a-new-one. We deliberately do NOT fold in document.hasFocus():
+  // across macOS Spaces it's unreliable, and "is the user's window in front?" is
+  // the daemon's job to fix (it activates the browser), not something we gate on
+  // here. Mixing it in would falsely mark a foreground tab as not-visible when
+  // the window sits on a background Space, costing us a needless new tab.
   const sendClientState = () => {
     client.sendClientState(!document.hidden, currentActiveSessionId);
   };

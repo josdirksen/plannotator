@@ -8,6 +8,7 @@ import { useConjoinedHistory } from "./use-conjoined-history";
 import { ActiveSessionRow } from "./ActiveSessionRow";
 import { HistoryRow } from "./HistoryRow";
 import { PRGroup } from "./git-dashboard/PRGroup";
+import { compareSessionsByRecency } from "../../shared/session-sort";
 
 interface FullSessionsHistoryViewProps {
   active: boolean;
@@ -24,7 +25,9 @@ export function FullSessionsHistoryView({ active, onBack }: FullSessionsHistoryV
   const entries = useHistoryStore((s) => s.entries);
   const historyLoading = useHistoryStore((s) => s.loading);
 
-  const [activeOrAll, setActiveOrAll] = useState<"active" | "all">("active");
+  // Reached via the landing's "History →" link, so default to history; the Active
+  // tab stays available for a grouped/filtered view of live sessions.
+  const [activeOrAll, setActiveOrAll] = useState<"active" | "all">("all");
   const [projectFilter, setProjectFilter] = useState<string | null>(null);
 
   useConjoinedHistory(active && activeOrAll === "all", projectFilter);
@@ -37,14 +40,16 @@ export function FullSessionsHistoryView({ active, onBack }: FullSessionsHistoryV
   }, [topLevel]);
 
   const filteredSessions = useMemo(() => {
-    if (!projectFilter) return sessions;
-    const cwd = nameToCwd[projectFilter];
-    return sessions.filter((s) => (s.projectCwd ?? s.cwd) === cwd);
+    const cwd = projectFilter ? nameToCwd[projectFilter] : null;
+    const base = cwd ? sessions.filter((s) => (s.projectCwd ?? s.cwd) === cwd) : sessions;
+    // Live sessions first, then most recent — groups inherit this order below.
+    return [...base].sort(compareSessionsByRecency);
   }, [sessions, projectFilter, nameToCwd]);
 
   const filteredEntries = useMemo(() => {
-    if (!projectFilter) return entries;
-    return entries.filter((e) => e.project === projectFilter);
+    const base = projectFilter ? entries.filter((e) => e.project === projectFilter) : entries;
+    // Newest plan first (by latest version mtime).
+    return [...base].sort((a, b) => (a.latest < b.latest ? 1 : a.latest > b.latest ? -1 : 0));
   }, [entries, projectFilter]);
 
   // Group entries / sessions by project name for PRGroup-style sections.

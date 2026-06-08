@@ -12,7 +12,6 @@ import {
   type DaemonWebSocketClientMessage,
 } from "@plannotator/shared/daemon-protocol";
 import type { DaemonState } from "./state";
-import { DAEMON_AUTH_COOKIE, DAEMON_AUTH_QUERY_PARAM } from "./state";
 import { DaemonSessionStore, type DaemonSessionRecord } from "./session-store";
 import { DaemonEventHub } from "./event-hub";
 import type { SessionEventFamily, SessionRequestContext, SessionSnapshotProvider } from "../session-handler";
@@ -28,7 +27,6 @@ import type { PRRef, PRListItem, PRDetailedListItem } from "@plannotator/shared/
 import { listAllHistory } from "../storage";
 
 const RESULT_DELETE_GRACE_MS = 2_000;
-const DAEMON_AUTH_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 
 export type SessionBrowserAction = "opened" | "notified";
 
@@ -103,42 +101,8 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function bearerToken(req: Request): string | undefined {
-  const header = req.headers.get("authorization") ?? "";
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return match?.[1];
-}
-
-function cookieToken(req: Request): string | undefined {
-  const cookie = req.headers.get("cookie") ?? "";
-  for (const part of cookie.split(";")) {
-    const [rawName, ...rawValue] = part.trim().split("=");
-    if (rawName === DAEMON_AUTH_COOKIE) {
-      return decodeURIComponent(rawValue.join("="));
-    }
-  }
-  return undefined;
-}
-
-function queryToken(url: URL): string | undefined {
-  return url.searchParams.get(DAEMON_AUTH_QUERY_PARAM) ?? undefined;
-}
-
-function hasDaemonAuth(req: Request, state: DaemonState, url?: URL, options: { allowQuery?: boolean } = {}): boolean {
-  return (
-    bearerToken(req) === state.authToken ||
-    cookieToken(req) === state.authToken ||
-    (options.allowQuery === true && queryToken(url ?? new URL(req.url)) === state.authToken)
-  );
-}
-
-function isAuthBootstrapPage(req: Request, url: URL): boolean {
-  if (!isPageRequest(req)) return false;
-  if (url.pathname === "/") return true;
-  const session = sessionFromPath(url.pathname);
-  return !!session && !session.rest.startsWith("/api");
-}
-
+// Same-origin guard for the WebSocket upgrade. Not auth — just blocks a foreign
+// page from opening a socket to the daemon. The daemon itself is open on localhost.
 function isAllowedWebSocketOrigin(req: Request, url: URL): boolean {
   const origin = req.headers.get("origin");
   if (!origin) return true;
@@ -147,23 +111,6 @@ function isAllowedWebSocketOrigin(req: Request, url: URL): boolean {
   } catch {
     return false;
   }
-}
-
-function daemonAuthCookie(state: DaemonState): string {
-  return [
-    `${DAEMON_AUTH_COOKIE}=${encodeURIComponent(state.authToken)}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Strict",
-    `Max-Age=${DAEMON_AUTH_COOKIE_MAX_AGE_SECONDS}`,
-  ].join("; ");
-}
-
-function daemonUnauthorized(): Response {
-  return json(
-    createDaemonErrorResponse("unauthorized", "Daemon control request is missing or using an invalid auth token."),
-    { status: 401 },
-  );
 }
 
 function injectApiBase(html: string, apiBaseScript: string): string {
@@ -310,19 +257,6 @@ export function createDaemonFetchHandler(options: DaemonServerOptions): DaemonFe
         return handleFavicon();
       }
 
-      if (url.pathname !== "/daemon/ws" && isAuthBootstrapPage(req, url) && url.searchParams.has(DAEMON_AUTH_QUERY_PARAM)) {
-        const token = url.searchParams.get(DAEMON_AUTH_QUERY_PARAM);
-        if (token !== options.state.authToken) return daemonUnauthorized();
-        url.searchParams.delete(DAEMON_AUTH_QUERY_PARAM);
-        return new Response(null, {
-          status: 302,
-          headers: {
-            Location: url.toString(),
-            "Set-Cookie": daemonAuthCookie(options.state),
-          },
-        });
-      }
-
       if (url.pathname === "/" && isPageRequest(req)) {
         return html(options.shellHtmlContent);
       }
@@ -334,14 +268,7 @@ export function createDaemonFetchHandler(options: DaemonServerOptions): DaemonFe
         if (!requestContext?.upgradeWebSocket) {
           return json(createDaemonErrorResponse("invalid-request", "WebSocket upgrade is unavailable."), { status: 426 });
         }
-        const upgraded = requestContext.upgradeWebSocket({
-          daemonAuthenticated: hasDaemonAuth(req, options.state, url, { allowQuery: true }),
-        });
-        return upgraded;
-      }
-
-      if (url.pathname.startsWith("/daemon/") && !hasDaemonAuth(req, options.state, url)) {
-        return daemonUnauthorized();
+        return requestContext.upgradeWebSocket({});
       }
 
       if (url.pathname === "/daemon/events" && req.method === "GET") {

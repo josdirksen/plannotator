@@ -662,37 +662,47 @@ export async function fetchGhPRList(
   }));
 }
 
+interface GhPRDetailedRaw {
+  number: number;
+  title: string;
+  author: { login: string };
+  url: string;
+  baseRefName: string;
+  headRefName: string;
+  state: string;
+  additions: number;
+  deletions: number;
+  comments: unknown[];
+  updatedAt: string;
+  isDraft: boolean;
+  reviewDecision: string;
+}
+
 export async function fetchGhPRDetailedList(
   runtime: PRRuntime,
   ref: GhPRRef,
 ): Promise<PRDetailedListItem[]> {
-  const result = await runtime.runCommand("gh", [
-    "pr", "list",
-    "--repo", repoFlag(ref),
-    "--json", "number,title,author,url,baseRefName,headRefName,state,additions,deletions,comments,updatedAt,isDraft,reviewDecision",
-    "--limit", "30",
-    "--state", "all",
+  // Query open and merged separately. A single `--state all --limit N` lumps
+  // every state into one recency-sorted window, so a burst of recent merges can
+  // push older *open* PRs past the limit and hide them from the dashboard.
+  const listForState = async (state: "open" | "merged", limit: number) => {
+    const result = await runtime.runCommand("gh", [
+      "pr", "list",
+      "--repo", repoFlag(ref),
+      "--json", "number,title,author,url,baseRefName,headRefName,state,additions,deletions,comments,updatedAt,isDraft,reviewDecision",
+      "--limit", String(limit),
+      "--state", state,
+    ]);
+    if (result.exitCode !== 0) return [] as GhPRDetailedRaw[];
+    return JSON.parse(result.stdout) as GhPRDetailedRaw[];
+  };
+
+  const [open, merged] = await Promise.all([
+    listForState("open", 100),
+    listForState("merged", 30),
   ]);
 
-  if (result.exitCode !== 0) return [];
-
-  const raw = JSON.parse(result.stdout) as Array<{
-    number: number;
-    title: string;
-    author: { login: string };
-    url: string;
-    baseRefName: string;
-    headRefName: string;
-    state: string;
-    additions: number;
-    deletions: number;
-    comments: unknown[];
-    updatedAt: string;
-    isDraft: boolean;
-    reviewDecision: string;
-  }>;
-
-  return raw.map((pr) => ({
+  return [...open, ...merged].map((pr) => ({
     id: String(pr.number),
     number: pr.number,
     title: pr.title,

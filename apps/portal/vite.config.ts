@@ -16,8 +16,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, '.'),
+      // Explicit .css subpath alias (mirrors the frontend's pattern) so the
+      // shared design system resolves deterministically regardless of bun
+      // export-map / Vite alias interplay.
+      '@plannotator/ui/design-system.css': path.resolve(__dirname, '../../packages/ui/design-system.css'),
       '@plannotator/ui': path.resolve(__dirname, '../../packages/ui'),
-      '@plannotator/plan-review/styles': path.resolve(__dirname, '../../packages/plannotator-plan-review/index.css'),
       '@plannotator/plan-review': path.resolve(__dirname, '../../packages/plannotator-plan-review/App.tsx'),
     }
   },

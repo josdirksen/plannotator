@@ -10,6 +10,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -21,6 +22,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -32,6 +34,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -43,6 +46,7 @@ describe("parseAnnotateArgs", () => {
       json: true,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -54,6 +58,7 @@ describe("parseAnnotateArgs", () => {
       json: true,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -65,6 +70,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -82,6 +88,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -93,6 +100,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -104,6 +112,7 @@ describe("parseAnnotateArgs", () => {
       json: true,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -115,6 +124,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -126,6 +136,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -137,6 +148,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -148,6 +160,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -159,6 +172,7 @@ describe("parseAnnotateArgs", () => {
       json: true,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -176,6 +190,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -187,6 +202,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -198,6 +214,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -209,6 +226,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -225,6 +243,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -236,6 +255,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -247,6 +267,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -258,6 +279,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -274,6 +296,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: true,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -285,6 +308,7 @@ describe("parseAnnotateArgs", () => {
       json: true,
       hook: true,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -296,6 +320,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: true,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -307,6 +332,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: true,
       renderHtml: false,
+      markdown: false,
     });
   });
 
@@ -318,6 +344,7 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: true,
+      markdown: false,
     });
   });
 
@@ -329,6 +356,19 @@ describe("parseAnnotateArgs", () => {
       json: false,
       hook: false,
       renderHtml: true,
+      markdown: false,
+    });
+  });
+
+  test("--markdown forces conversion (HTML renders raw by default)", () => {
+    expect(parseAnnotateArgs("plan.html --markdown")).toEqual({
+      filePath: "plan.html",
+      rawFilePath: "plan.html",
+      gate: false,
+      json: false,
+      hook: false,
+      renderHtml: false,
+      markdown: true,
     });
   });
 });

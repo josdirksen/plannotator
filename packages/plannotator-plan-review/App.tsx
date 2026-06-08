@@ -16,8 +16,7 @@ import { ThemeProvider } from '@plannotator/ui/components/ThemeProvider';
 import { Tooltip, TooltipProvider } from '@plannotator/ui/components/Tooltip';
 import { AnnotationToolstrip } from '@plannotator/ui/components/AnnotationToolstrip';
 import { StickyHeaderLane } from '@plannotator/ui/components/StickyHeaderLane';
-import { TaterSpriteRunning } from '@plannotator/ui/components/TaterSpriteRunning';
-import { TaterSpritePullup } from '@plannotator/ui/components/TaterSpritePullup';
+import { TaterSpriteRunning, TaterSpritePullup } from '@plannotator/ui/components/sprites';
 import { useSharing } from '@plannotator/ui/hooks/useSharing';
 import { getCallbackConfig, CallbackAction, executeCallback } from '@plannotator/ui/utils/callback';
 import { useAgents } from '@plannotator/ui/hooks/useAgents';
@@ -38,7 +37,7 @@ import {
 } from '@plannotator/ui/utils/aiProvider';
 import { markPlanAIAnnouncementSeen, needsPlanAIAnnouncement } from '@plannotator/ui/utils/planAIAnnouncement';
 import { useAIChat } from '@plannotator/ui/hooks/useAIChat';
-import { getUIPreferences, type UIPreferences, type PlanWidth } from '@plannotator/ui/utils/uiPreferences';
+import { PLAN_WIDTH_OPTIONS } from '@plannotator/ui/utils/uiPreferences';
 import { getEditorMode, saveEditorMode } from '@plannotator/ui/utils/editorMode';
 import { getInputMethod, saveInputMethod } from '@plannotator/ui/utils/inputMethod';
 import { useInputMethodSwitch } from '@plannotator/ui/hooks/useInputMethodSwitch';
@@ -146,7 +145,10 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const [editorMode, setEditorMode] = useState<EditorMode>(getEditorMode);
   const [inputMethod, setInputMethod] = useState<InputMethod>(getInputMethod);
   const taterMode = useConfigValue('taterMode');
-  const [uiPrefs, setUiPrefs] = useState(() => getUIPreferences());
+  const gridEnabled = useConfigValue('gridEnabled');
+  const planWidth = useConfigValue('planWidth');
+  const tocEnabled = useConfigValue('tocEnabled');
+  const stickyActionsEnabled = useConfigValue('stickyActionsEnabled');
 
   // Plan-area width (inside the OverlayScrollArea, after sidebar/panel
   // shrinkage) drives the action button label compactness. ResizeObserver
@@ -162,7 +164,6 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const [actionsLabelMode, setActionsLabelMode] = useState<ActionsLabelMode>('full');
   const [isApiMode, setIsApiMode] = useState(false);
   const [origin, setOrigin] = useState<Origin | null>(null);
-  const [gitUser, setGitUser] = useState<string | undefined>();
   const [isWSL, setIsWSL] = useState(false);
   const [legacyTabMode, setLegacyTabMode] = useState(false);
   const [globalAttachments, setGlobalAttachments] = useState<ImageAttachment[]>([]);
@@ -180,7 +181,21 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const [sourceInfo, setSourceInfo] = useState<string | undefined>();
   const [sourceConverted, setSourceConverted] = useState(false);
   const [renderAs, setRenderAs] = useState<'markdown' | 'html'>('markdown');
+  // HTML surfaces (rendered .html, not Turndown'd) get an edge-to-edge, full-viewport
+  // layout: no centered reading column, card chrome, sticky actions, or wide-mode toggle.
+  // Declared here (not near the viewer) because the sidebar effect above depends on it.
+  const isHtmlSurface = renderAs === 'html';
   const [rawHtml, setRawHtml] = useState('');
+  // Parallel ref for raw HTML so the session-revision handler can detect an HTML
+  // resubmission (where markdown stays empty and only rawHtml changes).
+  const rawHtmlRef = useRef(rawHtml);
+  rawHtmlRef.current = rawHtml;
+  // Session-level force-markdown preference (`--markdown`). When set, folder/linked HTML
+  // files are converted instead of rendered raw — threaded into /api/doc as &convert=1.
+  const [convertHtml, setConvertHtml] = useState(false);
+  // Hide the floating HTML annotation controls (toolstrip + action cluster) so the
+  // user can read the rendered page unobstructed. Selections/annotations are unaffected.
+  const [htmlToolsHidden, setHtmlToolsHidden] = useState(false);
   const [sourceFilePath, setSourceFilePath] = useState<string | undefined>();
   const [imageBaseDir, setImageBaseDir] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
@@ -199,7 +214,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const [projectRoot, setProjectRoot] = useState<string | null>(null);
   const [wideModeType, setWideModeType] = useState<WideModeType | null>(null);
   const wideModeSnapshotRef = useRef<WideModeLayoutSnapshot | null>(null);
-  const lastAppliedTocEnabledRef = useRef(uiPrefs.tocEnabled);
+  const lastAppliedTocEnabledRef = useRef(tocEnabled);
   const goalSetupMode = goalSetupBundle !== null;
 
   useEffect(() => {
@@ -242,16 +257,27 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
 
   usePrintMode();
 
+  // Sidebar (shared TOC + Version Browser)
+  const sidebar = useSidebar(tocEnabled);
+
   // Resizable panels
-  const panelResize = useResizablePanel({ storageKey: 'plannotator-panel-width' });
+  const panelResize = useResizablePanel({
+    storageKey: 'plannotator-panel-width',
+    // Drag the right panel skinny → snap it shut (matches the contents sidebar).
+    onSnapClose: () => setIsPanelOpen(false),
+    // Render-free drag: write the live width to a :root var the panel reads,
+    // so dragging never re-renders this (heavy) App.
+    apply: (w) => document.documentElement.style.setProperty('--rpanel-w', `${w}px`),
+  });
   const tocResize = useResizablePanel({
     storageKey: 'plannotator-toc-width',
     defaultWidth: 240, minWidth: 160, maxWidth: 400, side: 'left',
+    // Drag the contents panel skinny → snap it shut (prototype behavior).
+    onSnapClose: sidebar.close,
+    // Render-free drag: write the live width to a :root var the panel reads.
+    apply: (w) => document.documentElement.style.setProperty('--toc-w', `${w}px`),
   });
   const isResizing = panelResize.isDragging || tocResize.isDragging;
-
-  // Sidebar (shared TOC + Version Browser)
-  const sidebar = useSidebar(getUIPreferences().tocEnabled);
 
   // Whether the document has any TOC-eligible headings (level <= 3, matching
   // buildTocHierarchy). Drives the empty-doc auto-close behavior below — must
@@ -335,11 +361,19 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   // Sync sidebar open state when preference changes in Settings
   useEffect(() => {
     if (wideModeType !== null) return;
-    if (lastAppliedTocEnabledRef.current === uiPrefs.tocEnabled) return;
-    lastAppliedTocEnabledRef.current = uiPrefs.tocEnabled;
-    if (uiPrefs.tocEnabled && hasTocEntries) sidebar.open('toc');
-    else if (!uiPrefs.tocEnabled) sidebar.close();
-  }, [wideModeType, sidebar.close, sidebar.open, uiPrefs.tocEnabled, hasTocEntries]);
+    // HTML surfaces have no table of contents and render edge-to-edge, so the left
+    // sidebar serves no purpose — keep it closed. Reset the guard so it re-applies
+    // normally if the user navigates back to a markdown file.
+    if (isHtmlSurface) {
+      sidebar.close();
+      lastAppliedTocEnabledRef.current = !tocEnabled;
+      return;
+    }
+    if (lastAppliedTocEnabledRef.current === tocEnabled) return;
+    lastAppliedTocEnabledRef.current = tocEnabled;
+    if (tocEnabled && hasTocEntries) sidebar.open('toc');
+    else if (!tocEnabled) sidebar.close();
+  }, [wideModeType, isHtmlSurface, sidebar.close, sidebar.open, tocEnabled, hasTocEntries]);
 
   // Auto-close the sidebar when blocks parse with no TOC entries. Fires
   // only on blocks/hasTocEntries change (not on sidebar state) so a user
@@ -393,6 +427,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const linkedDocHook = useLinkedDoc({
     markdown, annotations, selectedAnnotationId, globalAttachments,
     setMarkdown, setAnnotations, setSelectedAnnotationId, setGlobalAttachments,
+    renderAs, rawHtml, setRenderAs, setRawHtml,
     viewerRef, sidebar: linkedDocSidebar, sourceFilePath, sourceConverted,
   });
 
@@ -451,7 +486,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const fileBrowser = useFileBrowser();
   const showFilesTab = useMemo(
     () => !!projectRoot || isFileBrowserEnabled(),
-    [projectRoot, uiPrefs]
+    [projectRoot, tocEnabled, stickyActionsEnabled]
   );
   const fileBrowserDirs = useMemo(() => {
     const projectDirs = projectRoot ? [projectRoot] : [];
@@ -459,7 +494,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
       ? getFileBrowserSettings().directories
       : [];
     return [...new Set([...projectDirs, ...userDirs])];
-  }, [projectRoot, uiPrefs]);
+  }, [projectRoot, tocEnabled, stickyActionsEnabled]);
 
   // Clear active file when file browser is disabled
   useEffect(() => {
@@ -480,10 +515,10 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
 
   // File browser file selection: open via linked doc system
   const handleFileBrowserSelect = React.useCallback((absolutePath: string, dirPath: string) => {
-    const buildUrl = (path: string) => `/api/doc?path=${encodeURIComponent(path)}&base=${encodeURIComponent(dirPath)}`;
+    const buildUrl = (path: string) => `/api/doc?path=${encodeURIComponent(path)}&base=${encodeURIComponent(dirPath)}${convertHtml ? '&convert=1' : ''}`;
     linkedDocHook.open(absolutePath, buildUrl, 'files');
     fileBrowser.setActiveFile(absolutePath);
-  }, [linkedDocHook, fileBrowser]);
+  }, [linkedDocHook, fileBrowser, convertHtml]);
 
   // Route linked doc opens through the correct endpoint based on current context
   const handleOpenLinkedDoc = React.useCallback((docPath: string) => {
@@ -491,7 +526,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
       // When viewing a file browser doc, resolve links relative to current file's directory
       const baseDir = linkedDocHook.filepath?.replace(/\/[^/]+$/, '') || fileBrowser.activeDirPath;
       linkedDocHook.open(docPath, (path) =>
-        `/api/doc?path=${encodeURIComponent(path)}&base=${encodeURIComponent(baseDir)}`
+        `/api/doc?path=${encodeURIComponent(path)}&base=${encodeURIComponent(baseDir)}${convertHtml ? '&convert=1' : ''}`
       );
     } else {
       // Pass the current file's directory as base for relative path resolution
@@ -500,13 +535,13 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
         : imageBaseDir?.includes('/') ? imageBaseDir : undefined;
       if (baseDir) {
         linkedDocHook.open(docPath, (path) =>
-          `/api/doc?path=${encodeURIComponent(path)}&base=${encodeURIComponent(baseDir)}`
+          `/api/doc?path=${encodeURIComponent(path)}&base=${encodeURIComponent(baseDir)}${convertHtml ? '&convert=1' : ''}`
         );
       } else {
         linkedDocHook.open(docPath);
       }
     }
-  }, [fileBrowser.activeDirPath, fileBrowser.activeFile, linkedDocHook, imageBaseDir]);
+  }, [fileBrowser.activeDirPath, fileBrowser.activeFile, linkedDocHook, imageBaseDir, convertHtml]);
 
   // Wrap linked doc back to also clear file browser active file
   const handleLinkedDocBack = React.useCallback(() => {
@@ -599,7 +634,11 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
       if (!msg.payload) return;
       const revision = msg.payload as { plan?: string; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; rawHtml?: string };
       if (revision.plan === undefined) return;
-      const contentChanged = revision.plan !== markdownRef.current;
+      // For HTML the document is rawHtml and markdown stays empty, so a markdown-only
+      // comparison never fires — also treat a changed rawHtml as a content change.
+      const contentChanged =
+        revision.plan !== markdownRef.current ||
+        (revision.rawHtml !== undefined && revision.rawHtml !== rawHtmlRef.current);
       if (contentChanged) {
         if (revision.rawHtml !== undefined) {
           setRawHtml(revision.rawHtml);
@@ -773,10 +812,6 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
     }
   }, [pendingSharedAnnotations, clearPendingSharedAnnotations, resetExternalHighlights]);
 
-  const handleTaterModeChange = useCallback((enabled: boolean) => {
-    configStore.getState().set('taterMode', enabled);
-  }, []);
-
   const handleEditorModeChange = (mode: EditorMode) => {
     setEditorMode(mode);
     saveEditorMode(mode);
@@ -801,14 +836,15 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
         if (!res.ok) throw new Error('Not in API mode');
         return res.json();
       })
-      .then((data: { plan: string; origin?: Origin; mode?: 'annotate' | 'annotate-last' | 'annotate-folder' | 'goal-setup'; goalSetup?: GoalSetupBundle; filePath?: string; sourceInfo?: string; sourceConverted?: boolean; gate?: boolean; renderAs?: 'html' | 'markdown'; rawHtml?: string; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string; host?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; projectRoot?: string; isWSL?: boolean; serverConfig?: { displayName?: string; gitUser?: string }; lastDecision?: 'approved' | 'denied' | 'exited' | 'feedback' | null }) => {
+      .then((data: { plan: string; origin?: Origin; mode?: 'annotate' | 'annotate-last' | 'annotate-folder' | 'goal-setup'; goalSetup?: GoalSetupBundle; filePath?: string; sourceInfo?: string; sourceConverted?: boolean; gate?: boolean; renderAs?: 'html' | 'markdown'; rawHtml?: string; convertHtml?: boolean; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string; host?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; projectRoot?: string; isWSL?: boolean; serverConfig?: { displayName?: string; gitUser?: string }; lastDecision?: 'approved' | 'denied' | 'exited' | 'feedback' | null }) => {
         // Initialize config store with server-provided values (config file > cookie > default)
         configStore.getState().init(data.serverConfig);
+        // Session-level force-markdown preference (--markdown); threaded into folder/linked
+        // /api/doc requests so on-demand HTML files convert too.
+        setConvertHtml(data.convertHtml ?? false);
         // Enable the Ask AI document chat session for plan review (disabled for
         // goal-setup mode, which has no reviewable document context).
         setAISessionEnabled(data.mode !== 'goal-setup');
-        // gitUser drives the "Use git name" button in Settings; stays undefined (button hidden) when unavailable
-        setGitUser(data.serverConfig?.gitUser);
         if ((data.serverConfig as { legacyTabMode?: boolean } | undefined)?.legacyTabMode) setLegacyTabMode(true);
         if (data.mode === 'goal-setup' && data.goalSetup) {
           setGoalSetupBundle(data.goalSetup);
@@ -1344,6 +1380,18 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
     ));
   }, []);
 
+  // Re-tag annotations whenever identity changes anywhere (monolith Settings or
+  // the global AppSettingsDialog), via the decoupled identity-change event.
+  useEffect(() => {
+    const onIdentityChange = (e: Event) => {
+      const detail = (e as CustomEvent<{ oldId: string; newId: string }>).detail;
+      if (!detail) return;
+      handleIdentityChange(detail.oldId, detail.newId);
+    };
+    window.addEventListener('plannotator:identity-change', onIdentityChange);
+    return () => window.removeEventListener('plannotator:identity-change', onIdentityChange);
+  }, [handleIdentityChange]);
+
   const handleAddGlobalAttachment = (image: ImageAttachment) => {
     setGlobalAttachments(prev => [...prev, image]);
   };
@@ -1423,7 +1471,9 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const aiSourceConverted = linkedDocHook.isActive
     ? (linkedDocHook.getDocAnnotations().get(linkedDocHook.filepath ?? '')?.isConverted ?? false)
     : sourceConverted;
-  const aiRenderAs = linkedDocHook.isActive ? 'markdown' : renderAs;
+  // renderAs now tracks the active file (plan, linked doc, or folder file), so the AI
+  // sees the current surface's mode — raw HTML for an .html file, markdown otherwise.
+  const aiRenderAs = renderAs;
   const aiDocumentMode = annotateMode || linkedDocHook.isActive;
   const hasAIDocumentContext =
     !aiDocumentMode ||
@@ -1743,10 +1793,11 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const handlePrint = useCallback(() => window.print(), []);
   const handleOpenImport = useCallback(() => setShowImport(true), []);
 
-  const planMaxWidth = useMemo(() => {
-    const widths: Record<PlanWidth, number> = { compact: 832, default: 1040, wide: 1280 };
-    return widths[uiPrefs.planWidth] ?? 832;
-  }, [uiPrefs.planWidth]);
+  const planMaxWidth = useMemo<number | null>(() => {
+    const opt = PLAN_WIDTH_OPTIONS.find((o) => o.id === planWidth);
+    // px === null means "ultrawide" → no cap (full width).
+    return opt ? opt.px : 832;
+  }, [planWidth]);
   const annotateReaderMaxWidth = canUseWideMode && wideModeType === 'wide' ? null : planMaxWidth;
   const selectedAIProvider = aiProviders.find(provider => provider.id === aiConfig.providerId) ?? null;
   const shouldShowPlanAIAnnouncement =
@@ -1792,6 +1843,9 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
       <div ref={rootRef} data-print-region="root" className={`${__embedded ? 'h-full' : 'h-screen'} flex flex-col bg-background overflow-hidden`}>
         <AppHeader
           headerLeft={headerLeft}
+          htmlSurface={isHtmlSurface}
+          htmlToolsHidden={htmlToolsHidden}
+          onToggleHtmlTools={() => setHtmlToolsHidden((v) => !v)}
           skipBuiltInSettings={!!externalOpenSettings}
           isApiMode={isApiMode}
           annotateMode={annotateMode}
@@ -1817,9 +1871,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
           availableAgents={availableAgents}
           showAnnotationsWarning={allAnnotations.length > 0 || codeAnnotations.length > 0}
           callbackConfig={callbackConfig}
-          taterMode={taterMode}
           mobileSettingsOpen={mobileSettingsOpen}
-          gitUser={gitUser}
           onCallbackFeedback={handleCallbackFeedback}
           onCallbackApprove={handleCallbackApprove}
           onAnnotateExit={handleHeaderAnnotateExit}
@@ -1831,9 +1883,6 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
           onApprove={handleHeaderApprove}
           onAnnotationPanelToggle={handleAnnotationPanelToggle}
           onAIChatToggle={handleAIChatToggle}
-          onTaterModeChange={handleTaterModeChange}
-          onIdentityChange={handleIdentityChange}
-          onUIPreferencesChange={setUiPrefs}
           onOpenSettings={handleOpenSettings}
           onCloseSettings={handleCloseSettings}
           onOpenExport={handleOpenExport}
@@ -1871,7 +1920,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
 
         {/* Main Content */}
         <ScrollViewportContext.Provider value={scrollViewport}>
-        <div data-print-region="content" className={`flex-1 flex overflow-hidden relative z-0 ${isResizing ? 'select-none' : ''}`}>
+        <div data-print-region="content" data-plan-panes className={`flex-1 flex overflow-hidden relative z-0 ${isResizing ? 'select-none' : ''}`}>
           {/* Tater sprites — inside content wrapper so z-0 stacking context applies */}
           {taterMode && <TaterSpriteRunning />}
           {/* Left Sidebar: collapsed tab flags (when sidebar is closed) */}
@@ -1894,7 +1943,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                 activeTab={sidebar.activeTab}
                 onTabChange={toggleSidebarTab}
                 onClose={sidebar.close}
-                width={tocResize.width}
+                width={`var(--toc-w, ${tocResize.width}px)`}
                 blocks={blocks}
                 annotations={annotations}
                 activeSection={activeSection}
@@ -1922,25 +1971,25 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                 fetchingVersion={planDiff.fetchingVersion}
                 onFetchVersions={planDiff.fetchVersions}
               />
-              <ResizeHandle {...tocResize.handleProps} className="hidden lg:block" side="left" />
+              <ResizeHandle {...tocResize.handleProps} className="hidden lg:block" side="left" onCollapse={sidebar.close} />
             </>
           )}
 
           {/* Document Area */}
           <OverlayScrollArea
             element="main"
-            className={`flex-1 min-w-0 bg-grid ${!goalSetupMode && !sidebar.isOpen && wideModeType === null ? 'lg:pl-[30px]' : ''}`}
+            className={`flex-1 min-w-0 ${isHtmlSurface ? 'bg-background' : `${gridEnabled ? 'bg-grid ' : 'bg-card '}${!goalSetupMode && !sidebar.isOpen && wideModeType === null ? 'lg:pl-[30px]' : ''}`}`}
             data-print-region="document"
             onViewportReady={handleViewportReady}
           >
-            <div ref={planAreaRef} className="min-h-full flex flex-col items-center px-2 py-3 md:px-10 md:py-8 xl:px-16 relative z-10">
+            <div ref={planAreaRef} className={`${isHtmlSurface ? 'h-full flex flex-col' : 'min-h-full flex flex-col items-center px-2 py-3 md:px-10 md:py-8 xl:px-16'} relative z-10`}>
               {/* Sticky header lane — ghost bar that pins the toolstrip +
                   badges at top: 12px once the user scrolls. Invisible at top
                   of doc; original toolstrip/badges remain the source of
                   truth there. Hidden in plan diff mode, or when
                   sticky actions are disabled. remountToken re-anchors the
                   ResizeObserver when Viewer swaps content (linked docs). */}
-              {!goalSetupMode && !isPlanDiffActive && uiPrefs.stickyActionsEnabled && (
+              {!goalSetupMode && !isPlanDiffActive && !isHtmlSurface && stickyActionsEnabled && (
                 <StickyHeaderLane
                   inputMethod={inputMethod}
                   onInputMethodChange={handleInputMethodChange}
@@ -1958,15 +2007,25 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                 />
               )}
 
-              {/* Annotation Toolstrip (hidden during plan diff) */}
-              {!goalSetupMode && !isPlanDiffActive && (
-                <div data-print-hide className="w-full mb-3 md:mb-4 flex items-center justify-start" style={annotateReaderMaxWidth == null ? undefined : { maxWidth: annotateReaderMaxWidth }}>
+              {/* Annotation Toolstrip — the mode switcher (selection/redline input +
+                  comment/markup mode). Hidden during plan diff, and on HTML surfaces
+                  when the header's "Hide tools" toggle is on (leaving the rendered HTML
+                  free of overlay controls). On HTML it floats top-left over the doc. */}
+              {!goalSetupMode && !isPlanDiffActive && !(isHtmlSurface && htmlToolsHidden) && (
+                <div
+                  data-print-hide
+                  className={isHtmlSurface
+                    ? "absolute top-3 left-3 z-20 flex items-center rounded-lg border border-border/50 bg-background/85 px-1.5 py-1 shadow-md backdrop-blur-sm"
+                    : "w-full mb-3 md:mb-4 flex items-center justify-start"}
+                  style={isHtmlSurface || annotateReaderMaxWidth == null ? undefined : { maxWidth: annotateReaderMaxWidth }}
+                >
                   <AnnotationToolstrip
                     inputMethod={inputMethod}
                     onInputMethodChange={handleInputMethodChange}
                     mode={editorMode}
                     onModeChange={handleEditorModeChange}
                     taterMode={taterMode}
+                    showHelpLink={!isHtmlSurface}
                   />
                 </div>
               )}
@@ -2009,13 +2068,13 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                 <div className="w-full flex justify-center">
                   <div className="w-full max-w-3xl p-12 text-center text-muted-foreground">
                     <p className="text-lg font-medium mb-2">Select a file to annotate</p>
-                    <p className="text-sm">Pick a markdown file from the sidebar to begin.</p>
+                    <p className="text-sm">Pick a markdown or HTML file from the sidebar to begin.</p>
                   </div>
                 </div>
               )}
               {/* Normal Plan View — always mounted, hidden during diff mode */}
-              <div className="w-full flex justify-center relative" style={{ display: goalSetupMode || (isPlanDiffActive && planDiff.diffBlocks) || (annotateSource === 'folder' && !markdown && !linkedDocHook.isActive) ? 'none' : undefined }}>
-                {canUseWideMode && !isPlanDiffActive && (
+              <div className={`w-full relative ${isHtmlSurface ? 'flex-1 flex flex-col' : 'flex justify-center'}`} style={{ display: goalSetupMode || (isPlanDiffActive && planDiff.diffBlocks) || (annotateSource === 'folder' && !markdown && !linkedDocHook.isActive) ? 'none' : undefined }}>
+                {canUseWideMode && !isPlanDiffActive && !isHtmlSurface && (
                   <div
                     data-print-hide
                     className="absolute -top-5 left-0 right-0 mx-auto w-full flex justify-end pointer-events-none"
@@ -2050,6 +2109,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                 )}
                 {renderAs === 'html' ? (
                   <HtmlViewer
+                    key={linkedDocHook.isActive ? `doc:${linkedDocHook.filepath}` : 'plan'}
                     ref={viewerRef}
                     rawHtml={rawHtml}
                     annotations={viewerAnnotations}
@@ -2057,16 +2117,20 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                     onSelectAnnotation={handleSelectAnnotation}
                     selectedAnnotationId={selectedAnnotationId}
                     mode={editorMode}
+                    inputMethod={inputMethod}
                     globalAttachments={globalAttachments}
                     onAddGlobalAttachment={handleAddGlobalAttachment}
                     onRemoveGlobalAttachment={handleRemoveGlobalAttachment}
-                    maxWidth={annotateReaderMaxWidth}
+                    maxWidth={isHtmlSurface ? null : annotateReaderMaxWidth}
+                    fullViewport={isHtmlSurface}
+                    hideControls={htmlToolsHidden}
                     onAskAI={canUseAI ? handleAskAI : undefined}
                   />
                 ) : (
                   <Viewer
                     key={linkedDocHook.isActive ? `doc:${linkedDocHook.filepath}` : 'plan'}
                     ref={viewerRef}
+                    gridEnabled={gridEnabled}
                     blocks={blocks}
                     markdown={markdown}
                     frontmatter={frontmatter}
@@ -2081,7 +2145,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                     onAddGlobalAttachment={handleAddGlobalAttachment}
                     onRemoveGlobalAttachment={handleRemoveGlobalAttachment}
                     repoInfo={repoInfo}
-                    stickyActions={uiPrefs.stickyActionsEnabled}
+                    stickyActions={stickyActionsEnabled}
                     planDiffStats={linkedDocHook.isActive ? null : planDiff.diffStats}
                     isPlanDiffActive={isPlanDiffActive}
                     onPlanDiffToggle={togglePlanDiff}
@@ -2091,6 +2155,10 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                     onOpenLinkedDoc={handleOpenLinkedDoc}
                     onOpenCodeFile={codeFilePopout.open}
                     linkedDocInfo={linkedDocInfo}
+                    // Folder mode: the sidebar file browser is the way back, so the
+                    // breadcrumb would just duplicate it. Hide it there; keep it
+                    // everywhere else (plan/single-file/HTML), where it's the only way back.
+                    showLinkedDocBadge={annotateSource !== 'folder'}
                     imageBaseDir={imageBaseDir}
                     codePathBaseDir={activeDocBaseDir}
                     copyLabel={annotateSource === 'message' ? 'Copy message' : annotateSource === 'file' || annotateSource === 'folder' ? 'Copy file' : undefined}
@@ -2106,7 +2174,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
           </OverlayScrollArea>
 
           {/* Resize Handle */}
-          {isPanelOpen && wideModeType === null && !goalSetupMode && (rightSidebarTab === 'annotations' || canUseAI) && <ResizeHandle {...panelResize.handleProps} className="hidden md:block" side="right" />}
+          {isPanelOpen && wideModeType === null && !goalSetupMode && (rightSidebarTab === 'annotations' || canUseAI) && <ResizeHandle {...panelResize.handleProps} className="hidden md:block" side="right" onCollapse={() => setIsPanelOpen(false)} />}
 
           {/* Annotation Panel */}
           <AnnotationPanel
@@ -2122,7 +2190,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
             onDeleteCodeAnnotation={handleDeleteCodeAnnotation}
             onEditCodeAnnotation={handleEditCodeAnnotation}
             sharingEnabled={canShareCurrentSession}
-            width={panelResize.width}
+            width={`var(--rpanel-w, ${panelResize.width}px)`}
             editorAnnotations={editorAnnotations}
             onDeleteEditorAnnotation={deleteEditorAnnotation}
             onClose={() => setIsPanelOpen(false)}
@@ -2136,10 +2204,11 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
           {isPanelOpen && rightSidebarTab === 'ai' && wideModeType === null && !goalSetupMode && canUseAI && (
             <aside
               data-annotation-panel="true"
-              className={`border-l border-border/50 bg-card/30 backdrop-blur-sm flex flex-col flex-shrink-0 ${
+              data-plan-sidebar="right"
+              className={`border-l border-border/50 bg-card flex flex-col flex-shrink-0 ${
                 isMobile ? 'fixed top-12 bottom-0 right-0 z-[60] w-full max-w-sm shadow-2xl bg-card' : ''
               }`}
-              style={isMobile ? undefined : { width: panelResize.width ?? 288 }}
+              style={isMobile ? undefined : { width: `var(--rpanel-w, ${panelResize.width ?? 288}px)` }}
             >
               <div className="px-3 flex items-center border-b border-border/50" style={{ height: 'var(--panel-header-h)' }}>
                 <div className="flex items-center gap-2 w-full min-w-0">
@@ -2154,11 +2223,11 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                     </svg>
                   </button>
                   <SparklesIcon className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                  <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate">
+                  <h2 className="text-xs font-semibold text-foreground truncate">
                     AI
                   </h2>
                   {aiMessages.length > 0 && (
-                    <span className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                    <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary/10 px-1 font-mono text-[10px] font-medium tabular-nums text-primary">
                       {aiMessages.length}
                     </span>
                   )}

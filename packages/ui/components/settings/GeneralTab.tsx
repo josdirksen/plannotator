@@ -6,29 +6,24 @@ import { ToggleSwitch } from './shared';
 
 interface GeneralTabProps {
   gitUser?: string;
-  onIdentityChange?: (oldIdentity: string, newIdentity: string) => void;
   legacyTabMode?: boolean;
   onLegacyTabModeChange?: (enabled: boolean) => void;
 }
 
-export const GeneralTab: React.FC<GeneralTabProps> = ({ gitUser, onIdentityChange, legacyTabMode, onLegacyTabModeChange }) => {
+export const GeneralTab: React.FC<GeneralTabProps> = ({ gitUser, legacyTabMode, onLegacyTabModeChange }) => {
   const [identity, setIdentity] = useState(() => getIdentity());
   const [autoClose, setAutoClose] = useState<AutoCloseDelay>(() => getAutoCloseDelay());
 
   const handleIdentitySave = (value: string) => {
     const trimmed = value.trim();
     if (!trimmed || trimmed === identity) return;
-    const oldIdentity = identity;
     setCustomIdentity(trimmed);
     setIdentity(trimmed);
-    onIdentityChange?.(oldIdentity, trimmed);
   };
 
   const handleRegenerateIdentity = () => {
-    const oldIdentity = identity;
     const newIdentity = regenerateIdentity();
     setIdentity(newIdentity);
-    onIdentityChange?.(oldIdentity, newIdentity);
   };
 
   const handleUseGitName = () => {

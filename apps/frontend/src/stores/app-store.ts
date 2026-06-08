@@ -21,11 +21,12 @@ export interface AppState {
   /** cwds of projects the user has explicitly toggled open in the sidebar. */
   expandedProjects: Set<string>;
   /**
-   * cwds of worktrees the user has explicitly COLLAPSED. Worktrees default to
-   * expanded (so their live sessions show when the project is open); this tracks
-   * the exceptions.
+   * Explicit per-worktree open/closed choices, keyed by cwd. Absent = follow the
+   * computed default (open when the worktree has a real session or contains the
+   * active session). Present = the user deliberately set this state, which wins
+   * over the default and survives the default later changing.
    */
-  collapsedWorktrees: Set<string>;
+  worktreeOpen: Record<string, boolean>;
 }
 
 export interface AppActions {
@@ -36,7 +37,7 @@ export interface AppActions {
   removeSession(sessionId: string): void;
   toggleProjectExpand(cwd: string): void;
   setProjectExpanded(cwd: string, open: boolean): void;
-  toggleWorktreeCollapse(cwd: string): void;
+  setWorktreeOpen(cwd: string, open: boolean): void;
 }
 
 export type AppStore = AppState & AppActions;
@@ -47,16 +48,16 @@ const initialState: AppState = {
   activeSessionId: null,
   visitedSessions: {},
   expandedProjects: new Set<string>(),
-  collapsedWorktrees: new Set<string>(),
+  worktreeOpen: {},
 };
 
 export function createAppStore(initial: Partial<AppState> = {}) {
   return createStore<AppStore>()(
     immer((set) => ({
       ...initialState,
-      // Fresh Sets per store so instances don't share expansion state.
+      // Fresh Set per store so instances don't share expansion state.
       expandedProjects: new Set<string>(initialState.expandedProjects),
-      collapsedWorktrees: new Set<string>(initialState.collapsedWorktrees),
+      worktreeOpen: { ...initialState.worktreeOpen },
       ...initial,
       setAddProjectOpen(open) {
         set((state) => {
@@ -107,13 +108,9 @@ export function createAppStore(initial: Partial<AppState> = {}) {
           }
         });
       },
-      toggleWorktreeCollapse(cwd) {
+      setWorktreeOpen(cwd, open) {
         set((state) => {
-          if (state.collapsedWorktrees.has(cwd)) {
-            state.collapsedWorktrees.delete(cwd);
-          } else {
-            state.collapsedWorktrees.add(cwd);
-          }
+          state.worktreeOpen[cwd] = open;
         });
       },
     })),

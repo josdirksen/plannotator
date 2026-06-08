@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { useDismissOnOutsideAndEscape } from "../hooks/useDismissOnOutsideAndEscape";
 import { type QuickLabel, getQuickLabels } from "../utils/quickLabels";
 import { FloatingQuickLabelPicker } from "./FloatingQuickLabelPicker";
+import { CommentIcon } from "./icons/CommentIcon";
 
 type PositionMode = 'center-above' | 'top-right';
 
@@ -189,7 +190,7 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
   return createPortal(
     <div
       ref={toolbarRef}
-      className="annotation-toolbar fixed z-[100] bg-popover border border-border rounded-lg shadow-2xl"
+      className="annotation-toolbar fixed z-[100] rounded-xl bg-card/95 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_4px_12px_-2px_rgba(0,0,0,0.12)] backdrop-blur-sm"
       style={style}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseEnter={onMouseEnter}
@@ -227,7 +228,7 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
           onClick={() => handleTypeSelect(AnnotationType.COMMENT)}
           icon={<CommentIcon />}
           label="Comment"
-          className="text-accent hover:bg-accent/10"
+          className="text-annotation-comment hover:bg-annotation-comment/10"
         />
         {onQuickLabel && (
           <>
@@ -285,12 +286,6 @@ const CheckIcon = () => (
 const TrashIcon = () => (
   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-  </svg>
-);
-
-const CommentIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
   </svg>
 );
 

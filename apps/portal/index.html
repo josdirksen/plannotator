@@ -5,15 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Plannotator</title>
 
-    <!-- Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-
-    <!-- Syntax Highlighting -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-
+    <!--
+      Fonts (Inter Variable, Geist Mono Variable) and
+      syntax-highlighting styles are bundled via the shared design system
+      (@plannotator/ui/design-system.css imported in index.tsx) so the portal's
+      typography and code highlighting match the frontend exactly. No CDN links.
+    -->
   </head>
   <body class="min-h-screen antialiased">
     <div id="root" class="h-full"></div>

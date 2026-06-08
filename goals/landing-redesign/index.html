@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Homepage — cards × current</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style> body { font-family: 'Inter', system-ui, sans-serif; } </style>
+</head>
+<body class="h-screen overflow-hidden bg-zinc-100 text-zinc-900 antialiased">
+  <div class="flex h-full">
+    <aside class="flex w-72 flex-col border-r border-zinc-200 bg-white">
+      <div class="px-5 py-4">
+        <h1 class="text-[15px] font-semibold tracking-tight">Cards × current</h1>
+        <p class="mt-1 text-[12px] text-zinc-500">Hybrids of Option C (cards) + today's flow</p>
+      </div>
+      <nav id="nav" class="flex-1 space-y-1 overflow-y-auto px-3"></nav>
+      <p class="px-5 py-3 text-[11px] text-zinc-400">Throwaway mocks. Open “Current” to compare.</p>
+    </aside>
+    <main class="flex-1 bg-zinc-50">
+      <iframe id="frame" class="h-full w-full border-0" src="combo-1-list-drilldown.html"></iframe>
+    </main>
+  </div>
+
+  <script>
+    const options = [
+      { f: "current.html",                 t: "Current (reference)",  d: "Today: selectable list → launch bar → active list.",   a: "baseline · kept" },
+      { f: "combo-2-drilldown-cards.html", t: "C2 · Cards + drill-down", d: "Cards expand to worktrees + PRs, each launchable.", a: "kept" },
+      { f: "combo-5-list-cards.html",      t: "C5 · List-cards",      d: "Today's list density, card polish + hover actions.",   a: "kept" },
+      { f: "combo-1-list-drilldown.html",  t: "C1 · List + drill-down", d: "C5 rows that expand to worktrees + PRs.",          a: "NEW · refines C5" },
+      { f: "combo-3-refined-current.html", t: "C3 · Refined current", d: "Same select→launch flow, tidied + checkmarks.",        a: "NEW · refines current" },
+      { f: "combo-4-grid-drilldown.html",  t: "C4 · Grid + drill-down", d: "Cleaner card grid; a card opens to worktrees/PRs.", a: "NEW · refines C2" },
+    ];
+    const nav = document.getElementById("nav");
+    const frame = document.getElementById("frame");
+    let active = 3;
+    function render() {
+      nav.innerHTML = "";
+      options.forEach((o, i) => {
+        const b = document.createElement("button");
+        b.className = "w-full rounded-lg px-3 py-2.5 text-left transition " +
+          (i === active ? "bg-violet-50 ring-1 ring-violet-200" : "hover:bg-zinc-100") +
+          (i === 0 ? " border-b border-zinc-100" : "");
+        b.innerHTML =
+          `<div class="text-[13px] font-semibold ${i===active?'text-violet-900':'text-zinc-800'}">${o.t}</div>` +
+          `<div class="mt-0.5 text-[11px] text-zinc-500">${o.d}</div>` +
+          `<div class="mt-1 text-[10px] uppercase tracking-wider text-zinc-400">${o.a}</div>`;
+        b.onclick = () => { active = i; frame.src = o.f; render(); };
+        nav.appendChild(b);
+      });
+    }
+    render();
+  </script>
+</body>
+</html>

@@ -11,13 +11,6 @@ let dirs: string[] = [];
 let runtimes: DaemonRuntime[] = [];
 const shellHtml = "<html><head></head><body>Shell</body></html>";
 
-
-function daemonAuthHeaders(runtime: DaemonRuntime, headers?: HeadersInit): Headers {
-  const next = new Headers(headers);
-  next.set("authorization", `Bearer ${runtime.state.authToken}`);
-  return next;
-}
-
 function tempBase(): string {
   const dir = mkdtempSync(join(tmpdir(), "plannotator-daemon-runtime-"));
   dirs.push(dir);
@@ -104,7 +97,7 @@ describe("startDaemonRuntime", () => {
 
     const res = await fetch(`${runtime.state.baseUrl}/daemon/shutdown`, {
       method: "POST",
-      headers: daemonAuthHeaders(runtime, { "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: "{}",
     });
     expect((await res.json()).shuttingDown).toBe(true);
@@ -140,7 +133,7 @@ describe("startDaemonRuntime", () => {
     try {
       const create = await fetch(`${runtime.state.baseUrl}/daemon/sessions`, {
         method: "POST",
-        headers: daemonAuthHeaders(runtime, { "content-type": "application/json" }),
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ request: { action: "plan", origin: "opencode", cwd: process.cwd(), plan: "# Plan" } }),
       });
       expect(create.status).toBe(201);

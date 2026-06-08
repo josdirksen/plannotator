@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useProjectStore } from "../../stores/project-store";
 import { daemonApiClient } from "../../daemon/api/client";
-import type { DirectoryEntry, ProjectEntry } from "../../daemon/contracts";
+import type { DirectoryEntry } from "../../daemon/contracts";
 
 interface AddProjectDialogProps {
   open: boolean;
@@ -18,12 +18,9 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const projects = useProjectStore((s) => s.projects);
   const addProject = useProjectStore((s) => s.addProject);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-
-  const recentProjects = projects.slice(0, 5);
 
   const fetchDirs = useCallback(async (path: string) => {
     setLoading(true);
@@ -78,37 +75,27 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      const totalItems = recentProjects.length + dirs.length;
-      if (e.key === "ArrowDown") {
+      if (e.key === "ArrowDown" && dirs.length > 0) {
         e.preventDefault();
-        setActiveIndex((prev) => (prev + 1) % totalItems);
-      } else if (e.key === "ArrowUp") {
+        setActiveIndex((prev) => (prev + 1) % dirs.length);
+      } else if (e.key === "ArrowUp" && dirs.length > 0) {
         e.preventDefault();
-        setActiveIndex((prev) => (prev - 1 + totalItems) % totalItems);
+        setActiveIndex((prev) => (prev - 1 + dirs.length) % dirs.length);
       } else if (e.key === "Tab" && !e.shiftKey && dirs.length > 0) {
         e.preventDefault();
-        const dirIndex = activeIndex - recentProjects.length;
-        if (dirIndex >= 0 && dirIndex < dirs.length) {
-          handleNavigate(dirs[dirIndex].path);
-        } else if (dirs.length > 0) {
-          handleNavigate(dirs[0].path);
-        }
+        const target = activeIndex >= 0 && activeIndex < dirs.length ? dirs[activeIndex] : dirs[0];
+        handleNavigate(target.path);
       } else if (e.key === "Enter") {
         e.preventDefault();
-        if (activeIndex < recentProjects.length) {
-          handleSelect(recentProjects[activeIndex].cwd);
-        } else {
-          const dirIndex = activeIndex - recentProjects.length;
-          if (dirIndex >= 0 && dirIndex < dirs.length) {
-            handleSelect(dirs[dirIndex].path);
-          } else if (resolvedPath) {
-            handleSelect(resolvedPath);
-          }
+        if (activeIndex >= 0 && activeIndex < dirs.length) {
+          handleSelect(dirs[activeIndex].path);
+        } else if (resolvedPath) {
+          handleSelect(resolvedPath);
         }
       }
       // Escape is handled by Radix Dialog (onEscapeKeyDown → onOpenChange(false)).
     },
-    [activeIndex, dirs, recentProjects, resolvedPath, handleNavigate, handleSelect],
+    [activeIndex, dirs, resolvedPath, handleNavigate, handleSelect],
   );
 
   useEffect(() => {
@@ -155,45 +142,19 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
         </div>
 
         <div ref={listRef} className="max-h-72 overflow-y-auto">
-          {recentProjects.length > 0 && (
-            <div className="px-2 pt-2">
-              <span className="px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                Recent
-              </span>
-              {recentProjects.map((project, i) => (
-                <ProjectRow
-                  key={project.cwd}
-                  project={project}
-                  active={activeIndex === i}
-                  index={i}
-                  onSelect={() => handleSelect(project.cwd)}
-                  onHover={() => setActiveIndex(i)}
-                />
-              ))}
-            </div>
-          )}
-
-          <div className="px-2 pb-2 pt-1">
-            {recentProjects.length > 0 && dirs.length > 0 && (
-              <span className="px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                Directories
-              </span>
-            )}
-            {dirs.map((dir, i) => {
-              const idx = recentProjects.length + i;
-              return (
-                <DirectoryRow
-                  key={dir.path}
-                  dir={dir}
-                  active={activeIndex === idx}
-                  index={idx}
-                  onSelect={() => handleSelect(dir.path)}
-                  onNavigate={() => handleNavigate(dir.path)}
-                  onHover={() => setActiveIndex(idx)}
-                />
-              );
-            })}
-            {!loading && dirs.length === 0 && recentProjects.length === 0 && (
+          <div className="px-2 py-2">
+            {dirs.map((dir, i) => (
+              <DirectoryRow
+                key={dir.path}
+                dir={dir}
+                active={activeIndex === i}
+                index={i}
+                onSelect={() => handleSelect(dir.path)}
+                onNavigate={() => handleNavigate(dir.path)}
+                onHover={() => setActiveIndex(i)}
+              />
+            ))}
+            {!loading && dirs.length === 0 && (
               <div className="px-2 py-4 text-center text-[12px] text-muted-foreground">
                 No directories found
               </div>
@@ -214,39 +175,6 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
         </div>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function ProjectRow({
-  project,
-  active,
-  index,
-  onSelect,
-  onHover,
-}: {
-  project: ProjectEntry;
-  active: boolean;
-  index: number;
-  onSelect: () => void;
-  onHover: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      data-index={index}
-      onClick={onSelect}
-      onMouseEnter={onHover}
-      className={cn(
-        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px]",
-        active ? "bg-primary/10 text-foreground" : "text-foreground hover:bg-surface-1",
-      )}
-    >
-      <Folder className="size-3.5 shrink-0" />
-      <span className="font-medium">{project.name}</span>
-      <span className="ml-auto truncate text-[11px] text-muted-foreground">
-        {project.cwd.replace(/^\/Users\/[^/]+/, "~")}
-      </span>
-    </button>
   );
 }
 

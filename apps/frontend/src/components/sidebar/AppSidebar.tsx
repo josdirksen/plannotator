@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import { Link, useMatchRoute } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useMatchRoute, useNavigate } from "@tanstack/react-router";
 import * as Collapsible from "@radix-ui/react-collapsible";
-import { ChevronRight, Folder, GitBranch, Moon, Settings, Sun } from "lucide-react";
-import { TaterSpriteSidebar } from "./TaterSpriteSidebar";
+import { toast } from "sonner";
+import { Folder, FolderOpen, Plus, Settings } from "lucide-react";
+import { daemonApiClient } from "../../daemon/api/client";
+import { TaterSpriteSidebar } from "@plannotator/ui/components/sprites";
 import { useActiveProjectCwd } from "./useActiveProjectCwd";
 import { ROW, pad } from "./row-style";
 import { appStore, useAppStore } from "../../stores/app-store";
@@ -16,7 +18,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { useTheme } from "@plannotator/ui/components/ThemeProvider";
 import { buildSessionTree } from "@plannotator/ui/utils/sessionTree";
 import type {
   SessionTreeProject,
@@ -30,10 +31,6 @@ import { formatSessionLabel, getSessionModeMeta } from "../../shared/session-met
 
 /** Non-terminal session statuses — the only ones the sidebar surfaces. */
 const LIVE_STATUSES = new Set<string>(["active", "idle", "awaiting-resubmission"]);
-
-const CHEVRON =
-  "size-3.5 shrink-0 text-muted-foreground/45 transition-transform duration-150 " +
-  "group-data-[state=open]/disc:rotate-90";
 
 function SessionRow({
   session,
@@ -61,11 +58,83 @@ function SessionRow({
       )}
       title={formatSessionLabel(session.label, session.mode)}
     >
-      {/* spacer where a chevron would sit, so the mode icon aligns under sibling icons */}
-      <span className="size-3.5 shrink-0" aria-hidden />
       <Icon className="size-3 shrink-0 text-muted-foreground/55" />
       <span className="truncate">{formatSessionLabel(session.label, session.mode)}</span>
     </Link>
+  );
+}
+
+/** Mode icon shared with annotate session rows, so the row reads as a sibling. */
+const AnnotateModeIcon = getSessionModeMeta("annotate").icon;
+
+/** True for an annotate session whose match key encodes a folder (vs a single file). */
+function isFolderAnnotateSession(s: DaemonSessionSummary): boolean {
+  return s.mode === "annotate" && !!s.matchKey && s.matchKey.includes(":folder:");
+}
+
+/** The live folder-annotate session anchored to exactly this folder, if any. */
+function folderSessionFor(
+  sessions: DaemonSessionSummary[],
+  cwd: string,
+): DaemonSessionSummary | undefined {
+  return sessions.find((s) => s.matchKey?.endsWith(`:folder:${cwd}`));
+}
+
+/**
+ * The folder's "Annotate" row — one per project and worktree, so every folder is
+ * openable. When the folder's annotate session is live it IS that session: the row
+ * highlights when active and navigates straight to it. When none exists yet, the
+ * row launches one (create-or-reuse via the daemon, mirroring HistoryRow.handleOpen).
+ */
+function FolderAnnotateRow({
+  cwd,
+  depth,
+  session,
+  matchRoute,
+}: {
+  cwd: string;
+  depth: number;
+  session?: DaemonSessionSummary;
+  matchRoute: ReturnType<typeof useMatchRoute>;
+}) {
+  const navigate = useNavigate();
+  const [launching, setLaunching] = useState(false);
+  const isActive =
+    !!session && !!matchRoute({ to: "/s/$sessionId", params: { sessionId: session.id } });
+
+  const handleOpen = async () => {
+    if (session) {
+      void navigate({ to: "/s/$sessionId", params: { sessionId: session.id } });
+      return;
+    }
+    if (launching) return;
+    setLaunching(true);
+    const result = await daemonApiClient.createAnnotateFolderSession(cwd);
+    setLaunching(false);
+    if (result.ok) {
+      void navigate({ to: "/s/$sessionId", params: { sessionId: result.data.session.id } });
+    } else {
+      toast.error("Failed to open folder", { description: result.error.message });
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleOpen}
+      disabled={launching}
+      style={pad(depth)}
+      className={cn(
+        ROW,
+        "cursor-pointer text-muted-foreground/70 disabled:cursor-default disabled:opacity-60",
+        isActive &&
+          "bg-sidebar-accent font-medium text-sidebar-accent-foreground hover:bg-sidebar-accent",
+      )}
+      title="Annotate this folder"
+    >
+      <AnnotateModeIcon className="size-3 shrink-0 text-muted-foreground/55" />
+      <span className="truncate">Annotate</span>
+    </button>
   );
 }
 
@@ -78,25 +147,43 @@ function WorktreeNode({
   depth: number;
   matchRoute: ReturnType<typeof useMatchRoute>;
 }) {
-  const collapsed = useAppStore((s) => s.collapsedWorktrees.has(worktree.cwd));
-  const toggle = useAppStore((s) => s.toggleWorktreeCollapse);
-  if (worktree.sessions.length === 0) return null;
+  const override = useAppStore((s) => s.worktreeOpen[worktree.cwd]);
+  const setWorktreeOpen = useAppStore((s) => s.setWorktreeOpen);
+  // The folder-annotate session (if live) is represented by the Annotate row, not
+  // a separate session row.
+  const folderSession = folderSessionFor(worktree.sessions, worktree.cwd);
+  const sessionRows = worktree.sessions.filter((s) => !isFolderAnnotateSession(s));
+  // Default open when the worktree has a real session (something beyond its
+  // Annotate row) OR contains the session you're currently viewing — so the
+  // active worktree opens itself, even after a refresh (the route is the source
+  // of truth). A user's explicit toggle overrides the default and sticks.
+  const containsActive = worktree.sessions.some(
+    (s) => !!matchRoute({ to: "/s/$sessionId", params: { sessionId: s.id } }),
+  );
+  const open = override ?? (sessionRows.length > 0 || containsActive);
   return (
-    <Collapsible.Root open={!collapsed} onOpenChange={() => toggle(worktree.cwd)}>
+    <Collapsible.Root open={open} onOpenChange={(next) => setWorktreeOpen(worktree.cwd, next)}>
       <Collapsible.Trigger
         style={pad(depth)}
-        className={cn(ROW, "group/disc text-sidebar-foreground/70")}
+        className={cn(ROW, "text-sidebar-foreground/70")}
         title={worktree.name}
       >
-        <ChevronRight className={CHEVRON} />
-        <GitBranch className="size-3 shrink-0 text-muted-foreground/55" />
+        <span className="flex size-3.5 shrink-0 items-center justify-center text-[11px] font-bold text-muted-foreground/55">W</span>
         <span className="truncate">{worktree.name}</span>
-        <span className="ml-auto pl-1 text-[10px] tabular-nums text-muted-foreground/45">
-          {worktree.sessions.length}
-        </span>
+        {sessionRows.length > 0 && (
+          <span className="ml-auto pl-1 text-[10px] tabular-nums text-muted-foreground/45">
+            {sessionRows.length}
+          </span>
+        )}
       </Collapsible.Trigger>
       <Collapsible.Content>
-        {worktree.sessions.map((session) => (
+        <FolderAnnotateRow
+          cwd={worktree.cwd}
+          depth={depth + 1}
+          session={folderSession}
+          matchRoute={matchRoute}
+        />
+        {sessionRows.map((session) => (
           <SessionRow
             key={session.id}
             session={session}
@@ -120,19 +207,29 @@ function ProjectNode({
   onToggle: () => void;
   matchRoute: ReturnType<typeof useMatchRoute>;
 }) {
+  // Folder-annotate sessions are shown as each folder's Annotate row, so they're
+  // excluded from session-row rendering and from the live-session count.
+  const folderSession = folderSessionFor(project.directSessions, project.cwd);
+  const directRows = project.directSessions.filter((s) => !isFolderAnnotateSession(s));
   const liveCount =
-    project.directSessions.length +
-    project.worktrees.reduce((sum, wt) => sum + wt.sessions.length, 0);
+    directRows.length +
+    project.worktrees.reduce(
+      (sum, wt) => sum + wt.sessions.filter((s) => !isFolderAnnotateSession(s)).length,
+      0,
+    );
 
   return (
     <Collapsible.Root open={isOpen} onOpenChange={onToggle}>
       <Collapsible.Trigger
         style={pad(0)}
-        className={cn(ROW, "group/disc font-medium text-sidebar-foreground/90")}
+        className={cn(ROW, "font-medium text-sidebar-foreground/90")}
         title={project.name}
       >
-        <ChevronRight className={CHEVRON} />
-        <Folder className="size-3.5 shrink-0 text-muted-foreground/60" />
+        {isOpen ? (
+          <FolderOpen className="size-3.5 shrink-0 text-muted-foreground/60" />
+        ) : (
+          <Folder className="size-3.5 shrink-0 text-muted-foreground/60" />
+        )}
         <span className="truncate">{project.name}</span>
         {liveCount > 0 && (
           <span className="ml-auto pl-1 text-[10px] tabular-nums text-muted-foreground/45">
@@ -141,7 +238,13 @@ function ProjectNode({
         )}
       </Collapsible.Trigger>
       <Collapsible.Content>
-        {project.directSessions.map((session) => (
+        <FolderAnnotateRow
+          cwd={project.cwd}
+          depth={1}
+          session={folderSession}
+          matchRoute={matchRoute}
+        />
+        {directRows.map((session) => (
           <SessionRow key={session.id} session={session} depth={1} matchRoute={matchRoute} />
         ))}
         {project.worktrees.map((worktree) => (
@@ -152,7 +255,7 @@ function ProjectNode({
             matchRoute={matchRoute}
           />
         ))}
-        {liveCount === 0 && (
+        {liveCount === 0 && project.worktrees.length === 0 && !folderSession && (
           <div
             style={pad(1)}
             className="flex h-6 items-center text-[11px] text-muted-foreground/40"
@@ -165,13 +268,12 @@ function ProjectNode({
   );
 }
 
-export function AppSidebarContent() {
+export function AppSidebarContent({ contentClassName }: { contentClassName?: string } = {}) {
   const sessions = useDaemonEventStore((s) => s.sessions);
   const projects = useProjectStore((p) => p.projects);
   const expandedProjects = useAppStore((s) => s.expandedProjects);
   const toggleProjectExpand = useAppStore((s) => s.toggleProjectExpand);
   const activeProjectCwd = useActiveProjectCwd();
-  const { resolvedMode, setMode } = useTheme();
   const matchRoute = useMatchRoute();
 
   // Live-only: exclude terminal sessions (completed/cancelled/expired/failed).
@@ -197,10 +299,6 @@ export function AppSidebarContent() {
       appStore.getState().setProjectExpanded(activeProjectCwd, true);
     }
   }, [activeProjectCwd]);
-
-  const toggleTheme = useCallback(() => {
-    setMode(resolvedMode === "dark" ? "light" : "dark");
-  }, [resolvedMode, setMode]);
 
   return (
     <>
@@ -232,7 +330,18 @@ export function AppSidebarContent() {
         </Link>
       </SidebarHeader>
 
-      <SidebarContent className="gap-0 px-1 py-2">
+      <SidebarContent className={`gap-0 px-1 py-2 ${contentClassName ?? ""}`}>
+        <button
+          type="button"
+          onClick={() => appStore.getState().setAddProjectOpen(true)}
+          className="mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
+        >
+          <Plus className="size-4 shrink-0" />
+          New project
+        </button>
+        <div className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/50">
+          Projects
+        </div>
         {tree.length === 0 ? (
           <div className="px-3 py-2 text-[11px] text-muted-foreground/50">
             No projects yet
@@ -261,12 +370,6 @@ export function AppSidebarContent() {
               <span>Settings</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton onClick={toggleTheme} tooltip="Toggle theme">
-              {resolvedMode === "dark" ? <Sun /> : <Moon />}
-              <span>Toggle theme</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
     </>
@@ -276,7 +379,9 @@ export function AppSidebarContent() {
 export function AppSidebar() {
   return (
     <Sidebar collapsible="offcanvas">
-      <AppSidebarContent />
+      {/* Logo/header stays pinned at the top; only the project tree drops down
+          a bit in the docked sidebar (the peek is fine, so it's untouched). */}
+      <AppSidebarContent contentClassName="mt-6" />
     </Sidebar>
   );
 }

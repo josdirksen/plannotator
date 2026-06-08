@@ -60,6 +60,21 @@ export function extractDirName(path: string): string | null {
 }
 
 /**
+ * Collapse a user's home-directory prefix to `~` for compact display.
+ *
+ * Pure heuristic (no `os` access) so it runs in the browser too: matches
+ * macOS `/Users/<u>/`, Linux `/home/<u>/`, and Windows `C:\Users\<u>\`.
+ * Returns the path unchanged when no home prefix is found.
+ */
+export function prettyPath(path: string): string {
+  if (!path || typeof path !== "string") return path;
+  return path
+    .replace(/^\/Users\/[^/]+\//, "~/")
+    .replace(/^\/home\/[^/]+\//, "~/")
+    .replace(/^[A-Za-z]:\\Users\\[^\\]+\\/, "~\\");
+}
+
+/**
  * Extract hostname from a URL string, or return the original string on failure.
  */
 export function hostnameOrFallback(url: string): string {

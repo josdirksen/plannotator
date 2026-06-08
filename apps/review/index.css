@@ -1,0 +1,14 @@
+/*
+ * Code-review dev harness stylesheet.
+ *
+ * Mirrors the frontend shell (apps/frontend/src/styles.css): pull in the shared
+ * design system (Tailwind + theme tokens + fonts) and the code-review-specific
+ * styles (dockview bridge, panel heights), then add the @source scan for the
+ * code-review package so Tailwind generates its utility classes. design-system
+ * only scans ui + plan-review, so without this @source the code-review screen
+ * would render with classes that have no CSS.
+ */
+@import "@plannotator/ui/design-system.css";
+@import "@plannotator/code-review/styles";
+
+@source "../../packages/plannotator-code-review/**/*.{ts,tsx}";

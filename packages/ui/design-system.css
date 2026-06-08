@@ -1,0 +1,227 @@
+/*
+ * Plannotator shared design system — SINGLE SOURCE OF TRUTH.
+ *
+ * This file is imported by BOTH apps/frontend (the daemon shell) and
+ * apps/portal (share.plannotator.ai). Both render the same plan editor
+ * (@plannotator/plan-review) + the @plannotator/ui component library, so the
+ * full design system (fonts, theme tokens, Tailwind, the animate plugin,
+ * @theme/@theme inline bridge, the @layer base surfaces, and the editor
+ * animations) lives here once and is shared.
+ *
+ * IMPORTANT — @source anchoring: Tailwind v4 resolves @source globs RELATIVE
+ * TO THIS FILE (packages/ui/design-system.css), not relative to the importing
+ * app entry. That is exactly why the same globs work for both consumers. If
+ * this file is ever MOVED, every @source glob below must be re-pathed.
+ *
+ * IMPORTANT — source order is load-bearing for Tailwind v4:
+ *   1. all real CSS @import statements first (fonts, theme tokens, tailwind,
+ *      the plan-review rules),
+ *   2. then @plugin / @source / @custom-variant,
+ *   3. then @theme + @theme inline (must precede @layer base, whose @apply
+ *      depends on the bridge utilities they register),
+ *   4. then @layer base and the rest.
+ */
+
+/* 1. Fonts — must be the first statements (real CSS @imports).
+ *    Inter (sans) + Geist Mono (mono) are the editor's typefaces, rendered by
+ *    both apps. Instrument Sans is frontend-shell-only (the AppSidebar wordmark)
+ *    so it is imported from apps/frontend/src/styles.css instead — the portal
+ *    never renders that component and must not bundle the font. */
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/geist-mono";
+
+/* 2. Theme color tokens (~50 themes) + theme.css base. Sibling of this file. */
+@import "./theme.css";
+
+/* 3. Tailwind. Required for ANY utility generation. */
+@import "tailwindcss";
+
+/* 4. Plan-review-specific rules (hljs colors, .annotation-highlight,
+ *    .plan-diff-*). Folded in here so a single shared import delivers the
+ *    whole editor look. Sibling package. (No @theme/@layer inside — plain
+ *    rules — so it is safe to load after tailwindcss.) */
+@import "../plannotator-plan-review/index.css";
+
+@plugin "tailwindcss-animate";
+
+/*
+ * @source globs — anchored to packages/ui/design-system.css.
+ * These three trees are the editor surfaces BOTH apps render:
+ *   ./components            -> packages/ui/components
+ *   ./hooks                 -> packages/ui/hooks
+ *   ../plannotator-plan-review -> packages/plannotator-plan-review
+ * Do NOT add the frontend src or code-review scans here — those are
+ * frontend-only and stay in apps/frontend/src/styles.css.
+ */
+@source "./components/**/*.{ts,tsx}";
+@source "./hooks/**/*.{ts,tsx}";
+@source "../plannotator-plan-review/**/*.{ts,tsx}";
+
+/*
+ * Theme bridge — Plannotator uses .theme-{name} (dark default) + .light modifier.
+ * Dark is the default state (no .light class). Light mode adds .light to <html>.
+ * The dark: variant matches "not light" so prototype components work as-is.
+ */
+@custom-variant dark (&:not(.light *));
+
+@theme {
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", "SF Mono", ui-monospace, monospace;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.45;
+  --text-base: 1rem;
+  --text-base--line-height: 1.55;
+  --text-lg: 1.0625rem;
+  --text-lg--line-height: 1.45;
+  --text-xl: 1.1875rem;
+  --text-xl--line-height: 1.4;
+  --text-2xl: 1.375rem;
+  --text-2xl--line-height: 1.3;
+  --text-3xl: 1.625rem;
+  --text-3xl--line-height: 1.2;
+  --text-4xl: 1.875rem;
+  --text-4xl--line-height: 1.15;
+  --text-5xl: 2rem;
+  --text-5xl--line-height: 1.1;
+}
+
+/*
+ * @theme inline — ONLY the tokens theme.css does not already bridge.
+ * theme.css (imported above, and also used standalone by the marketing site)
+ * already maps the base palette + radius + fonts (background, primary, border,
+ * ring, radius-*, …). This adds the app-design-system extras on top: the
+ * sidebar palette and the surface-0/1/2 elevation layers. Keeping the base
+ * bridge solely in theme.css avoids a duplicated, drift-prone second copy.
+ */
+@theme inline {
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  /* Comment-annotation indicator color. Defaults to each theme's --accent
+   * (see :root below); a theme whose accent is a low-contrast neutral (e.g.
+   * "simple") overrides --annotation-comment directly. */
+  --color-annotation-comment: var(--annotation-comment);
+}
+
+/*
+ * Extended tokens — derived from Plannotator's theme vars so they
+ * adapt to all 50+ themes. These cover gaps between Plannotator's
+ * token set and what the prototype components expect.
+ */
+@layer base {
+  :root {
+    --surface-0: color-mix(in oklch, var(--muted) 40%, var(--background));
+    --surface-1: var(--muted);
+    --surface-2: color-mix(in oklch, var(--muted) 70%, var(--foreground));
+    --sidebar: var(--card);
+    --sidebar-foreground: var(--foreground);
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: var(--muted);
+    --sidebar-accent-foreground: var(--foreground);
+    --sidebar-border: var(--border);
+    --sidebar-ring: var(--ring);
+    /* Comment-annotation color follows the theme's accent unless the theme
+     * overrides it (neutral themes whose accent is an illegible gray). */
+    --annotation-comment: var(--accent);
+    --card-ring: rgba(255, 255, 255, 0.08);
+    --card-shadow:
+      0 0 0 1px var(--card-ring), 0 1px 3px 0 rgba(0, 0, 0, 0.2), 0 2px 8px -2px rgba(0, 0, 0, 0.3);
+  }
+
+  .light {
+    --card-ring: rgba(0, 0, 0, 0.06);
+    --card-shadow:
+      0 0 0 1px var(--card-ring), 0 1px 3px 0 rgba(0, 0, 0, 0.04),
+      0 2px 8px -2px rgba(0, 0, 0, 0.06);
+  }
+
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-size: 13px;
+    font-weight: 450;
+  }
+
+  code,
+  .font-mono {
+    letter-spacing: -0.02em;
+    font-weight: 450;
+  }
+}
+
+/* Native scrollbars are defined once in ./theme.css (imported above). */
+
+/* Animations (plan editor). fade-in / toolbar-enter / approve-pulse are keyed
+ * on plan-editor selectors ([data-toolbar], [data-approved]) so they belong to
+ * the shared editor look. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toolbar-enter {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+[data-toolbar] {
+  animation: toolbar-enter 180ms ease-out both;
+}
+
+@keyframes approve-pulse {
+  0% {
+    box-shadow: 0 0 0 0 oklch(0.55 0.18 145 / 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 6px oklch(0.55 0.18 145 / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 oklch(0.55 0.18 145 / 0);
+  }
+}
+
+[data-approved] {
+  animation: approve-pulse 600ms ease-out;
+}
+
+/* Custom selection */
+::selection {
+  color: #fff;
+  background-color: oklch(0.45 0.15 264);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

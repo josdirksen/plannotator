@@ -11,5 +11,5 @@ export const pad = (depth: number) => ({ paddingLeft: `${8 + depth * INDENT}px` 
 
 /** Shared compact row. ~26px tall, single-line, truncating. */
 export const ROW =
-  "group/row flex h-[26px] w-full items-center gap-1.5 rounded-md pr-2 text-left text-xs " +
+  "group/row flex h-[30px] w-full items-center gap-1.5 rounded-md pr-2 text-left text-sm " +
   "text-sidebar-foreground/85 transition-colors hover:bg-sidebar-accent/50";

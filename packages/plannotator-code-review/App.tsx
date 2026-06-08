@@ -3,7 +3,6 @@ import { type Origin, getAgentName } from '@plannotator/shared/agents';
 import { ThemeProvider, useTheme } from '@plannotator/ui/components/ThemeProvider';
 import { TooltipProvider } from '@plannotator/ui/components/Tooltip';
 import { ConfirmDialog } from '@plannotator/ui/components/ConfirmDialog';
-import { Settings } from '@plannotator/ui/components/Settings';
 import { FeedbackButton, ApproveButton, ExitButton } from '@plannotator/ui/components/ToolbarButtons';
 import { AgentReviewActions } from './components/AgentReviewActions';
 import { useUpdateCheck } from '@plannotator/ui/hooks/useUpdateCheck';
@@ -48,6 +47,7 @@ import { ReviewSidebar } from './components/ReviewSidebar';
 import type { ReviewSidebarTab } from './components/ReviewSidebar';
 import { SparklesIcon } from '@plannotator/ui/components/SparklesIcon';
 import { ReviewAgentsIcon } from '@plannotator/ui/components/ReviewAgentsIcon';
+import { FolderTree } from 'lucide-react';
 import { useSidebar } from '@plannotator/ui/hooks/useSidebar';
 import { FileTree } from './components/FileTree';
 import { StackedPRLabel } from './components/StackedPRLabel';
@@ -177,7 +177,6 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
   const [allFilesVisibleFile, setAllFilesVisibleFile] = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showWorktreeDialog, setShowWorktreeDialog] = useState(false);
-  const [openSettingsMenu, setOpenSettingsMenu] = useState(false);
   const [showNoAnnotationsDialog, setShowNoAnnotationsDialog] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const diffStyle = useConfigValue('diffStyle');
@@ -220,7 +219,6 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
   const [viewedFiles, setViewedFiles] = useState<Set<string>>(new Set());
   const [hideViewedFiles, setHideViewedFiles] = useState(false);
   const [origin, setOrigin] = useState<Origin | null>(null);
-  const [gitUser, setGitUser] = useState<string | undefined>();
   const [isWSL, setIsWSL] = useState(false);
   const [legacyTabMode, setLegacyTabMode] = useState(false);
   const [diffType, setDiffType] = useState<string>('uncommitted');
@@ -649,10 +647,20 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
   }, [askAI]);
 
   // Resizable panels
-  const panelResize = useResizablePanel({ storageKey: 'plannotator-review-panel-width' });
+  const panelResize = useResizablePanel({
+    storageKey: 'plannotator-review-panel-width',
+    side: 'right',
+    // Drag the panel skinny → snap it shut (matches the in-plan panels).
+    onSnapClose: () => reviewSidebar.close(),
+    // Render-free drag: write the live width to a :root CSS var so the heavy
+    // review app never re-renders mid-drag; React commits state on release.
+    apply: (w) => document.documentElement.style.setProperty('--cr-rpanel-w', `${w}px`),
+  });
   const fileTreeResize = useResizablePanel({
     storageKey: 'plannotator-filetree-width',
     defaultWidth: 256, minWidth: 160, maxWidth: 400, side: 'left',
+    onSnapClose: () => setIsFileTreeOpen(false),
+    apply: (w) => document.documentElement.style.setProperty('--cr-filetree-w', `${w}px`),
   });
   const isResizing = panelResize.isDragging || fileTreeResize.isDragging;
 
@@ -875,7 +883,6 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
         lastDecision?: 'approved' | 'feedback' | 'exited' | null;
       }) => {
         configStore.getState().init(data.serverConfig);
-        setGitUser(data.serverConfig?.gitUser);
         if ((data.serverConfig as { legacyTabMode?: boolean } | undefined)?.legacyTabMode) setLegacyTabMode(true);
         const apiFiles = parseDiffToFiles(data.rawPatch);
         setDiffData({
@@ -1094,6 +1101,18 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
       ),
     );
   }, [storeApi]);
+
+  // Re-tag annotations whenever identity changes anywhere (monolith Settings or
+  // the global AppSettingsDialog), via the decoupled identity-change event.
+  useEffect(() => {
+    const onIdentityChange = (e: Event) => {
+      const detail = (e as CustomEvent<{ oldId: string; newId: string }>).detail;
+      if (!detail) return;
+      handleIdentityChange(detail.oldId, detail.newId);
+    };
+    window.addEventListener('plannotator:identity-change', onIdentityChange);
+    return () => window.removeEventListener('plannotator:identity-change', onIdentityChange);
+  }, [handleIdentityChange]);
 
   // Switch file in the dedicated center diff panel.
   const handleFilePreview = useCallback((index: number) => {
@@ -1897,7 +1916,7 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
       {isSwitchingPRScope && <PRSwitchOverlay />}
       <div ref={rootRef} className={`${__embedded ? 'h-full' : 'h-screen'} flex flex-col bg-background overflow-hidden`}>
         {/* Header */}
-        <header className="py-1 flex items-center justify-between px-2 md:px-4 border-b border-border/50 bg-card/50 backdrop-blur-xl z-50">
+        <header className="h-12 flex items-center justify-between px-2 md:px-4 border-b border-border/50 bg-card/50 backdrop-blur-xl z-50">
           <div className={`min-w-0 flex items-center gap-2 md:gap-3 ${headerLeft ? '' : '-ml-1.5 md:-ml-3'}`}>
             {headerLeft}
             {headerLeft && shouldShowFileTree && (
@@ -1914,9 +1933,7 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
                   }`}
                   title={isFileTreeOpen ? 'Hide file tree' : 'Show file tree'}
                 >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                  </svg>
+                  <FolderTree className="w-4 h-4" />
                 </button>
                 <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
               </>
@@ -2170,21 +2187,6 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
 
             <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
 
-            <ReviewHeaderMenu
-              onOpenSettings={() => { if (externalOpenSettings) { externalOpenSettings(); return; } setOpenSettingsMenu(true); }}
-              onOpenExport={() => setShowExportModal(true)}
-              onToggleFileTree={() => setIsFileTreeOpen(prev => !prev)}
-              onToggleSidebar={() => reviewSidebar.isOpen ? reviewSidebar.close() : reviewSidebar.open()}
-              isFileTreeOpen={isFileTreeOpen}
-              isSidebarOpen={reviewSidebar.isOpen}
-              appVersion={appVersion}
-              updateInfo={updateInfo}
-              origin={origin}
-              isWSL={isWSL}
-            />
-
-            <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
-
             {/* Sidebar tab toggles */}
             <button
               onClick={() => reviewSidebar.toggleTab('annotations')}
@@ -2236,6 +2238,21 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
                 )}
               </button>
             )}
+
+            <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
+
+            <ReviewHeaderMenu
+              onOpenSettings={() => externalOpenSettings?.()}
+              onOpenExport={() => setShowExportModal(true)}
+              onToggleFileTree={() => setIsFileTreeOpen(prev => !prev)}
+              onToggleSidebar={() => reviewSidebar.isOpen ? reviewSidebar.close() : reviewSidebar.open()}
+              isFileTreeOpen={isFileTreeOpen}
+              isSidebarOpen={reviewSidebar.isOpen}
+              appVersion={appVersion}
+              updateInfo={updateInfo}
+              origin={origin}
+              isWSL={isWSL}
+            />
           </div>
         </header>
 
@@ -2249,7 +2266,7 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
         )}
 
         {/* Main content */}
-        <div className={`flex-1 flex overflow-hidden ${isResizing ? 'select-none' : ''}`}>
+        <div data-cr-panes className={`flex-1 flex overflow-hidden ${isResizing ? 'select-none' : ''}`}>
           {shouldShowFileTree && isFileTreeOpen && (
             <>
               <FileTree
@@ -2302,7 +2319,7 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
                 onStepSearchMatch={hasSearchableFiles ? stepSearchMatch : undefined}
                 repoRoot={prMetadata ? null : (activeWorktreePath ?? agentCwd ?? gitContext?.cwd ?? null)}
               />
-              <ResizeHandle {...fileTreeResize.handleProps} side="left" />
+              <ResizeHandle {...fileTreeResize.handleProps} side="left" onCollapse={() => setIsFileTreeOpen(false)} />
             </>
           )}
 
@@ -2369,7 +2386,7 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
           {/* Resize Handle + Sidebar */}
           {reviewSidebar.isOpen && (
             <>
-              <ResizeHandle {...panelResize.handleProps} side="right" />
+              <ResizeHandle {...panelResize.handleProps} side="right" onCollapse={reviewSidebar.close} />
               <ReviewSidebar
                 isOpen
                 onClose={reviewSidebar.close}
@@ -2445,22 +2462,6 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
                 </button>
               </div>
             </div>
-          </div>
-        )}
-
-        {!externalOpenSettings && (
-          <div className="hidden" aria-hidden="true">
-            <Settings
-              taterMode={false}
-              onTaterModeChange={() => {}}
-              onIdentityChange={handleIdentityChange}
-              origin={origin}
-              mode="review"
-              aiProviders={aiProviders}
-              gitUser={gitUser}
-              externalOpen={openSettingsMenu}
-              onExternalClose={() => setOpenSettingsMenu(false)}
-            />
           </div>
         )}
 

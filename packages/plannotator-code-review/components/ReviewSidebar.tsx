@@ -108,7 +108,6 @@ function compareCodeAnnotations(a: CodeAnnotation, b: CodeAnnotation): number {
 
 export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
   isOpen,
-  onClose,
   activeTab,
   annotations,
   files,
@@ -270,34 +269,25 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
   }
 
   return (
-    <aside className="border-l border-border/50 bg-card/30 backdrop-blur-sm flex flex-col flex-shrink-0" style={{ width: width ?? 288 }}>
+    <aside data-cr-sidebar="right" className="border-l border-border/50 bg-card/30 backdrop-blur-sm flex flex-col flex-shrink-0" style={{ width: `var(--cr-rpanel-w, ${width ?? 288}px)` }}>
         {/* Header */}
         <div className="px-3 flex items-center border-b border-border/50" style={{ height: 'var(--panel-header-h)' }}>
           <div className="flex items-center gap-2 w-full min-w-0">
-            <button
-              onClick={onClose}
-              className="flex items-center justify-center w-5 h-5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
-              title="Close sidebar"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate">
+            <h2 className="text-xs font-medium text-foreground truncate">
               {activeTab === 'annotations' ? 'Annotations' : activeTab === 'ai' ? 'AI' : 'Review Agents'}
             </h2>
             {activeTab === 'annotations' && totalCount > 0 && (
-              <span className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+              <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary/10 px-1 font-mono text-[10px] font-medium tabular-nums text-primary">
                 {totalCount}
               </span>
             )}
             {activeTab === 'agents' && (agentJobs?.length ?? 0) > 0 && (
-              <span className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+              <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary/10 px-1 font-mono text-[10px] font-medium tabular-nums text-primary">
                 {agentJobs!.length}
               </span>
             )}
             {activeTab === 'ai' && aiMessages.length > 0 && (
-              <span className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+              <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary/10 px-1 font-mono text-[10px] font-medium tabular-nums text-primary">
                 {aiMessages.length}
               </span>
             )}
@@ -376,6 +366,7 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
                     <EditorAnnotationCard
                       key={ann.id}
                       annotation={ann}
+                      variant="code-review"
                       onDelete={() => onDeleteEditorAnnotation?.(ann.id)}
                     />
                   ))}

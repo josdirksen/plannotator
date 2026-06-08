@@ -12,6 +12,7 @@
 import type { DiffLineBgIntensity } from '@plannotator/shared/config';
 import { storage } from '../utils/storage';
 import { generateIdentity } from '../utils/generateIdentity';
+import { isPlanWidth, type PlanWidth } from '../utils/uiPreferences';
 
 const DIFF_LINE_BG_INTENSITY_VALUES = ['subtle', 'normal', 'strong'] as const;
 function isDiffLineBgIntensity(v: unknown): v is DiffLineBgIntensity {
@@ -262,6 +263,54 @@ export const SETTINGS = {
       return v === 'true' ? true : v === 'false' ? false : undefined;
     },
     toCookie: (v: boolean) => storage.setItem('plannotator-tater-mode', String(v)),
+    serverKey: undefined,
+    fromServer: undefined,
+    toServer: undefined,
+  },
+  /** Plan document max-width tier (compact/default/wide/ultrawide). Cookie-only. */
+  planWidth: {
+    defaultValue: 'compact' as PlanWidth,
+    fromCookie: () => {
+      const v = storage.getItem('plannotator-plan-width');
+      return isPlanWidth(v) ? v : undefined;
+    },
+    toCookie: (v: PlanWidth) => storage.setItem('plannotator-plan-width', v),
+    serverKey: undefined,
+    fromServer: undefined,
+    toServer: undefined,
+  },
+  /** Auto-open the left sidebar (TOC tab) on load. Cookie-only. */
+  tocEnabled: {
+    defaultValue: true as boolean,
+    fromCookie: () => {
+      const v = storage.getItem('plannotator-toc-enabled');
+      return v === undefined || v === null ? undefined : v !== 'false';
+    },
+    toCookie: (v: boolean) => storage.setItem('plannotator-toc-enabled', String(v)),
+    serverKey: undefined,
+    fromServer: undefined,
+    toServer: undefined,
+  },
+  /** Keep action buttons pinned while scrolling. Cookie-only. */
+  stickyActionsEnabled: {
+    defaultValue: true as boolean,
+    fromCookie: () => {
+      const v = storage.getItem('plannotator-sticky-actions-enabled');
+      return v === undefined || v === null ? undefined : v !== 'false';
+    },
+    toCookie: (v: boolean) => storage.setItem('plannotator-sticky-actions-enabled', String(v)),
+    serverKey: undefined,
+    fromServer: undefined,
+    toServer: undefined,
+  },
+  /** Grid pattern behind the plan document. Optional, default OFF. Cookie-only. */
+  gridEnabled: {
+    defaultValue: false as boolean,
+    fromCookie: () => {
+      const v = storage.getItem('plannotator-grid-enabled');
+      return v === 'true' ? true : v === 'false' ? false : undefined;
+    },
+    toCookie: (v: boolean) => storage.setItem('plannotator-grid-enabled', String(v)),
     serverKey: undefined,
     fromServer: undefined,
     toServer: undefined,

@@ -15,7 +15,11 @@ interface GitDashboardProps {
 }
 
 export function GitDashboard({ active, onBack }: GitDashboardProps) {
-  const { groups, metrics, loading, error, isEmpty } = useGitDashboard(active);
+  const [projectFilter, setProjectFilter] = useState<string | null>(null);
+  const { groups, metrics, loading, error, isEmpty, projectNames } = useGitDashboard(
+    active,
+    projectFilter,
+  );
   const [launchingId, setLaunchingId] = useState<string | null>(null);
   const navigate = useNavigate();
 
@@ -36,7 +40,7 @@ export function GitDashboard({ active, onBack }: GitDashboardProps) {
   return (
     <div className="h-full overflow-auto">
       <div className="mx-auto w-full max-w-5xl px-6 py-10 md:py-14">
-        <div className="mb-8">
+        <div className="mb-8 flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={onBack}
@@ -44,6 +48,20 @@ export function GitDashboard({ active, onBack }: GitDashboardProps) {
           >
             ← Back
           </button>
+          {projectNames.length > 0 && (
+            <select
+              value={projectFilter ?? ""}
+              onChange={(e) => setProjectFilter(e.target.value || null)}
+              className="rounded border border-border bg-background px-2 py-1 text-xs text-foreground"
+            >
+              <option value="">All projects</option>
+              {projectNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         {loading && isEmpty && (

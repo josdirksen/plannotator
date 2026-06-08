@@ -7,7 +7,7 @@ import {
   INDICATOR_OPTIONS,
   LINE_DIFF_OPTIONS,
   LINE_BG_INTENSITY_OPTIONS,
-} from '@plannotator/ui/components/Settings';
+} from '@plannotator/ui/components/settings/diffOptions';
 
 function CompactSegmented<T extends string>({ options, value, onChange }: {
   options: { value: T; label: string }[];

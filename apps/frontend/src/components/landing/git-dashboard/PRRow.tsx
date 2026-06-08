@@ -74,8 +74,12 @@ export function PRRow({ pr, loading, onSelect }: PRRowProps) {
           <span className="font-mono text-[10px] text-muted-foreground/50">—</span>
         ) : (
           <span className="flex items-center gap-1.5 font-mono text-[10px]">
-            <span className="tabular-nums text-green-600 dark:text-green-400">+{pr.additions}</span>
-            <span className="tabular-nums text-red-600 dark:text-red-400">-{pr.deletions}</span>
+            {pr.additions > 0 && (
+              <span className="tabular-nums text-green-600 dark:text-green-400">+{pr.additions}</span>
+            )}
+            {pr.deletions > 0 && (
+              <span className="tabular-nums text-red-600 dark:text-red-400">-{pr.deletions}</span>
+            )}
           </span>
         )}
         {pr.commentCount > 0 && (

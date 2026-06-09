@@ -25,7 +25,15 @@ function loadSemanticDiff(rawPatch: string): Promise<SemanticDiffResponse> {
       status: 'error',
       reason: 'fetch-failed',
       message: error instanceof Error ? error.message : String(error),
-    }));
+    }))
+    .then((data) => {
+      // Logged once per patch (the promise is cached) rather than per badge, so a
+      // systemic failure leaves a trace instead of every badge vanishing silently.
+      if (data.status !== 'ok') {
+        console.error('Failed to load semantic diff for file badges:', data.message ?? data.reason ?? data.status);
+      }
+      return data;
+    });
   return cachePromise;
 }
 

@@ -5,12 +5,12 @@ import type {
   SemanticDiffChange,
 } from '@plannotator/shared/semantic-diff-types';
 
+// `renamed`/`moved` are handled by the early return in getChangeSymbol, so they
+// intentionally have no entry here.
 const changeSymbols: Record<string, string> = {
   added: '⊕',
   deleted: '⊖',
   modified: '∆',
-  moved: '↻',
-  renamed: '↻',
   reordered: '↕',
 };
 

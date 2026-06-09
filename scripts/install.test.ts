@@ -997,6 +997,14 @@ describe("install shared behavior", () => {
     expect(cmdScript).toContain("Skipping semantic diff sidecar install");
     expect(cmdScript).toContain("Get-ChildItem -Path $env:SEM_EXTRACT -Filter sem.exe -Recurse -File");
     expect(cmdScript).toContain('copy /y "!EXTRACTED_SEM!" "!SEM_PATH!"');
+
+    // The sidecar download is time-bounded so a slow/hung fetch can't wedge an
+    // install where plannotator itself already landed (all three installers).
+    expect(sh).toContain("--connect-timeout 10 --max-time 120");
+    expect(ps).toContain("-TimeoutSec 120");
+    expect(cmdScript).toContain("--connect-timeout 10 --max-time 120");
+    // And the opt-out is documented in the help text.
+    expect(sh).toContain("PLANNOTATOR_SKIP_SEM_INSTALL=1");
   });
 
   test("install.sh and help text use vX.Y.Z placeholder not v0.17.1", () => {

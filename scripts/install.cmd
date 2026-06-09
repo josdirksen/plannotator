@@ -1048,13 +1048,15 @@ set "SEM_CHECKSUMS=%TEMP%\plannotator-sem-checksums-%RANDOM%.txt"
 set "SEM_EXTRACT=%TEMP%\plannotator-sem-%RANDOM%"
 mkdir "!SEM_EXTRACT!" >nul 2>&1
 
-curl -fsSL "!SEM_BASE_URL!/!SEM_ASSET!" -o "!SEM_ARCHIVE!"
+REM Bounded so a slow/hung download of this optional sidecar can't wedge an
+REM install where plannotator already landed. Opt out with PLANNOTATOR_SKIP_SEM_INSTALL=1.
+curl -fsSL --connect-timeout 10 --max-time 120 "!SEM_BASE_URL!/!SEM_ASSET!" -o "!SEM_ARCHIVE!"
 if !ERRORLEVEL! neq 0 (
     echo Skipping semantic diff sidecar install ^(download failed^)
     goto :sem_cleanup
 )
 
-curl -fsSL "!SEM_BASE_URL!/checksums.txt" -o "!SEM_CHECKSUMS!"
+curl -fsSL --connect-timeout 10 --max-time 60 "!SEM_BASE_URL!/checksums.txt" -o "!SEM_CHECKSUMS!"
 if !ERRORLEVEL! neq 0 (
     echo Skipping semantic diff sidecar install ^(checksum download failed^)
     goto :sem_cleanup

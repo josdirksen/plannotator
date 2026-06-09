@@ -86,6 +86,11 @@ Provenance verification is off by default. Enable it by any of:
   - exporting PLANNOTATOR_VERIFY_ATTESTATION=1
   - setting { "verifyAttestation": true } in ~/.plannotator/config.json
 
+The optional semantic-diff sidecar (the 'sem' binary, used by code review) is
+installed after Plannotator itself. Skip it by exporting
+PLANNOTATOR_SKIP_SEM_INSTALL=1. Its download is time-bounded, so a slow network
+never blocks an otherwise-complete install.
+
 Examples:
   curl -fsSL https://plannotator.ai/install.sh | bash
   curl -fsSL https://plannotator.ai/install.sh | bash -s -- --version vX.Y.Z
@@ -416,12 +421,15 @@ install_sem_sidecar() {
     sem_checksums="${tmp_sem_dir}/checksums.txt"
     sem_base_url="https://github.com/${SEM_REPO}/releases/download/${SEM_VERSION}"
 
-    if ! curl -fsSL -o "$sem_archive" "${sem_base_url}/${sem_asset}"; then
+    # Bounded so a slow/hung download of this optional sidecar can't wedge an
+    # install where plannotator itself already landed. On timeout curl fails and
+    # we skip gracefully. Opt out entirely with PLANNOTATOR_SKIP_SEM_INSTALL=1.
+    if ! curl -fsSL --connect-timeout 10 --max-time 120 -o "$sem_archive" "${sem_base_url}/${sem_asset}"; then
         echo "Skipping semantic diff sidecar install (download failed)"
         rm -rf "$tmp_sem_dir"
         return 0
     fi
-    if ! curl -fsSL -o "$sem_checksums" "${sem_base_url}/checksums.txt"; then
+    if ! curl -fsSL --connect-timeout 10 --max-time 60 -o "$sem_checksums" "${sem_base_url}/checksums.txt"; then
         echo "Skipping semantic diff sidecar install (checksum download failed)"
         rm -rf "$tmp_sem_dir"
         return 0

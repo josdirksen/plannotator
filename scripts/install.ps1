@@ -150,8 +150,10 @@ function Install-SemSidecar {
         $semBaseUrl = "https://github.com/$semRepo/releases/download/$semVersion"
         $semArchive = Join-Path $tmpSemDir $semAsset
         $semChecksums = Join-Path $tmpSemDir "checksums.txt"
-        Invoke-WebRequest -Uri "$semBaseUrl/$semAsset" -OutFile $semArchive -UseBasicParsing
-        Invoke-WebRequest -Uri "$semBaseUrl/checksums.txt" -OutFile $semChecksums -UseBasicParsing
+        # Bounded so a slow/hung download of this optional sidecar can't wedge an
+        # install where plannotator already landed; the catch below skips it.
+        Invoke-WebRequest -Uri "$semBaseUrl/$semAsset" -OutFile $semArchive -UseBasicParsing -TimeoutSec 120
+        Invoke-WebRequest -Uri "$semBaseUrl/checksums.txt" -OutFile $semChecksums -UseBasicParsing -TimeoutSec 60
 
         $expected = (Get-Content $semChecksums | Where-Object { $_ -match "\s$([regex]::Escape($semAsset))$" } | ForEach-Object { ($_ -split '\s+')[0] } | Select-Object -First 1)
         if (-not $expected) {

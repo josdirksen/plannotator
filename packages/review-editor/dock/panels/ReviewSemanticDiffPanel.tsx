@@ -39,6 +39,12 @@ function formatLoadError(error: SemanticDiffErrorResponse | Error): string {
   return error.message || 'Semantic diff failed.';
 }
 
+function splitFilePath(filePath: string): { dir: string; name: string } {
+  const lastSlash = filePath.lastIndexOf('/');
+  if (lastSlash === -1) return { dir: '', name: filePath };
+  return { dir: filePath.slice(0, lastSlash + 1), name: filePath.slice(lastSlash + 1) };
+}
+
 export function ReviewSemanticDiffPanel() {
   const state = useReviewState();
   const {
@@ -149,7 +155,17 @@ export function ReviewSemanticDiffPanel() {
         {groupedChanges.map((group) => (
           <section className="semantic-diff-file" key={group.filePath}>
             <header className="semantic-diff-file-header">
-              <span className="semantic-diff-path">{group.filePath}</span>
+              <span className="semantic-diff-path" title={group.filePath}>
+                {(() => {
+                  const { dir, name } = splitFilePath(group.filePath);
+                  return (
+                    <>
+                      {dir && <span className="semantic-diff-path-dir">{dir}</span>}
+                      <span className="semantic-diff-path-name">{name}</span>
+                    </>
+                  );
+                })()}
+              </span>
             </header>
             <div className="semantic-diff-rows">
               <SemanticDiffRows

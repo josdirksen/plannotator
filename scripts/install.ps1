@@ -6,8 +6,6 @@ param(
     [switch]$Extras,
     [switch]$NoExtras,
     [string]$ModelInvocable = "",
-    [switch]$Glimpse,
-    [switch]$NoGlimpse,
     [switch]$NonInteractive,
     [switch]$Reconfigure
 )
@@ -25,11 +23,6 @@ if ($Extras -and $NoExtras) {
     [Console]::Error.WriteLine("-Extras and -NoExtras are mutually exclusive. Pass one or the other.")
     exit 1
 }
-if ($Glimpse -and $NoGlimpse) {
-    [Console]::Error.WriteLine("-Glimpse and -NoGlimpse are mutually exclusive. Pass one or the other.")
-    exit 1
-}
-
 $repo = "backnotprop/plannotator"
 $semRepo = "Ataraxy-Labs/sem"
 $semVersion = "v0.8.0"
@@ -486,18 +479,12 @@ $extraSkillNames = @("plannotator-compound", "plannotator-setup-goal", "plannota
 
 $savedExtras = ""
 $savedInvocable = ""
-$savedGlimpse = ""
 if (Test-Path $prefsFile) {
     foreach ($line in Get-Content $prefsFile) {
         if ($line -match '^extras=(.*)$') { $savedExtras = $Matches[1] }
         if ($line -match '^model_invocable=(.*)$') { $savedInvocable = $Matches[1] }
-        if ($line -match '^glimpse=(.*)$') { $savedGlimpse = $Matches[1] }
     }
 }
-
-# Glimpse (glimpseui) gives Plannotator a native window instead of a browser
-# tab; the runtime auto-detects it on PATH. Skip the question when installed.
-$glimpsePresent = [bool](Get-Command glimpseui -ErrorAction SilentlyContinue)
 
 # Extras already on disk (pre-existing or previously npx-installed)? Then the
 # extras question is moot — they still count toward the checkbox list, and we
@@ -560,7 +547,7 @@ function Read-YesNo {
     $suffix = if ($Default -eq "yes") { "[Y/n]" } else { "[y/N]" }
     Write-Host "$Prompt $suffix " -NoNewline
     # On timeout nobody is there -> return the SAFE "no", never $Default, so a
-    # yes-default prompt (Glimpse) can't auto-run unattended.
+    # yes-default prompt can't auto-run unattended.
     $answer = Read-LineWithTimeout $script:promptTimeout
     if ($null -eq $answer) {
         Write-Host ""
@@ -611,7 +598,6 @@ function Select-SkillsCheckbox {
 
 $extrasChoice = ""
 $invocableChoice = ""
-$glimpseChoice = ""
 
 if ($runWizard) {
     Write-Host ""
@@ -642,49 +628,20 @@ if ($runWizard) {
             $invocableChoice = "none"
         }
     }
-    if ($glimpsePresent) {
-        Write-Host "Glimpse already installed — Plannotator will open in its native window."
-        $glimpseChoice = "yes"
-    } elseif ($Glimpse -or $NoGlimpse) {
-        # Flag already answered this question — don't ask and then ignore.
-        $glimpseChoice = if ($Glimpse) { "yes" } else { "no" }
-    } else {
-        $defaultGlimpse = if ($savedGlimpse) { $savedGlimpse } else { "yes" }
-        $glimpseChoice = Read-YesNo "Install Glimpse so Plannotator opens in a native window instead of a browser tab? (npm i -g glimpseui)" $defaultGlimpse
-    }
 }
 
 # Flags override the wizard and saved answers; otherwise saved, then defaults.
 if ($Extras) { $extrasChoice = "yes" }
 if ($NoExtras) { $extrasChoice = "no" }
 if ($ModelInvocable) { $invocableChoice = $ModelInvocable }
-if ($Glimpse) { $glimpseChoice = "yes" }
-if ($NoGlimpse) { $glimpseChoice = "no" }
 if (-not $extrasChoice) { $extrasChoice = if ($savedExtras) { $savedExtras } else { "no" } }
 if (-not $invocableChoice) { $invocableChoice = if ($savedInvocable) { $savedInvocable } else { "none" } }
-if (-not $glimpseChoice) { $glimpseChoice = if ($savedGlimpse) { $savedGlimpse } else { "no" } }
 
 # Persist only when the wizard ran or a flag set something — silent re-runs
 # must not clobber saved answers with defaults.
-if ($runWizard -or $Extras -or $NoExtras -or $ModelInvocable -or $Glimpse -or $NoGlimpse) {
+if ($runWizard -or $Extras -or $NoExtras -or $ModelInvocable) {
     New-Item -ItemType Directory -Force -Path $configDir | Out-Null
-    @("extras=$extrasChoice", "model_invocable=$invocableChoice", "glimpse=$glimpseChoice") | Set-Content $prefsFile
-}
-
-# Glimpse install (global npm package; the runtime auto-detects it on PATH).
-# Wizard or explicit flag only — silent re-runs never install software.
-if (($glimpseChoice -eq "yes") -and (-not $glimpsePresent) -and ($runWizard -or $Glimpse)) {
-    if (Get-Command npm -ErrorAction SilentlyContinue) {
-        Write-Host "Installing Glimpse (npm install -g glimpseui)..."
-        npm install -g glimpseui
-        if ($LASTEXITCODE -ne 0) { Write-Host "Glimpse install failed — install later with: npm install -g glimpseui" }
-    } elseif (Get-Command bun -ErrorAction SilentlyContinue) {
-        Write-Host "Installing Glimpse (bun install -g glimpseui)..."
-        bun install -g glimpseui
-        if ($LASTEXITCODE -ne 0) { Write-Host "Glimpse install failed — install later with: bun install -g glimpseui" }
-    } else {
-        Write-Host "npm/bun not found — install Node.js, then: npm install -g glimpseui"
-    }
+    @("extras=$extrasChoice", "model_invocable=$invocableChoice") | Set-Content $prefsFile
 }
 
 # Extras install is delegated to the skills CLI (its UI picks the agents).

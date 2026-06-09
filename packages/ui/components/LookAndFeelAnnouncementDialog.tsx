@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { SparklesIcon } from './SparklesIcon';
+import lookGridImg from '../assets/look-grid.png';
+import lookFlatImg from '../assets/look-flat.png';
 
 interface LookAndFeelAnnouncementDialogProps {
   isOpen: boolean;
@@ -12,12 +14,40 @@ interface LookAndFeelAnnouncementDialogProps {
   onDismiss: () => void;
 }
 
+const OPTIONS: {
+  key: string;
+  /** gridEnabled value this option selects. */
+  value: boolean;
+  img: string;
+  title: string;
+  tag: string;
+  desc: string;
+}[] = [
+  {
+    key: 'grid',
+    value: true,
+    img: lookGridImg,
+    title: 'Grid',
+    tag: 'Classic',
+    desc: 'Your plan as a floating card on grid paper.',
+  },
+  {
+    key: 'flat',
+    value: false,
+    img: lookFlatImg,
+    title: 'Clean',
+    tag: 'New',
+    desc: 'A simpler, edge-to-edge flat card.',
+  },
+];
+
 export const LookAndFeelAnnouncementDialog: React.FC<LookAndFeelAnnouncementDialogProps> = ({
   isOpen,
   gridEnabled,
   onToggleGrid,
   onDismiss,
 }) => {
+  const [hovered, setHovered] = useState<string | null>(null);
   if (!isOpen) return null;
 
   return createPortal(
@@ -32,61 +62,71 @@ export const LookAndFeelAnnouncementDialog: React.FC<LookAndFeelAnnouncementDial
             <h3 className="font-semibold text-base">Plannotator got a fresh look</h3>
           </div>
           <p className="text-sm text-muted-foreground">
-            A cleaner UI 2.0 with refreshed themes and a simpler plan view.
+            Your plans still open in the classic grid view. There&apos;s also a new, simpler clean
+            look — pick whichever you prefer. Hover an option to preview it.
           </p>
         </div>
 
-        {/* Body */}
-        <div className="p-4 space-y-4">
-          <div className="grid gap-2 sm:grid-cols-2">
-            {/* Row 1: New look & feel */}
-            <div className="flex items-start gap-3 p-3 rounded-lg border border-transparent bg-muted/50">
-              <SparklesIcon className="w-4 h-4 mt-0.5 text-primary flex-shrink-0" />
-              <div className="flex-1">
-                <div className="text-sm font-medium">New look &amp; feel</div>
-                <div className="text-xs text-muted-foreground">
-                  Refreshed themes and a cleaner design. Try the new Simple and Neutral themes in Settings.
+        {/* Body: two image options (click to choose, hover to preview) */}
+        <div className="flex gap-4 p-5 pt-7">
+          {OPTIONS.map((opt) => {
+            const selected = gridEnabled === opt.value;
+            const isHovered = hovered === opt.key;
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => onToggleGrid(opt.value)}
+                onMouseEnter={() => setHovered(opt.key)}
+                onMouseLeave={() => setHovered((h) => (h === opt.key ? null : h))}
+                aria-pressed={selected}
+                className={`flex-1 min-w-0 flex flex-col items-stretch gap-2 rounded-lg border p-2 text-left transition-colors ${
+                  selected
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:border-muted-foreground/40'
+                }`}
+              >
+                <div className="relative">
+                  <img
+                    src={opt.img}
+                    alt={`${opt.title} plan look`}
+                    className="w-full rounded-md select-none"
+                    draggable={false}
+                    style={{
+                      border: `2px solid ${
+                        selected
+                          ? 'var(--primary)'
+                          : 'color-mix(in srgb, var(--primary) 25%, transparent)'
+                      }`,
+                      transform: isHovered ? 'scale(1.55)' : 'scale(1)',
+                      transformOrigin: 'center',
+                      zIndex: isHovered ? 50 : 0,
+                      position: 'relative',
+                      boxShadow: isHovered ? '0 14px 36px rgba(0,0,0,0.4)' : 'none',
+                      transition:
+                        'transform 0.25s cubic-bezier(0.34,1.56,0.64,1), border-color 0.2s ease, box-shadow 0.2s ease',
+                    }}
+                  />
                 </div>
-              </div>
-            </div>
-
-            {/* Row 2: Simplified plan mode */}
-            <div className="flex items-start gap-3 p-3 rounded-lg border border-transparent bg-muted/50">
-              <SparklesIcon className="w-4 h-4 mt-0.5 text-primary flex-shrink-0" />
-              <div className="flex-1">
-                <div className="text-sm font-medium">Simplified plan mode</div>
-                <div className="text-xs text-muted-foreground">
-                  Plans now render as a clean, flat card by default. The grid-paper background is opt-in.
+                <div className="flex items-center justify-between gap-2 px-0.5">
+                  <span className="text-sm font-medium">{opt.title}</span>
+                  <span
+                    className={`text-[10px] leading-none px-1.5 py-0.5 rounded-full ${
+                      selected ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    {selected ? 'Selected' : opt.tag}
+                  </span>
                 </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Opt-in: always use the grid plan background */}
-          <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-border bg-muted/35">
-            <div className="min-w-0">
-              <div className="text-sm font-medium">Always use the grid plan background</div>
-              <div className="text-xs text-muted-foreground">
-                On shows the plan as a floating card on grid paper. Off keeps the simplified flat card.
-              </div>
-            </div>
-            <button
-              role="switch"
-              aria-checked={gridEnabled}
-              aria-label="Always use the grid plan background"
-              onClick={() => onToggleGrid(!gridEnabled)}
-              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${gridEnabled ? 'bg-primary' : 'bg-muted'}`}
-            >
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${gridEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-            </button>
-          </div>
+                <p className="text-xs text-muted-foreground px-0.5 leading-snug">{opt.desc}</p>
+              </button>
+            );
+          })}
         </div>
 
         {/* Footer */}
         <div className="p-4 border-t border-border flex justify-between items-center gap-3">
-          <p className="text-xs text-muted-foreground">
-            This notice only appears once.
-          </p>
+          <p className="text-xs text-muted-foreground">You can switch anytime in Settings.</p>
           <button
             onClick={onDismiss}
             className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"

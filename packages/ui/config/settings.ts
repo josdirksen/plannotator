@@ -40,7 +40,9 @@ export const SETTINGS = {
   },
 
   gridEnabled: {
-    defaultValue: false as boolean,
+    // Default ON: plans open in the classic grid / floating-card look. The UI 2.0
+    // flat look is offered as an opt-in via the look-and-feel chooser dialog.
+    defaultValue: true as boolean,
     fromCookie: () => {
       const v = storage.getItem('plannotator-grid-enabled');
       return v === 'true' ? true : v === 'false' ? false : undefined;

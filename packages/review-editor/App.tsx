@@ -782,16 +782,13 @@ const ReviewApp: React.FC = () => {
     }
   }, [dockApi, isSemanticDiffActive, openAllFilesPanel]);
 
-  // Open the default diff overview on first load.
+  // Open the All files overview on first load. Semantic diff stays available via
+  // the file-tree nav entry, but it's no longer the default landing view.
   useEffect(() => {
     if (!dockApi || !needsInitialDiffPanel.current || files.length === 0) return;
     needsInitialDiffPanel.current = false;
-    if (semanticDiffAvailable) {
-      openSemanticDiffPanel({ autoFallbackOnError: true });
-    } else {
-      openAllFilesPanel();
-    }
-  }, [dockApi, files, openAllFilesPanel, openSemanticDiffPanel, semanticDiffAvailable]);
+    openAllFilesPanel();
+  }, [dockApi, files, openAllFilesPanel]);
 
   // Global keyboard shortcuts
   useEffect(() => {

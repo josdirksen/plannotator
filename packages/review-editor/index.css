@@ -303,10 +303,11 @@ diffs-container {
   color: var(--foreground);
 }
 
+/* Centered terminal column — capped width, auto margins */
 .semantic-diff-terminal {
-  width: max-content;
-  min-width: min(100%, 42rem);
-  max-width: 100%;
+  width: 100%;
+  max-width: 56rem;
+  margin: 0 auto;
   padding: 1.5rem;
   font-family: var(--diff-font-override, var(--font-mono));
   font-size: 0.8125rem;
@@ -314,16 +315,41 @@ diffs-container {
   font-variant-numeric: tabular-nums;
 }
 
+/* File card — real border + radius, terminal typography inside */
 .semantic-diff-file {
-  margin: 0 0 1.25rem;
+  margin: 0 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  overflow: hidden;
 }
 
-.semantic-diff-box-line,
+.semantic-diff-file-header {
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0.4375rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  background: oklch(from var(--muted) l c h / 0.4);
+}
+
+.semantic-diff-path {
+  min-width: 0;
+  color: var(--foreground);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.semantic-diff-rows {
+  padding: 0.375rem;
+}
+
 .semantic-diff-loading,
 .semantic-diff-empty,
 .semantic-diff-error,
 .semantic-diff-summary {
-  white-space: pre;
   color: var(--muted-foreground);
 }
 
@@ -331,27 +357,21 @@ diffs-container {
   color: var(--destructive);
 }
 
-.semantic-diff-path {
-  color: var(--foreground);
-}
-
-.semantic-diff-fill {
-  color: oklch(from var(--border) l c h / 0.9);
-  overflow: hidden;
-}
-
+/* Entity row — grid-aligned, full-width, rounded hover target */
 .semantic-diff-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 2ch 9ch minmax(0, 1fr) max-content;
+  column-gap: 1ch;
   align-items: baseline;
   width: 100%;
   min-height: 1.75rem;
   border: 0;
-  padding: 0;
+  border-radius: var(--radius-sm);
+  padding: 0.1875rem 0.5rem;
   background: transparent;
   color: var(--foreground);
   font: inherit;
   text-align: left;
-  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -359,7 +379,7 @@ diffs-container {
   display: inline-flex;
   align-items: center;
   min-height: 1.75rem;
-  margin-top: 0.25rem;
+  margin-top: 0.5rem;
   border: 0;
   padding: 0;
   background: transparent;
@@ -379,20 +399,6 @@ diffs-container {
   .semantic-diff-retry:hover {
     background: oklch(from var(--foreground) l c h / 0.045);
   }
-}
-
-.semantic-diff-pipe {
-  width: 2ch;
-  color: var(--muted-foreground);
-}
-
-.semantic-diff-row-body {
-  display: grid;
-  grid-template-columns: 2ch 10ch minmax(18ch, 1fr) max-content;
-  column-gap: 1ch;
-  align-items: baseline;
-  min-width: 0;
-  padding-right: 1ch;
 }
 
 .semantic-diff-symbol-added {
@@ -419,10 +425,94 @@ diffs-container {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.semantic-diff-status {
+  justify-self: end;
+  white-space: nowrap;
 }
 
 .semantic-diff-summary {
-  margin-top: 0.25rem;
+  margin-top: 0.5rem;
+  padding: 0 0.5rem;
+}
+
+/* "sem · N" pill in a diff file header */
+.semantic-file-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  height: 1.5rem;
+  padding: 0 0.4375rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.semantic-file-badge:hover,
+.semantic-file-badge[data-state="open"] {
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+.semantic-file-badge:focus-visible {
+  outline: 1px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.semantic-file-badge-label {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.semantic-file-badge-count {
+  padding: 0.0625rem 0.3125rem;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: oklch(from var(--primary) l c h / 0.14);
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hover popover — same terminal rows as the panel, shadcn surface */
+.semantic-diff-popover {
+  width: min(30rem, 90vw);
+  max-height: min(24rem, 70vh);
+  overflow: auto;
+  padding: 0.375rem;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font-family: var(--diff-font-override, var(--font-mono));
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+.semantic-diff-popover-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem 0.375rem;
+  margin-bottom: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+
+.semantic-diff-popover-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
 }
 
 /* =====================================================

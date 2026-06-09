@@ -135,3 +135,8 @@ export function useReviewState(): ReviewState {
   if (!ctx) throw new Error('useReviewState must be used within ReviewStateProvider');
   return ctx;
 }
+
+/** Like useReviewState but returns null instead of throwing — for components that may render outside the provider. */
+export function useReviewStateOptional(): ReviewState | null {
+  return useContext(ReviewStateContext);
+}

@@ -1,11 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import type { SelectedLineRange } from '@plannotator/ui/types';
 import type {
   SemanticDiffBinaryChange,
   SemanticDiffChange,
   SemanticDiffResponse,
 } from '@plannotator/shared/semantic-diff-types';
 import { useReviewState } from '../ReviewStateContext';
+import {
+  SemanticDiffRows,
+  groupSemanticChangesByFile,
+  lineSelectionForChange,
+} from './semanticDiffShared';
 
 type SemanticDiffOkResponse = Extract<SemanticDiffResponse, { status: 'ok' }>;
 type SemanticDiffErrorResponse = Extract<SemanticDiffResponse, { status: 'error' }>;
@@ -15,66 +19,6 @@ type LoadState =
   | { status: 'ready'; data: SemanticDiffOkResponse }
   | { status: 'empty'; data: SemanticDiffOkResponse }
   | { status: 'error'; error: SemanticDiffErrorResponse | Error };
-
-type SemanticDiffGroup = {
-  filePath: string;
-  changes: SemanticDiffChange[];
-  binaryChanges: SemanticDiffBinaryChange[];
-};
-
-const changeSymbols: Record<string, string> = {
-  added: '⊕',
-  deleted: '⊖',
-  modified: '∆',
-  moved: '↻',
-  renamed: '↻',
-  reordered: '↕',
-};
-
-function getChangeSymbol(changeType: string): string {
-  if (changeType.includes('renamed') || changeType.includes('moved')) return '↻';
-  return changeSymbols[changeType] ?? '∆';
-}
-
-function getChangeClass(changeType: string): string {
-  if (changeType.includes('added')) return 'added';
-  if (changeType.includes('deleted')) return 'deleted';
-  if (changeType.includes('renamed')) return 'renamed';
-  if (changeType.includes('moved')) return 'moved';
-  if (changeType.includes('reordered')) return 'reordered';
-  return 'modified';
-}
-
-function getDisplayName(change: SemanticDiffChange): string {
-  if (change.oldEntityName && change.oldEntityName !== change.entityName) {
-    return `${change.oldEntityName} -> ${change.entityName}`;
-  }
-  return change.entityName;
-}
-
-function getBinaryDisplayName(change: SemanticDiffBinaryChange): string {
-  if (change.oldFilePath && change.oldFilePath !== change.filePath) {
-    return `${change.oldFilePath} -> ${change.filePath}`;
-  }
-  return 'file';
-}
-
-function getBinaryStatus(change: SemanticDiffBinaryChange): string {
-  return change.fileStatus || change.changeType;
-}
-
-function lineSelectionForChange(change: SemanticDiffChange): SelectedLineRange | null {
-  const deleted = change.changeType === 'deleted';
-  const start = deleted ? change.oldStartLine : change.startLine;
-  const end = deleted ? change.oldEndLine : change.endLine;
-  if (!start || start < 1) return null;
-
-  return {
-    start,
-    end: end && end >= start ? end : start,
-    side: deleted ? 'deletions' : 'additions',
-  };
-}
 
 function formatSummary(data: SemanticDiffOkResponse): string {
   const summary = data.summary;
@@ -155,27 +99,7 @@ export function ReviewSemanticDiffPanel() {
 
   const groupedChanges = useMemo(() => {
     if (loadState.status !== 'ready' && loadState.status !== 'empty') return [];
-
-    const groups: SemanticDiffGroup[] = [];
-    const byPath = new Map<string, SemanticDiffGroup>();
-    const getGroup = (filePath: string) => {
-      const existing = byPath.get(filePath);
-      if (existing) return existing;
-
-      const next = { filePath, changes: [], binaryChanges: [] };
-      byPath.set(filePath, next);
-      groups.push(next);
-      return next;
-    };
-
-    for (const change of loadState.data.changes) {
-      getGroup(change.filePath).changes.push(change);
-    }
-    for (const change of loadState.data.binaryChanges) {
-      getGroup(change.filePath).binaryChanges.push(change);
-    }
-
-    return groups;
+    return groupSemanticChangesByFile(loadState.data.changes, loadState.data.binaryChanges);
   }, [loadState]);
 
   const openChange = useCallback((change: SemanticDiffChange) => {
@@ -224,56 +148,16 @@ export function ReviewSemanticDiffPanel() {
       <div className="semantic-diff-terminal" aria-label="Semantic diff">
         {groupedChanges.map((group) => (
           <section className="semantic-diff-file" key={group.filePath}>
-            <div className="semantic-diff-box-line">
-              <span>┌─ </span>
+            <header className="semantic-diff-file-header">
               <span className="semantic-diff-path">{group.filePath}</span>
-              <span className="semantic-diff-fill" aria-hidden="true"> ─────────────────────────────────────────────</span>
-            </div>
-            <div className="semantic-diff-box-line">│</div>
-            {group.changes.map((change, index) => (
-              <button
-                type="button"
-                className="semantic-diff-row"
-                key={change.entityId ?? `${change.filePath}:${change.entityType}:${change.entityName}:${index}`}
-                onClick={() => openChange(change)}
-                title={`${change.filePath}${change.startLine ? `:${change.startLine}` : ''}`}
-              >
-                <span className="semantic-diff-pipe" aria-hidden="true">│</span>
-                <span className="semantic-diff-row-body">
-                  <span className={`semantic-diff-symbol semantic-diff-symbol-${getChangeClass(change.changeType)}`}>
-                    {getChangeSymbol(change.changeType)}
-                  </span>
-                  <span className="semantic-diff-kind">{change.entityType}</span>
-                  <span className="semantic-diff-name">{getDisplayName(change)}</span>
-                  <span className="semantic-diff-status">[{change.changeType}]</span>
-                </span>
-              </button>
-            ))}
-            {group.binaryChanges.map((change, index) => {
-              const status = getBinaryStatus(change);
-              return (
-                <button
-                  type="button"
-                  className="semantic-diff-row"
-                  key={`${change.filePath}:binary:${index}`}
-                  onClick={() => openBinaryChange(change)}
-                  title={change.filePath}
-                >
-                  <span className="semantic-diff-pipe" aria-hidden="true">│</span>
-                  <span className="semantic-diff-row-body">
-                    <span className={`semantic-diff-symbol semantic-diff-symbol-${getChangeClass(status)}`}>
-                      {getChangeSymbol(status)}
-                    </span>
-                    <span className="semantic-diff-kind">binary</span>
-                    <span className="semantic-diff-name">{getBinaryDisplayName(change)}</span>
-                    <span className="semantic-diff-status">[{status}]</span>
-                  </span>
-                </button>
-              );
-            })}
-            <div className="semantic-diff-box-line">
-              <span>└</span>
-              <span className="semantic-diff-fill" aria-hidden="true">───────────────────────────────────────────────────────</span>
+            </header>
+            <div className="semantic-diff-rows">
+              <SemanticDiffRows
+                changes={group.changes}
+                binaryChanges={group.binaryChanges}
+                onOpenChange={openChange}
+                onOpenBinary={openBinaryChange}
+              />
             </div>
           </section>
         ))}

@@ -18,12 +18,16 @@ interface LookAndFeelAnnouncementDialogProps {
 const WAITLIST_URL = 'https://plannotator.ai/workspaces';
 
 const FEATURES: { title: string; desc: string }[] = [
+  {
+    title: 'Leaner install',
+    desc: 'Only the core skills ship by default. Extra skills install separately.',
+  },
   { title: 'A fresh new look', desc: 'Refreshed UI 2.0 with new Simple and Neutral themes.' },
   { title: 'Semantic code review', desc: 'Diffs grouped by what changed, not just which lines.' },
   { title: 'Multi-repo reviews', desc: 'Review nested repositories together in one pass.' },
   {
-    title: 'Leaner install',
-    desc: 'Only the core skills ship by default. Extra skills install separately.',
+    title: 'Full-page HTML',
+    desc: 'Render HTML reports and explainers full-screen, then annotate them in place.',
   },
 ];
 
@@ -89,7 +93,7 @@ export const LookAndFeelAnnouncementDialog: React.FC<LookAndFeelAnnouncementDial
             </div>
 
             {/* What's new */}
-            <div className="px-7 pt-6 grid grid-cols-4 gap-3">
+            <div className="px-7 pt-6 grid grid-cols-5 gap-3">
               {FEATURES.map((f) => (
                 <div key={f.title} className="rounded-lg border border-border bg-muted/40 p-3">
                   <div className="text-sm font-semibold">{f.title}</div>

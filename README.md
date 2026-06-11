@@ -116,7 +116,7 @@ plannotator archive                    # Browse saved plan decisions read-only
 
 ---
 
-## Sharing
+## Sharing &amp; Multiplayer
 
 <p align="center">
   <a href="https://room.plannotator.ai/">

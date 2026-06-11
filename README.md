@@ -84,6 +84,8 @@ Review local changes or remote PRs. Comment on diffs, suggest code. Your comment
 
 ## Commands
 
+<sub>On Codex, swap the slash commands for `!plannotator …` (e.g. `!plannotator review`) or the `$plannotator-*` skills. The `!` form also works on Windows, where Codex hooks are disabled.</sub>
+
 ### Annotate
 
 ```
@@ -133,6 +135,8 @@ plannotator archive                    # Browse saved plan decisions read-only
     <img src=".github/assets/workspaces-cta.svg" alt="Beta is ending. Sign up for Workspaces." height="44" />
   </a>
 </p>
+
+Share a plan with a teammate and they can annotate it themselves. Import their feedback and send it straight back to your agent.
 
 **Small plans** are encoded entirely in the URL hash. No server involved. The data lives in the link itself.
 

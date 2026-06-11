@@ -4,13 +4,15 @@ import { type Origin, getAgentName } from '@plannotator/shared/agents';
 import { parseMarkdownToBlocks, exportAnnotations, exportLinkedDocAnnotations, exportEditorAnnotations, exportCodeFileAnnotations, exportMessageAnnotations, extractFrontmatter, wrapFeedbackForAgent, Frontmatter, type LinkedDocAnnotationEntry, type MessageAnnotationEntry } from '@plannotator/ui/utils/parser';
 import { Viewer, ViewerHandle } from '@plannotator/ui/components/Viewer';
 import { HtmlViewer } from '@plannotator/ui/components/html-viewer';
+import { MarkdownEditor, type MarkdownEditorHandle } from '@plannotator/ui/components/MarkdownEditor';
+import { createTwoFilesPatch, structuredPatch } from 'diff';
 import { AnnotationPanel } from '@plannotator/ui/components/AnnotationPanel';
 import { DocumentAIChatPanel } from '@plannotator/ui/components/ai/DocumentAIChatPanel';
 import { SparklesIcon } from '@plannotator/ui/components/SparklesIcon';
 import { ExportModal } from '@plannotator/ui/components/ExportModal';
 import { ImportModal } from '@plannotator/ui/components/ImportModal';
 import { ConfirmDialog } from '@plannotator/ui/components/ConfirmDialog';
-import { Annotation, Block, EditorMode, type CodeAnnotation, type InputMethod, type ImageAttachment, type ActionsLabelMode } from '@plannotator/ui/types';
+import { Annotation, AnnotationType, Block, EditorMode, type CodeAnnotation, type InputMethod, type ImageAttachment, type ActionsLabelMode } from '@plannotator/ui/types';
 import { ThemeProvider } from '@plannotator/ui/components/ThemeProvider';
 import { Tooltip, TooltipProvider } from '@plannotator/ui/components/Tooltip';
 import { AnnotationToolstrip } from '@plannotator/ui/components/AnnotationToolstrip';
@@ -188,6 +190,21 @@ const buildMessageAnnotationCounts = (
   return counts;
 };
 
+// Line-level +/- counts for the edit-mode badge. structuredPatch is the same
+// engine (diff@8) that powers planDiffEngine; counting hunk lines is cheap.
+const computeEditStats = (base: string, edited: string): { added: number; removed: number } => {
+  const patch = structuredPatch('plan.md', 'plan.md', base, edited, undefined, undefined, { context: 0 });
+  let added = 0;
+  let removed = 0;
+  for (const hunk of patch.hunks) {
+    for (const line of hunk.lines) {
+      if (line.startsWith('+')) added++;
+      else if (line.startsWith('-')) removed++;
+    }
+  }
+  return { added, removed };
+};
+
 const App: React.FC = () => {
   const [markdown, setMarkdown] = useState(DEMO_PLAN_CONTENT);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
@@ -249,6 +266,24 @@ const App: React.FC = () => {
       return () => clearTimeout(t);
     }
   }, [updateInfo?.updateAvailable, updateInfo?.dismissed]);
+  // Markdown edit mode (prototype): CM6 live-preview editor over the raw plan
+  // text. originalMarkdownRef is the as-submitted baseline for the edit diff —
+  // set once at plan load, never by linked-doc navigation or edit commits.
+  const [isEditingMarkdown, setIsEditingMarkdown] = useState(false);
+  const [editStats, setEditStats] = useState<{ added: number; removed: number } | null>(null);
+  // Bumped on every edit commit so the Viewer remounts: web-highlighter mutates
+  // the Viewer DOM, and reconciling changed blocks against the old subtree throws.
+  const [editGeneration, setEditGeneration] = useState(0);
+  // True while the open editor buffer differs from what it mounted with.
+  const [editorDirty, setEditorDirty] = useState(false);
+  const originalMarkdownRef = useRef<string | null>(null);
+  // Last COMMITTED editor text (null = no edits). The Direct Edits diff reads
+  // this — never the shared `markdown` state, which linked-doc navigation,
+  // message switching, and checkbox toggles repurpose.
+  const editedMarkdownRef = useRef<string | null>(null);
+  // What the current edit session mounted with, for live dirty tracking.
+  const editSessionBaseRef = useRef<string>('');
+  const markdownEditorHandleRef = useRef<MarkdownEditorHandle | null>(null);
   const [globalAttachments, setGlobalAttachments] = useState<ImageAttachment[]>([]);
   const [annotateMode, setAnnotateMode] = useState(false);
   const [gate, setGate] = useState(false);
@@ -835,7 +870,7 @@ const App: React.FC = () => {
     ? `doc:${linkedDocHook.filepath}`
     : annotateSource === 'message' && selectedMessageId
       ? `msg:${selectedMessageId}`
-      : 'plan';
+      : `plan:${editGeneration}`;
 
   // Track active section for TOC highlighting
   const headingCount = useMemo(() => blocks.filter(b => b.type === 'heading').length, [blocks]);
@@ -850,7 +885,7 @@ const App: React.FC = () => {
   const { reset: resetExternalHighlights } = useExternalAnnotationHighlights({
     viewerRef,
     externalAnnotations,
-    enabled: isApiMode && !goalSetupMode && !linkedDocHook.isActive && !isPlanDiffActive,
+    enabled: isApiMode && !goalSetupMode && !linkedDocHook.isActive && !isPlanDiffActive && !isEditingMarkdown,
     planKey: markdown,
   });
 
@@ -1060,6 +1095,186 @@ const App: React.FC = () => {
     }
   }, [pendingSharedAnnotations, clearPendingSharedAnnotations, resetExternalHighlights]);
 
+  // Markdown edit mode: single consolidated gate. The editor only ever opens on
+  // the main plan/file markdown — never on HTML surfaces, archive/goal-setup
+  // views, linked docs, messages, folder pickers, diff view, or shared sessions.
+  const canEditMarkdown =
+    renderAs !== 'html' &&
+    // editStats non-null keeps the toggle available after committing an
+    // emptied document, so the user can re-enter and undo.
+    (markdown !== '' || editStats !== null) &&
+    !archive.archiveMode &&
+    !goalSetupMode &&
+    !linkedDocHook.isActive &&
+    !isPlanDiffActive &&
+    !isSharedSession &&
+    annotateSource !== 'message' &&
+    annotateSource !== 'folder' &&
+    !submitted;
+
+  // Swap the document to `next` and re-resolve annotation block anchors against
+  // the new parse so exported line labels don't point at stale content.
+  // Annotations whose text no longer exists get blockId '' — exportAnnotations
+  // omits the line label instead of emitting a wrong one. Returns the remapped
+  // objects so callers repaint THOSE, not the pre-remap ones (whose stale
+  // startMeta/endMeta would let fromStore() silently highlight wrong content).
+  const applyEditedDocument = useCallback((next: string): Annotation[] => {
+    const newBlocks = parseMarkdownToBlocks(next);
+    const remapped = annotations.map((a) => {
+      if (a.diffContext || a.type === AnnotationType.GLOBAL_COMMENT || a.id.startsWith('ann-checkbox-')) return a;
+      const blk = newBlocks.find((b) => b.content.includes(a.originalText));
+      if ((blk?.id ?? '') === a.blockId) return a;
+      // Block moved: also strip startMeta/endMeta — fromStore() anchors by
+      // positional parent index without validating text. Text-search is safe.
+      return { ...a, blockId: blk?.id ?? '', startMeta: undefined, endMeta: undefined };
+    });
+    setMarkdown(next);
+    setEditGeneration((g) => g + 1);
+    setAnnotations(remapped);
+    return remapped;
+  }, [annotations]);
+
+  // The Viewer is remounted after every edit-mode exit (it was unmounted while
+  // editing), so highlight DOM is rebuilt from scratch. Re-anchor via the same
+  // text-search restore used by draft/share/linked-doc flows, then report
+  // annotations whose text vanished. resetExternalHighlights repaints live SSE
+  // annotation highlights the same way the share-import path does.
+  const repaintHighlights = useCallback((list: Annotation[]) => {
+    resetExternalHighlights();
+    const planAnnotations = list.filter(
+      (a) => !a.diffContext && a.type !== AnnotationType.GLOBAL_COMMENT && !a.id.startsWith('ann-checkbox-')
+    );
+    if (planAnnotations.length === 0) return;
+    setTimeout(() => {
+      viewerRef.current?.applySharedAnnotations(planAnnotations);
+      // web-highlighter restores use data-highlight-id; manual code-block
+      // wraps use data-bind-id. Either counts as present.
+      const missing = planAnnotations.filter(
+        (a) => !document.querySelector(`[data-bind-id="${a.id}"], [data-highlight-id="${a.id}"]`)
+      );
+      if (missing.length > 0) {
+        toast(`${missing.length} annotation${missing.length === 1 ? '' : 's'} no longer match the text`, {
+          description: 'The highlighted text was edited. They remain listed in the panel.',
+          duration: 5000,
+        });
+      }
+    }, 120);
+  }, [resetExternalHighlights]);
+
+  // Commits the open editor buffer: updates markdown state, records the edit
+  // for the Direct Edits diff, re-anchors annotations, repaints highlights.
+  const commitMarkdownEdits = useCallback(() => {
+    if (!isEditingMarkdown) return;
+    const edited = markdownEditorHandleRef.current?.getMarkdown();
+    setIsEditingMarkdown(false);
+    setEditorDirty(false);
+
+    const base = originalMarkdownRef.current;
+    if (edited != null) {
+      editedMarkdownRef.current = base !== null && edited === base ? null : edited;
+      setEditStats(base !== null && edited !== base ? computeEditStats(base, edited) : null);
+      // Surface the Direct Edits card so the user sees where their changes went.
+      if (base !== null && edited !== base && window.innerWidth >= 768) {
+        setRightSidebarTab('annotations');
+        setIsPanelOpen(true);
+      }
+    }
+
+    const remapped = edited != null && edited !== markdown ? applyEditedDocument(edited) : annotations;
+    repaintHighlights(remapped);
+  }, [isEditingMarkdown, markdown, annotations, applyEditedDocument, repaintHighlights]);
+
+  // Discards all direct edits: restores the as-submitted baseline document.
+  // Reachable from the Direct Edits card in the annotation sidebar.
+  const handleDiscardEdits = useCallback(() => {
+    const base = originalMarkdownRef.current;
+    if (base === null) return;
+    setIsEditingMarkdown(false);
+    setEditorDirty(false);
+    editedMarkdownRef.current = null;
+    setEditStats(null);
+    const remapped = markdown !== base ? applyEditedDocument(base) : annotations;
+    repaintHighlights(remapped);
+  }, [markdown, annotations, applyEditedDocument, repaintHighlights]);
+
+  const handleEditToggle = useCallback(() => {
+    if (isEditingMarkdown) {
+      commitMarkdownEdits();
+      return;
+    }
+    // Normalize CRLF before it becomes a baseline (e.g. share-imported content) —
+    // CM6 emits \n-joined text, and a CRLF baseline would fabricate a full diff.
+    const normalized = markdown.includes('\r') ? markdown.replace(/\r\n?/g, '\n') : markdown;
+    if (normalized !== markdown) setMarkdown(normalized);
+    // Safety net for paths that loaded content without setting the baseline.
+    if (originalMarkdownRef.current === null) originalMarkdownRef.current = normalized;
+    editSessionBaseRef.current = normalized;
+    setEditorDirty(false);
+    setIsEditingMarkdown(true);
+  }, [isEditingMarkdown, commitMarkdownEdits, markdown]);
+
+  // Live dirty tracking for the open editor session. String compare per
+  // keystroke is fine at plan sizes; setState bails out on unchanged values.
+  const handleEditorChange = useCallback((md: string) => {
+    setEditorDirty(md !== editSessionBaseRef.current);
+  }, []);
+
+  // True when there is anything the Direct Edits diff would carry.
+  const hasDirectEdits = editStats !== null || (isEditingMarkdown && editorDirty);
+
+  // Pinned "Direct edits" card data for the annotation sidebar. Memoized per
+  // commit (editStats changes identity on every commit) — the diff is computed
+  // once, not per render.
+  const directEditsPanelInfo = useMemo(() => {
+    if (!editStats) return null;
+    const base = originalMarkdownRef.current;
+    const edited = editedMarkdownRef.current;
+    if (base === null || edited === null) return null;
+    return {
+      added: editStats.added,
+      removed: editStats.removed,
+      diffText: createTwoFilesPatch('plan.md (original)', 'plan.md (edited)', base, edited, undefined, undefined, { context: 3 }),
+    };
+  }, [editStats]);
+
+  // "Direct Edits" feedback section: unified diff of user edits vs the
+  // as-submitted baseline. Reads ONLY editor-produced text (live buffer or the
+  // last commit) — never the shared `markdown` state, which other features
+  // (linked docs, message switching, checkboxes) legitimately mutate.
+  const buildEditsSection = useCallback((): string => {
+    const base = originalMarkdownRef.current;
+    if (base === null) return '';
+    const live = isEditingMarkdown ? markdownEditorHandleRef.current?.getMarkdown() : null;
+    const current = live ?? editedMarkdownRef.current;
+    if (current == null || current === base) return '';
+    const patch = createTwoFilesPatch(
+      'plan.md (original)',
+      'plan.md (edited)',
+      base,
+      current,
+      undefined,
+      undefined,
+      { context: 3 }
+    );
+    const preamble = sourceConverted
+      ? 'The user edited a markdown conversion of the original source. This diff describes the desired content changes (it is not a literal patch to a file on disk):'
+      : 'The user edited the document directly. Apply these exact changes — a unified diff against the version you submitted:';
+    return ['# Direct Edits', '', preamble, '', '```diff', patch.trimEnd(), '```'].join('\n');
+  }, [isEditingMarkdown, sourceConverted]);
+
+  // Prepends the Direct Edits section to annotation feedback. When edits exist
+  // but there are no annotations, the "no feedback" sentinel is replaced rather
+  // than appended to.
+  const composeFeedback = useCallback((annotationsText: string): string => {
+    const edits = buildEditsSection();
+    if (!edits) return annotationsText;
+    const isEmptySentinel =
+      annotationsText.length === 0 ||
+      annotationsText === 'User reviewed the document and has no feedback.' ||
+      annotationsText === 'User reviewed the messages and has no feedback.';
+    return isEmptySentinel ? edits : `${edits}\n\n---\n\n${annotationsText}`;
+  }, [buildEditsSection]);
+
   const handleTaterModeChange = useCallback((enabled: boolean) => {
     setTaterMode(enabled);
     storage.setItem('plannotator-tater-mode', String(enabled));
@@ -1118,7 +1333,11 @@ const App: React.FC = () => {
           // Folder annotation mode: clear demo content, let user pick a file
           setMarkdown('');
         } else if (data.plan) {
-          setMarkdown(data.plan);
+          // CM6 joins lines with \n; CRLF input would make an untouched
+          // edit round-trip fabricate a whole-document diff. Normalize once.
+          const normalizedPlan = data.plan.replace(/\r\n?/g, '\n');
+          setMarkdown(normalizedPlan);
+          originalMarkdownRef.current = normalizedPlan;
         }
         setIsApiMode(true);
         if (data.mode === 'annotate' || data.mode === 'annotate-last' || data.mode === 'annotate-folder') {
@@ -1189,6 +1408,8 @@ const App: React.FC = () => {
         // Not in API mode - use default content
         setIsApiMode(false);
         setAISessionEnabled(false);
+        // Demo mode still exercises edit mode; baseline is the demo plan.
+        originalMarkdownRef.current = DEMO_PLAN_CONTENT;
       })
       .finally(() => setIsLoading(false));
   }, [isLoadingShared, isSharedSession]);
@@ -1384,6 +1605,11 @@ const App: React.FC = () => {
   const handleApprove = async () => {
     setIsSubmitting(true);
     try {
+      // Integrations must describe the same document the feedback diff does —
+      // mid-edit submits read the live editor buffer, not stale markdown state.
+      const currentMarkdown = isEditingMarkdown
+        ? markdownEditorHandleRef.current?.getMarkdown() ?? markdown
+        : markdown;
       const obsidianSettings = getObsidianSettings();
       const bearSettings = getBearSettings();
       const octarineSettings = getOctarineSettings();
@@ -1416,7 +1642,7 @@ const App: React.FC = () => {
         body.obsidian = {
           vaultPath: effectiveVaultPath,
           folder: obsidianSettings.folder || 'plannotator',
-          plan: markdown,
+          plan: currentMarkdown,
           ...(obsidianSettings.filenameFormat && { filenameFormat: obsidianSettings.filenameFormat }),
           ...(obsidianSettings.filenameSeparator && obsidianSettings.filenameSeparator !== 'space' && { filenameSeparator: obsidianSettings.filenameSeparator }),
         };
@@ -1426,7 +1652,7 @@ const App: React.FC = () => {
       // if the arrival auto-save already succeeded.
       if (bearSettings.enabled && !(bearSettings.autoSave && autoSaveResults.bear)) {
         body.bear = {
-          plan: markdown,
+          plan: currentMarkdown,
           customTags: bearSettings.customTags,
           tagPosition: bearSettings.tagPosition,
         };
@@ -1434,18 +1660,21 @@ const App: React.FC = () => {
 
       if (isOctarineConfigured()) {
         body.octarine = {
-          plan: markdown,
+          plan: currentMarkdown,
           workspace: octarineSettings.workspace,
           folder: octarineSettings.folder || 'plannotator',
         };
       }
 
-      // Include annotations as feedback if any exist (for OpenCode "approve with notes")
+      // Include annotations as feedback if any exist (for OpenCode "approve with notes").
+      // Direct edits count as feedback too — without the editsSection check here,
+      // an edit-only approval would silently drop the user's changes.
       const hasDocAnnotations = Array.from(linkedDocHook.getDocAnnotations().values()).some(
         (d) => d.annotations.length > 0 || d.globalAttachments.length > 0
       );
-      if (allAnnotations.length > 0 || codeAnnotations.length > 0 || globalAttachments.length > 0 || hasDocAnnotations || editorAnnotations.length > 0) {
-        body.feedback = messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput;
+      const editsSection = buildEditsSection();
+      if (allAnnotations.length > 0 || codeAnnotations.length > 0 || globalAttachments.length > 0 || hasDocAnnotations || editorAnnotations.length > 0 || editsSection) {
+        body.feedback = composeFeedback(messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput);
       }
 
       await fetch('/api/approve', {
@@ -1467,7 +1696,7 @@ const App: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          feedback: messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput,
+          feedback: composeFeedback(messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput),
           planSave: {
             enabled: planSaveSettings.enabled,
             ...(planSaveSettings.customPath && { customPath: planSaveSettings.customPath }),
@@ -1484,7 +1713,7 @@ const App: React.FC = () => {
   const handleAnnotateFeedback = async () => {
     setIsSubmitting(true);
     try {
-      const feedback = messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput;
+      const feedback = composeFeedback(messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput);
       const scopedSelectedMessageId = messageMultiSelectMode
         ? annotatedMessageIds.length === 1 ? annotatedMessageIds[0] : undefined
         : selectedMessageId ?? undefined;
@@ -1591,7 +1820,7 @@ const App: React.FC = () => {
       // Annotate mode: gate-enabled + no annotations → approve (empty stdout).
       // Otherwise: send feedback.
       if (annotateMode) {
-        if (gate && !hasAnyAnnotations) {
+        if (gate && !hasAnyAnnotations && !hasDirectEdits) {
           handleAnnotateApprove();
           return;
         }
@@ -1604,7 +1833,7 @@ const App: React.FC = () => {
       const hasDocAnnotations = Array.from(docAnnotations.values()).some(
         (d) => d.annotations.length > 0 || d.globalAttachments.length > 0
       );
-      if (allAnnotations.length === 0 && codeAnnotations.length === 0 && editorAnnotations.length === 0 && !hasDocAnnotations) {
+      if (allAnnotations.length === 0 && codeAnnotations.length === 0 && editorAnnotations.length === 0 && !hasDocAnnotations && !hasDirectEdits) {
         // Check if agent exists for OpenCode users
         if (origin === 'opencode') {
           const warning = getAgentWarning();
@@ -1616,6 +1845,8 @@ const App: React.FC = () => {
         }
         handleApprove();
       } else {
+        // Direct edits route through deny too: on Claude Code, deny is the only
+        // channel whose output carries feedback to the agent.
         handleDeny();
       }
     };
@@ -1626,7 +1857,7 @@ const App: React.FC = () => {
     showExport, showImport, showFeedbackPrompt, showClaudeCodeWarning, showExitWarning, showAgentWarning,
     showPermissionModeSetup, pendingPasteImage,
     submitted, isSubmitting, isExiting, goalSetupAction.isSubmitting, isApiMode, linkedDocHook.isActive, annotations.length, codeAnnotations.length, externalAnnotations.length, annotateMode,
-    gate, hasAnyAnnotations, goalSetupMode, goalSetupAction.canSubmit,
+    gate, hasAnyAnnotations, hasDirectEdits, goalSetupMode, goalSetupAction.canSubmit,
     origin, getAgentWarning,
   ]);
 
@@ -2001,7 +2232,7 @@ const App: React.FC = () => {
 
   // Quick-save handlers for export dropdown and keyboard shortcut
   const handleDownloadAnnotations = () => {
-    const output = messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput;
+    const output = composeFeedback(messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput);
     const blob = new Blob([output], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -2014,6 +2245,10 @@ const App: React.FC = () => {
 
   const handleQuickSaveToNotes = async (target: 'obsidian' | 'bear' | 'octarine') => {
     const body: { obsidian?: object; bear?: object; octarine?: object } = {};
+    // Mid-edit saves describe the live buffer, matching handleApprove.
+    const quickSaveMarkdown = isEditingMarkdown
+      ? markdownEditorHandleRef.current?.getMarkdown() ?? markdown
+      : markdown;
 
     if (target === 'obsidian') {
       const s = getObsidianSettings();
@@ -2022,7 +2257,7 @@ const App: React.FC = () => {
         body.obsidian = {
           vaultPath,
           folder: s.folder || 'plannotator',
-          plan: markdown,
+          plan: quickSaveMarkdown,
           ...(s.filenameFormat && { filenameFormat: s.filenameFormat }),
           ...(s.filenameSeparator && s.filenameSeparator !== 'space' && { filenameSeparator: s.filenameSeparator }),
         };
@@ -2031,7 +2266,7 @@ const App: React.FC = () => {
     if (target === 'bear') {
       const bs = getBearSettings();
       body.bear = {
-        plan: markdown,
+        plan: quickSaveMarkdown,
         customTags: bs.customTags,
         tagPosition: bs.tagPosition,
       };
@@ -2039,7 +2274,7 @@ const App: React.FC = () => {
     if (target === 'octarine') {
       const os = getOctarineSettings();
       body.octarine = {
-        plan: markdown,
+        plan: quickSaveMarkdown,
         workspace: os.workspace,
         folder: os.folder || 'plannotator',
       };
@@ -2193,13 +2428,13 @@ const App: React.FC = () => {
   };
 
   const handleHeaderAnnotateExit = useCallback(() => {
-    if (hasAnyAnnotations) {
+    if (hasAnyAnnotations || hasDirectEdits) {
       setExitWarningAction('close');
       setShowExitWarning(true);
     } else {
       headerHandlersRef.current.handleAnnotateExit();
     }
-  }, [hasAnyAnnotations]);
+  }, [hasAnyAnnotations, hasDirectEdits]);
 
   const handleHeaderFeedback = useCallback(() => {
     const h = headerHandlersRef.current;
@@ -2207,17 +2442,19 @@ const App: React.FC = () => {
     const hasDocAnnotations = Array.from(docAnnotations.values()).some(
       (d) => d.annotations.length > 0 || d.globalAttachments.length > 0
     );
-    if (allAnnotations.length === 0 && codeAnnotations.length === 0 && editorAnnotations.length === 0 && !hasDocAnnotations) {
+    // Direct edits count as feedback — deny is the only Claude Code channel
+    // whose output carries feedback to the agent.
+    if (allAnnotations.length === 0 && codeAnnotations.length === 0 && editorAnnotations.length === 0 && !hasDocAnnotations && !hasDirectEdits) {
       setShowFeedbackPrompt(true);
     } else {
       h.handleDeny();
     }
-  }, [allAnnotations.length, codeAnnotations.length, editorAnnotations.length]);
+  }, [allAnnotations.length, codeAnnotations.length, editorAnnotations.length, hasDirectEdits]);
 
   const handleHeaderApprove = useCallback(() => {
     const h = headerHandlersRef.current;
     if (annotateMode) {
-      if (hasAnyAnnotations) {
+      if (hasAnyAnnotations || hasDirectEdits) {
         setExitWarningAction('approve');
         setShowExitWarning(true);
         return;
@@ -2225,7 +2462,7 @@ const App: React.FC = () => {
       h.handleAnnotateApprove();
       return;
     }
-    if (origin === 'claude-code' && (allAnnotations.length > 0 || codeAnnotations.length > 0)) {
+    if (origin === 'claude-code' && (allAnnotations.length > 0 || codeAnnotations.length > 0 || hasDirectEdits)) {
       setShowClaudeCodeWarning(true);
       return;
     }
@@ -2238,7 +2475,7 @@ const App: React.FC = () => {
       }
     }
     h.handleApprove();
-  }, [annotateMode, hasAnyAnnotations, origin, allAnnotations.length, codeAnnotations.length]);
+  }, [annotateMode, hasAnyAnnotations, hasDirectEdits, origin, allAnnotations.length, codeAnnotations.length]);
 
   const handleHeaderAnnotateFeedback = useCallback(() => headerHandlersRef.current.handleAnnotateFeedback(), []);
   const handleHeaderAnnotateApprove = useCallback(() => headerHandlersRef.current.handleAnnotateApprove(), []);
@@ -2313,13 +2550,13 @@ const App: React.FC = () => {
           aiAvailable={canUseAI}
           isAIChatOpen={isPanelOpen && rightSidebarTab === 'ai'}
           aiHasMessages={aiMessages.length > 0}
-          hasAnyAnnotations={hasAnyAnnotations}
+          hasAnyAnnotations={hasAnyAnnotations || hasDirectEdits}
           linkedDocIsActive={linkedDocHook.isActive}
           callbackShareUrlReady={callbackConfig ? Boolean(shareUrl || shortShareUrl || (renderAs === 'html' && (shareHtml || rawHtml))) : true}
           canShareCurrentSession={canShareCurrentSession}
           agentName={agentName}
           availableAgents={availableAgents}
-          showAnnotationsWarning={allAnnotations.length > 0 || codeAnnotations.length > 0}
+          showAnnotationsWarning={allAnnotations.length > 0 || codeAnnotations.length > 0 || hasDirectEdits}
           callbackConfig={callbackConfig}
           taterMode={taterMode}
           mobileSettingsOpen={mobileSettingsOpen}
@@ -2415,7 +2652,15 @@ const App: React.FC = () => {
                 fileAnnotationCounts={fileAnnotationCounts}
                 highlightedFiles={highlightedFiles}
                 fileBrowser={fileBrowser}
-                onFilesSelectFile={handleFileBrowserSelect}
+                onFilesSelectFile={(...args: Parameters<typeof handleFileBrowserSelect>) => {
+                  // Same hazard as archive select: opening a doc swaps markdown
+                  // state under the open editor and strands the session.
+                  if (isEditingMarkdown) {
+                    toast('Finish editing first', { description: 'Use "Done editing" before opening files.' });
+                    return;
+                  }
+                  handleFileBrowserSelect(...args);
+                }}
                 onFilesFetchAll={() => fileBrowser.fetchAll(fileBrowserDirs)}
                 onFilesRetryVaultDir={(vaultPath) => fileBrowser.addVaultDir(vaultPath)}
                 hasFileAnnotations={hasFileAnnotations}
@@ -2434,7 +2679,15 @@ const App: React.FC = () => {
                 showArchiveTab={isApiMode && !annotateMode && !goalSetupMode}
                 archivePlans={archive.plans}
                 selectedArchiveFile={archive.selectedFile}
-                onArchiveSelect={archive.select}
+                onArchiveSelect={(...args: Parameters<typeof archive.select>) => {
+                  // Archive selection swaps the markdown state under the open
+                  // editor — block it rather than corrupt the edit session.
+                  if (isEditingMarkdown) {
+                    toast('Finish editing first', { description: 'Use "Done editing" before browsing archived plans.' });
+                    return;
+                  }
+                  archive.select(...args);
+                }}
                 isLoadingArchive={archive.isLoading}
                 showMessagesTab={annotateSource === 'message' && recentMessages.length > 1}
                 messages={recentMessages}
@@ -2471,7 +2724,7 @@ const App: React.FC = () => {
                   sticky actions are disabled. remountToken re-anchors the
                   ResizeObserver when Viewer swaps content (linked docs or
                   message switches). */}
-              {!goalSetupMode && !isPlanDiffActive && !isHtmlSurface && !archive.archiveMode && uiPrefs.stickyActionsEnabled && (
+              {!goalSetupMode && !isPlanDiffActive && !isHtmlSurface && !archive.archiveMode && !isEditingMarkdown && uiPrefs.stickyActionsEnabled && (
                 <StickyHeaderLane
                   inputMethod={inputMethod}
                   onInputMethodChange={handleInputMethodChange}
@@ -2493,7 +2746,7 @@ const App: React.FC = () => {
                   comment/markup mode). Hidden during plan diff, and on HTML surfaces
                   when the header's "Hide tools" toggle is on (leaving the rendered HTML
                   free of overlay controls). On HTML it floats top-left over the doc. */}
-              {!goalSetupMode && !isPlanDiffActive && !archive.archiveMode && !(isHtmlSurface && htmlToolsHidden) && (
+              {!goalSetupMode && !isPlanDiffActive && !archive.archiveMode && !isEditingMarkdown && !(isHtmlSurface && htmlToolsHidden) && (
                 <div
                   data-print-hide
                   className={isHtmlSurface
@@ -2555,15 +2808,15 @@ const App: React.FC = () => {
                 </div>
               )}
               {/* Normal Plan View — always mounted, hidden during diff mode */}
-              <div className={`w-full relative ${isHtmlSurface ? 'flex-1 flex flex-col' : 'flex justify-center'}`} style={{ display: goalSetupMode || (isPlanDiffActive && planDiff.diffBlocks) || (annotateSource === 'folder' && !markdown && !linkedDocHook.isActive) ? 'none' : undefined }}>
-                {canUseWideMode && !isPlanDiffActive && !archive.archiveMode && !isHtmlSurface && (
+              <div className={`w-full relative ${isHtmlSurface ? 'flex-1 flex flex-col' : `flex justify-center${isEditingMarkdown ? ' flex-1 min-h-0' : ''}`}`} style={{ display: goalSetupMode || (isPlanDiffActive && planDiff.diffBlocks) || (annotateSource === 'folder' && !markdown && !linkedDocHook.isActive) ? 'none' : undefined }}>
+                {(canUseWideMode || canEditMarkdown) && !isPlanDiffActive && !archive.archiveMode && !isHtmlSurface && (
                   <div
                     data-print-hide
                     className="absolute -top-5 left-0 right-0 mx-auto w-full flex justify-end pointer-events-none"
                     style={annotateReaderMaxWidth === null ? undefined : { maxWidth: annotateReaderMaxWidth ?? 832 }}
                   >
                     <div className={`pointer-events-auto flex items-center gap-1.5 text-[11px] tracking-wide ${taterMode ? 'mr-[60px]' : 'mr-[4px]'}`}>
-                      {(['wide', 'focus'] as const).map((type, i) => (
+                      {canUseWideMode && (['wide', 'focus'] as const).map((type, i) => (
                         <React.Fragment key={type}>
                           {i > 0 && <span aria-hidden className="text-muted-foreground/30 select-none">|</span>}
                           <Tooltip
@@ -2586,6 +2839,29 @@ const App: React.FC = () => {
                           </Tooltip>
                         </React.Fragment>
                       ))}
+                      {canEditMarkdown && (
+                        <>
+                          {canUseWideMode && <span aria-hidden className="text-muted-foreground/30 select-none">|</span>}
+                          <Tooltip
+                            side="top"
+                            align="end"
+                            content={isEditingMarkdown ? 'Commit your edits and return to annotating' : 'Edit the document text directly'}
+                          >
+                            <button
+                              type="button"
+                              onClick={handleEditToggle}
+                              aria-pressed={isEditingMarkdown}
+                              className={`cursor-pointer rounded-sm transition-colors duration-150 outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:opacity-80 ${
+                                isEditingMarkdown
+                                  ? 'text-primary'
+                                  : 'text-muted-foreground/50 hover:text-muted-foreground'
+                              }`}
+                            >
+                              {isEditingMarkdown ? 'Done' : 'Edit'}
+                            </button>
+                          </Tooltip>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}
@@ -2607,6 +2883,15 @@ const App: React.FC = () => {
                     fullViewport={isHtmlSurface}
                     hideControls={htmlToolsHidden}
                     onAskAI={canUseAI ? handleAskAI : undefined}
+                  />
+                ) : isEditingMarkdown ? (
+                  <MarkdownEditor
+                    markdown={markdown}
+                    documentId={`edit:${editGeneration}`}
+                    editorHandleRef={markdownEditorHandleRef}
+                    onMarkdownChange={handleEditorChange}
+                    maxWidth={annotateReaderMaxWidth}
+                    gridEnabled={gridEnabled}
                   />
                 ) : (
                   <Viewer
@@ -2690,11 +2975,12 @@ const App: React.FC = () => {
             onDeleteEditorAnnotation={deleteEditorAnnotation}
             onClose={() => setIsPanelOpen(false)}
             onQuickCopy={async () => {
-              const output = messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput;
+              const output = composeFeedback(messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput);
               await navigator.clipboard.writeText(wrapFeedbackForAgent(output));
             }}
             onShare={canShareCurrentSession ? () => { setIsPanelOpen(false); setInitialExportTab('share'); setShowExport(true); } : undefined}
             otherFileAnnotations={otherFileAnnotations}
+            directEdits={directEditsPanelInfo ? { ...directEditsPanelInfo, onDiscard: handleDiscardEdits } : null}
             onOtherFileAnnotationsClick={handleFlashAnnotatedFiles}
           />
           {isPanelOpen && rightSidebarTab === 'ai' && wideModeType === null && !goalSetupMode && canUseAI && (
@@ -2775,7 +3061,13 @@ const App: React.FC = () => {
           isGeneratingShortUrl={isGeneratingShortUrl}
           shortUrlError={shortUrlError}
           onGenerateShortUrl={generateShortUrl}
-          annotationsOutput={showExport && messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput}
+          annotationsOutput={
+            // Computed only while the modal is open: composeFeedback runs a
+            // unified diff when edits exist — not per-render work.
+            showExport
+              ? composeFeedback(messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput)
+              : ''
+          }
           annotationCount={allAnnotations.length + codeAnnotations.length}
           taterSprite={taterMode ? <TaterSpritePullup /> : undefined}
           sharingEnabled={canShareCurrentSession}

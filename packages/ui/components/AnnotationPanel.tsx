@@ -59,6 +59,14 @@ interface PanelProps {
   onShare?: () => void;
   otherFileAnnotations?: { count: number; files: number };
   onOtherFileAnnotationsClick?: () => void;
+  /** Committed direct edits to the document (edit mode). Rendered as a pinned
+   *  card above the annotation timeline with an expandable unified diff. */
+  directEdits?: {
+    added: number;
+    removed: number;
+    diffText: string;
+    onDiscard?: () => void;
+  } | null;
 }
 
 export const AnnotationPanel: React.FC<PanelProps> = ({
@@ -82,6 +90,7 @@ export const AnnotationPanel: React.FC<PanelProps> = ({
   onShare,
   otherFileAnnotations,
   onOtherFileAnnotationsClick,
+  directEdits = null,
 }) => {
   const isMobile = useIsMobile();
   const [copiedText, setCopiedText] = useState(false);
@@ -154,15 +163,18 @@ export const AnnotationPanel: React.FC<PanelProps> = ({
       {/* List */}
       <OverlayScrollArea className="flex-1 min-h-0">
         <div ref={listRef} className="p-2 flex flex-col gap-1.5">
+        {directEdits && <DirectEditsCard {...directEdits} />}
         {totalCount === 0 ? (
-          <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
-            <p className="text-xs text-muted-foreground/60">
-              No annotations yet
-            </p>
-            <p className="mt-1 text-[11px] text-muted-foreground/40">
-              Select text to annotate
-            </p>
-          </div>
+          !directEdits && (
+            <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
+              <p className="text-xs text-muted-foreground/60">
+                No annotations yet
+              </p>
+              <p className="mt-1 text-[11px] text-muted-foreground/40">
+                Select text to annotate
+              </p>
+            </div>
+          )
         ) : (
           <>
             {timelineEntries.map(entry => (
@@ -289,6 +301,98 @@ function formatTimestamp(ts: number): string {
 
   return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
+
+/** Pinned card for committed direct edits: +N/−M summary, expandable unified
+ *  diff, and a two-step discard. Not part of the annotation timeline — edits
+ *  are document state, not a selection-anchored note. */
+const DirectEditsCard: React.FC<{
+  added: number;
+  removed: number;
+  diffText: string;
+  onDiscard?: () => void;
+}> = ({ added, removed, diffText, onDiscard }) => {
+  const [expanded, setExpanded] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  // Auto-cancel the discard confirmation after a beat.
+  useEffect(() => {
+    if (!confirmDiscard) return;
+    const t = setTimeout(() => setConfirmDiscard(false), 3000);
+    return () => clearTimeout(t);
+  }, [confirmDiscard]);
+
+  // Show from the first hunk header; the ---/+++ preamble is noise here.
+  const diffLines = React.useMemo(() => {
+    const lines = diffText.split('\n');
+    const firstHunk = lines.findIndex((l) => l.startsWith('@@'));
+    return firstHunk === -1 ? lines : lines.slice(firstHunk);
+  }, [diffText]);
+
+  return (
+    <div className="w-full rounded-lg px-3 py-2.5 bg-surface-1/40 ring-1 ring-border/40">
+      <div className="flex items-center gap-1.5">
+        <PencilIcon />
+        <span className="text-[11px] font-medium text-primary">Direct edits</span>
+        <span className="font-mono text-[10px] tabular-nums">
+          <span className="text-success">+{added}</span>
+          <span className="text-muted-foreground/40">/</span>
+          <span className="text-destructive">-{removed}</span>
+        </span>
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="cursor-pointer rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-surface-1 hover:text-foreground"
+            aria-expanded={expanded}
+          >
+            {expanded ? 'Hide diff' : 'Diff'}
+          </button>
+          {onDiscard && (
+            <button
+              type="button"
+              onClick={() => {
+                if (confirmDiscard) {
+                  setConfirmDiscard(false);
+                  onDiscard();
+                } else {
+                  setConfirmDiscard(true);
+                }
+              }}
+              className={cn(
+                'cursor-pointer rounded px-1.5 py-0.5 text-[10px] transition-colors',
+                confirmDiscard
+                  ? 'bg-destructive/15 text-destructive hover:bg-destructive/25'
+                  : 'text-muted-foreground hover:bg-surface-1 hover:text-destructive',
+              )}
+            >
+              {confirmDiscard ? 'Confirm?' : 'Discard'}
+            </button>
+          )}
+        </div>
+      </div>
+      <p className="mt-1 text-[10px] leading-snug text-muted-foreground/60">
+        Your text changes — sent with the feedback as a diff.
+      </p>
+      {expanded && (
+        <pre className="mt-2 max-h-56 overflow-auto rounded-md bg-muted/40 p-2 font-mono text-[10px] leading-relaxed">
+          {diffLines.map((line, i) => (
+            <div
+              key={i}
+              className={
+                line.startsWith('+') ? 'text-success'
+                : line.startsWith('-') ? 'text-destructive'
+                : line.startsWith('@@') ? 'text-primary/70'
+                : 'text-muted-foreground'
+              }
+            >
+              {line.length === 0 ? ' ' : line}
+            </div>
+          ))}
+        </pre>
+      )}
+    </div>
+  );
+};
 
 const AnnotationCard: React.FC<{
   annotation: Annotation;

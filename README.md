@@ -56,20 +56,17 @@ When your agent creates a plan, spec, markdown document, HTML file, or long resp
 
 </td>
 </tr>
-</table>
-
-<table>
 <tr>
-<td width="60%">
-
-<img src="readme-assets/review.webp" alt="Code review with file tree and side-by-side diff" width="100%" />
-
-</td>
 <td width="40%" valign="middle">
 
 ### Code Review
 
 When your agent writes code, Plannotator opens a PR-style review UI for local changes or remote PRs. Review diffs, annotate lines, suggest code, stage or unstage files. Your comments go back into the same agent session. Works with git, jj, p4, GitHub PRs, and GitLab MRs.
+
+</td>
+<td width="60%">
+
+<img src="readme-assets/review.webp" alt="Code review with file tree and side-by-side diff" width="100%" />
 
 </td>
 </tr>

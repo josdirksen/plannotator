@@ -136,11 +136,13 @@ plannotator archive                    # Browse saved plan decisions read-only
 
 **Small plans** are encoded entirely in the URL hash. No server involved. The data lives in the link itself.
 
-**Large plans** use a short-link service with end-to-end encryption: AES-256-GCM in the browser before upload. The server stores only ciphertext. The decryption key lives exclusively in the URL fragment (never sent to the server). Pastes auto-delete after 7 days.
+**Large plans** go through a short-link service, encrypted in your browser with AES-256-GCM. The server stores only ciphertext, and the key never leaves the URL fragment. Pastes auto-delete after 7 days.
 
 Same model as [PrivateBin](https://privatebin.info/). The paste service is [self-hostable](https://plannotator.ai/docs/guides/sharing-and-collaboration/).
 
 Sharing can be disabled entirely with `PLANNOTATOR_SHARE=disabled`.
+
+**Coming next:** live collaboration. Teammates and their agents working through the same plan or review together, in real time. It arrives in Workspaces once the room beta wraps. [Sign up here](https://plannotator.ai/workspaces).
 
 
 ---

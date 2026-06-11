@@ -103,9 +103,15 @@ When your agent writes code, Plannotator opens a PR-style review UI for local ch
 /plannotator-review <gitlab-mr-url>    # Review a GitLab merge request
 ```
 
+### Plan mode
+
+No command needed. Plan mode is wired in through each harness's hooks. Any time your agent creates a plan, the markdown review surface opens for you.
+
 ### CLI
 
 ```
+plannotator sessions                   # List active Plannotator sessions
+plannotator sessions --open 1          # Reopen a session in the browser
 plannotator archive                    # Browse saved plan decisions read-only
 ```
 

@@ -72,9 +72,6 @@ When your agent writes code, Plannotator opens a PR-style review UI for local ch
 </tr>
 </table>
 
-
----
-
 ## Annotate HTML Artifacts
 
 <p align="center">

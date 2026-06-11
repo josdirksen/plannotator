@@ -83,26 +83,21 @@ When your agent writes code, Plannotator opens a PR-style review UI for local ch
   <img src="readme-assets/html.webp" alt="Annotating a rendered HTML artifact" width="720" />
 </p>
 
-```
-/plannotator-annotate README.md          # Local markdown file
-/plannotator-annotate src/               # Browse and annotate files in a folder
-/plannotator-annotate https://docs.rs/…  # Fetch and annotate any URL
-/plannotator-last                        # Annotate the agent's last message
-```
-
-Accepts `.md`, `.mdx`, `.html`, and URLs. URLs are fetched via Jina Reader by default (or raw fetch + Turndown with `--no-jina`). Folders open a file browser. Annotations are sent to the agent session as structured feedback.
-
-HTML files can be converted to markdown or rendered as-is with `--render-html` — built for reviewing the HTML artifacts agents increasingly produce (reports, explainers, prototypes) right where they're made.
-
 ---
 
-## Code review
+## Commands
 
-<p align="center">
-  <a href="https://youtu.be/_N7uo0EFI-U">
-    <img src="readme-assets/code-review-thumbnail.png" alt="Code review UI with file tree and side-by-side diff" width="720" />
-  </a>
-</p>
+### Annotate
+
+```
+/plannotator-annotate README.md                  # Local markdown file
+/plannotator-annotate src/                       # Browse and annotate files in a folder
+/plannotator-annotate https://docs.rs/…          # Fetch and annotate any URL
+/plannotator-annotate report.html --render-html  # Render HTML as-is instead of converting
+/plannotator-last                                # Annotate the agent's last message
+```
+
+### Code review
 
 ```
 /plannotator-review                    # Review uncommitted changes
@@ -110,9 +105,11 @@ HTML files can be converted to markdown or rendered as-is with `--render-html` �
 /plannotator-review <gitlab-mr-url>    # Review a GitLab merge request
 ```
 
-Side-by-side or unified diff. File tree navigation. Expandable context. Stage or unstage files directly. Line-level annotations with code suggestions. Feedback goes straight back to the agent session.
+### CLI
 
-Supports switching between staged, unstaged, and branch diffs. Whitespace toggle. Full keyboard navigation.
+```
+plannotator archive                    # Browse saved plan decisions read-only
+```
 
 ---
 

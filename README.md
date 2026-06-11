@@ -47,7 +47,7 @@ Plannotator is a local, browser-based review layer for AI coding agents — Clau
 
 When your agent creates a plan, spec, markdown document, HTML file, or long response, Plannotator opens a focused review UI. Annotate inline, mark deletions, write replacements, attach images, then send structured feedback back to the agent. Opens automatically in supported plan modes, or on demand for any file, folder, or URL.
 
-<p><strong>Demo:</strong> <a href="https://www.youtube.com/watch?v=a_AT7cEN_9I">Claude Code plan review</a></p>
+<p><strong>Demo:</strong> <a href="https://youtu.be/XqFun9XCXPw">Plan review with Pi</a></p>
 
 </td>
 <td width="50%">
@@ -67,8 +67,6 @@ When your agent creates a plan, spec, markdown document, HTML file, or long resp
 ### Code Review
 
 When your agent writes code, Plannotator opens a PR-style review UI for local changes or remote PRs. Review diffs, annotate lines, suggest code, stage or unstage files, then send structured feedback back to the agent. Works with git, jj, p4, GitHub PRs, and GitLab MRs.
-
-<p><strong>Demo:</strong> <a href="https://youtu.be/_N7uo0EFI-U">OpenCode workflow</a></p>
 
 </td>
 </tr>

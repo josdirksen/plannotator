@@ -37,7 +37,7 @@
 
 # Plannotator
 
-Plannotator is a local, browser-based review layer for AI coding agents — Claude Code, Codex, Copilot CLI, Gemini CLI, OpenCode, Kiro, Droid, Amp, and Pi. When your agent proposes a plan or finishes writing code, it opens in your browser where you can mark it up like a document: strike things out, comment, attach images, suggest changes. Your markup goes back to the agent as structured feedback it can act on — so you stay in the loop without copy-pasting walls of text in a terminal.
+Plannotator is a local, browser-based review layer for AI coding agents: Claude Code, Codex, Copilot CLI, Gemini CLI, OpenCode, Kiro, Droid, Amp, and Pi. It plugs directly into your agent through its hooks and commands. When the agent proposes a plan or finishes writing code, the work opens in your browser and you mark it up like a document: strike things out, comment, attach images, suggest changes. Everything you write lands back in the live agent session as structured feedback, and the agent acts on it. You stay in the loop. No copy-pasting walls of text in a terminal.
 
 <table>
 <tr>
@@ -66,7 +66,7 @@ When your agent creates a plan, spec, markdown document, HTML file, or long resp
 
 ### Code Review
 
-When your agent writes code, Plannotator opens a PR-style review UI for local changes or remote PRs. Review diffs, annotate lines, suggest code, stage or unstage files, then send structured feedback back to the agent. Works with git, jj, p4, GitHub PRs, and GitLab MRs.
+When your agent writes code, Plannotator opens a PR-style review UI for local changes or remote PRs. Review diffs, annotate lines, suggest code, stage or unstage files. Your comments go back into the same agent session. Works with git, jj, p4, GitHub PRs, and GitLab MRs.
 
 </td>
 </tr>
@@ -117,7 +117,7 @@ plannotator archive                    # Browse saved plan decisions read-only
   <img src="readme-assets/sharing.png" alt="Sharing portal with upload options" width="720" />
 </p>
 
-**Small plans** are encoded entirely in the URL hash. No server involved — the data lives in the link itself.
+**Small plans** are encoded entirely in the URL hash. No server involved. The data lives in the link itself.
 
 **Large plans** use a short-link service with end-to-end encryption: AES-256-GCM in the browser before upload. The server stores only ciphertext. The decryption key lives exclusively in the URL fragment (never sent to the server). Pastes auto-delete after 7 days.
 
@@ -148,13 +148,13 @@ Then finish the step for your agent:
 |---|---|---|
 | **Amp** | Copy [`plannotator.ts`](apps/amp-plugin/plannotator.ts) into `~/.config/amp/plugins/`, then `plugins: reload`. Workflows live in the command palette. | [README](apps/amp-plugin/README.md) |
 | **Claude Code** | `/plugin marketplace add backnotprop/plannotator`, then `/plugin install plannotator@plannotator`. Restart Claude Code. | [README](apps/hook/README.md) |
-| **Codex** | Nothing — plan review is enabled automatically via Codex's experimental `Stop` hook (macOS/Linux/WSL; Codex hooks are disabled on Windows). `$plannotator-review`, `$plannotator-annotate`, and `$plannotator-last` skills included. | [README](apps/codex/README.md) |
+| **Codex** | Nothing. Plan review is enabled automatically via Codex's experimental `Stop` hook (macOS/Linux/WSL; Codex hooks are disabled on Windows). `$plannotator-review`, `$plannotator-annotate`, and `$plannotator-last` skills included. | [README](apps/codex/README.md) |
 | **Copilot CLI** | `/plugin marketplace add backnotprop/plannotator`, then `/plugin install plannotator-copilot@plannotator`. Restart. Plan review activates in plan mode (`Shift+Tab`). | [README](apps/copilot/README.md) |
-| **Droid** | `droid plugin marketplace add https://github.com/backnotprop/plannotator`, then `droid plugin install plannotator@plannotator`. Commands only — no plan interception yet. | [README](apps/droid-plugin/README.md) |
-| **Gemini CLI** | Nothing — hook, policy, and slash commands configured automatically. Requires Gemini CLI 0.36.0+. | [README](apps/gemini/README.md) |
-| **Kiro CLI** | Nothing — skills and an example agent installed automatically. Try `kiro-cli chat --agent plannotator`. | [README](apps/kiro-cli/README.md) |
+| **Droid** | `droid plugin marketplace add https://github.com/backnotprop/plannotator`, then `droid plugin install plannotator@plannotator`. Commands only, no plan interception yet. | [README](apps/droid-plugin/README.md) |
+| **Gemini CLI** | Nothing. The hook, policy, and slash commands are configured automatically. Requires Gemini CLI 0.36.0+. | [README](apps/gemini/README.md) |
+| **Kiro CLI** | Nothing. Skills and an example agent are installed automatically. Try `kiro-cli chat --agent plannotator`. | [README](apps/kiro-cli/README.md) |
 | **OpenCode** | Add `"plugin": ["@plannotator/opencode@latest"]` to `opencode.json`. Restart OpenCode. | [README](apps/opencode-plugin/README.md) |
-| **Pi** | Skip the installer — just `pi install npm:@plannotator/pi-extension`. Start Pi with `--plan`, or toggle with `/plannotator`. | [README](apps/pi-extension/README.md) |
+| **Pi** | Skip the installer. Just `pi install npm:@plannotator/pi-extension`. Start Pi with `--plan`, or toggle with `/plannotator`. | [README](apps/pi-extension/README.md) |
 
 Full walkthroughs live in the [installation docs](https://plannotator.ai/docs/getting-started/installation/).
 
@@ -209,7 +209,7 @@ The fastest way to see what Plannotator does is to invoke it yourself, right now
 
 (Slash commands in most agents; `$plannotator-*` skills in Codex, command palette in Amp.)
 
-Plan review needs no command at all — the next time your agent proposes a plan, it opens in your browser automatically.
+Plan review needs no command at all. The next time your agent proposes a plan, it opens in your browser automatically.
 
 ---
 
@@ -243,13 +243,13 @@ You run /plannotator-review
 
 ## Integrations
 
-**VS Code** — Open plans in editor tabs, view diffs inline, add annotations from the editor gutter. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=backnotprop.plannotator-webview).
+**VS Code**: Open plans in editor tabs, view diffs inline, add annotations from the editor gutter. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=backnotprop.plannotator-webview).
 
-**Obsidian** — Auto-save approved plans to a vault with YAML frontmatter, tags from the plan title, and backlinks for graph connectivity. Configure in Plannotator's Settings panel.
+**Obsidian**: Auto-save approved plans to a vault with YAML frontmatter, tags from the plan title, and backlinks for graph connectivity. Configure in Plannotator's Settings panel.
 
-**Bear** — Save plans as Bear notes with nested tags and project metadata.
+**Bear**: Save plans as Bear notes with nested tags and project metadata.
 
-**GitHub / GitLab** — Pass any PR or MR URL to `/plannotator-review` and review it with the full diff viewer, annotations, and file tree.
+**GitHub / GitLab**: Pass any PR or MR URL to `/plannotator-review` and review it with the full diff viewer, annotations, and file tree.
 
 ---
 
@@ -293,7 +293,7 @@ See the [verification docs](https://plannotator.ai/docs/getting-started/installa
 
 ## Configuration
 
-Settings are persisted via cookies (not localStorage) because each hook invocation runs on a random port. You can also set options via environment variables or `~/.plannotator/config.json`.
+Settings are saved in cookies (not localStorage) because each hook invocation runs on a random port. You can also set options through environment variables or `~/.plannotator/config.json`.
 
 | Variable | Description |
 |---|---|

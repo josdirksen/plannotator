@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="readme-assets/banner.webp" alt="Plannotator" width="512" />
+  <img src="readme-assets/banner.webp" alt="Plannotator" width="640" />
 </p>
 
 

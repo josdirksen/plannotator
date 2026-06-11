@@ -1,97 +1,196 @@
 <p align="center">
-  <img src="apps/marketing/public/og-image.webp" alt="Plannotator" width="80%" />
+  <img src="readme-assets/banner.webp" alt="Plannotator" width="512" />
+</p>
+
+
+
+<p align="center">
+  <strong>Everything you need to annotate and stay in the loop with your agents</strong><br/>
+  <strong>Doc Review • Code Review • HTML Artifacts</strong><br/>
+  <sub>Annotate plans, specs, markdown, and HTML before implementation. Review diffs and PRs. Send structured feedback back to the agent.</sub>
+</p>
+
+<p align="center">
+  <img src="readme-assets/icons/amp.svg" alt="Amp" title="Amp" height="28" />&nbsp;&nbsp;
+  <img src="readme-assets/icons/claude.svg" alt="Claude Code" title="Claude Code" height="28" />&nbsp;&nbsp;
+  <img src="readme-assets/icons/codex.png" alt="Codex" title="Codex" height="28" />&nbsp;&nbsp;
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="readme-assets/icons/copilot-dark.svg" />
+    <img src="readme-assets/icons/copilot-light.svg" alt="Copilot CLI" title="Copilot CLI" height="28" />
+  </picture>&nbsp;&nbsp;
+  <img src="readme-assets/icons/droid.png" alt="Droid" title="Droid" height="28" />&nbsp;&nbsp;
+  <img src="readme-assets/icons/gemini.png" alt="Gemini CLI" title="Gemini CLI" height="28" />&nbsp;&nbsp;
+  <img src="readme-assets/icons/kiro.svg" alt="Kiro" title="Kiro" height="28" />&nbsp;&nbsp;
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="readme-assets/icons/opencode-dark.svg" />
+    <img src="readme-assets/icons/opencode-light.svg" alt="OpenCode" title="OpenCode" height="28" />
+  </picture>&nbsp;&nbsp;
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="readme-assets/icons/pi-dark.svg" />
+    <img src="readme-assets/icons/pi-light.svg" alt="Pi" title="Pi" height="28" />
+  </picture>
+</p>
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=a_AT7cEN_9I">Watch the og demo</a> · <a href="https://plannotator.ai/docs/getting-started/installation/">Installation guide</a> · <a href="https://plannotator.ai/">Official site</a>
 </p>
 
 # Plannotator
 
-Review AI-agent plans and code diffs in a browser. Add inline annotations, send structured feedback back to your agent, and share encrypted review links with teammates. Works with **Claude Code**, **Copilot CLI**, **Gemini CLI**, **OpenCode**, **Pi**, **Codex**, **Droid**, and **Amp**.
+Plannotator is a local, browser-based review layer for AI coding agents — Claude Code, Codex, Copilot CLI, Gemini CLI, OpenCode, Kiro, Droid, Amp, and Pi. When your agent proposes a plan or finishes writing code, it opens in your browser where you can mark it up like a document: strike things out, comment, attach images, suggest changes. Your markup goes back to the agent as structured feedback it can act on — so you stay in the loop without copy-pasting walls of text in a terminal.
 
-**Plan Mode Demos:**
 <table>
 <tr>
-<td align="center" width="50%">
-<h3>Claude Code</h3>
-<a href="https://www.youtube.com/watch?v=a_AT7cEN_9I">
-<img src="apps/marketing/public/youtube.png" alt="Claude Code Demo" width="100%" />
-</a>
-<p><a href="https://www.youtube.com/watch?v=a_AT7cEN_9I">Watch Demo</a></p>
+<td width="50%">
+
+### Review documents, plans, and agent messages
+
+When your agent creates a plan, spec, markdown document, HTML file, or long response, Plannotator opens a focused review UI. Annotate inline, mark deletions, write replacements, attach images, then send structured feedback back to the agent. Opens automatically in supported plan modes, or on demand for any file, folder, or URL.
+
+<p><strong>Demo:</strong> <a href="https://www.youtube.com/watch?v=a_AT7cEN_9I">Claude Code plan review</a></p>
+
 </td>
-<td align="center" width="50%">
-<h3>OpenCode</h3>
-<a href="https://youtu.be/_N7uo0EFI-U">
-<img src="apps/marketing/public/youtube-opencode.png" alt="OpenCode Demo" width="100%" />
-</a>
-<p><a href="https://youtu.be/_N7uo0EFI-U">Watch Demo</a></p>
+<td width="50%">
+
+<img src="readme-assets/annotate.webp" alt="Annotate UI with inline annotations" />
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+<img src="readme-assets/review.webp" alt="Code review with file tree and side-by-side diff" />
+
+</td>
+<td width="50%">
+
+### Code Review
+
+When your agent writes code, Plannotator opens a PR-style review UI for local changes or remote PRs. Review diffs, annotate lines, suggest code, stage or unstage files, then send structured feedback back to the agent. Works with git, jj, p4, GitHub PRs, and GitLab MRs.
+
+<p><strong>Demo:</strong> <a href="https://youtu.be/_N7uo0EFI-U">OpenCode workflow</a></p>
+
 </td>
 </tr>
 </table>
 
-**Annotate:** Plans, specs, folders, files, urls. send feedback directly to agents. 
 
-**New:** [Code Review](https://x.com/backnotprop/status/2031145299738263567?s=20)
-  
-  - send your feedback to agents
-  - built-in: 
-    - ask ai
-    - agent code reviews 
+---
 
-### Features
+## Annotate HTML Artifacts
 
-<table>
-<tr><td><strong>Visual Plan Review</strong></td><td>Built-in hook</td><td>Approve or deny agent plans with inline annotations and Ask AI side chat</td></tr>
-<tr><td><strong>Plan Diff</strong></td><td>Automatic</td><td>See what changed when the agent revises a plan</td></tr>
-<tr><td><strong>Code Review</strong></td><td><code>/plannotator-review</code></td><td>View git diffs or remote PRs. Package annotations and ask AI about the code as you review.</td></tr>
-<tr><td><strong>Annotate Any File</strong></td><td><code>/plannotator-annotate &lt;file|folder|url&gt;</code></td><td>Annotate markdown, HTML, URLs, or folders, ask AI about the active document, and send feedback to your agent</td></tr>
-<tr><td><strong>Annotate Last Message</strong></td><td><code>/plannotator-last</code></td><td>Annotate the agent's last response and send structured feedback</td></tr>
-</table>
+<p align="center">
+  <img src="readme-assets/html.webp" alt="Annotating a rendered HTML artifact" width="720" />
+</p>
 
-#### Sharing Plans
+```
+/plannotator-annotate README.md          # Local markdown file
+/plannotator-annotate src/               # Browse and annotate files in a folder
+/plannotator-annotate https://docs.rs/…  # Fetch and annotate any URL
+/plannotator-last                        # Annotate the agent's last message
+```
 
-Plannotator lets you privately share plans, annotations, and feedback with colleagues. For example, a colleague can annotate a shared plan, and you can import their feedback to send directly back to the coding agent.
+Accepts `.md`, `.mdx`, `.html`, and URLs. URLs are fetched via Jina Reader by default (or raw fetch + Turndown with `--no-jina`). Folders open a file browser. Annotations are sent to the agent session as structured feedback.
 
-**Small plans** are encoded entirely in the URL hash. No server involved, nothing stored anywhere.
+HTML files can be converted to markdown or rendered as-is with `--render-html` — built for reviewing the HTML artifacts agents increasingly produce (reports, explainers, prototypes) right where they're made.
 
-**Large plans** use a short link service with **end-to-end encryption**. Your plan is encrypted with AES-256-GCM in your browser before upload. The server stores only ciphertext it cannot read. The decryption key lives only in the URL you share. Pastes auto-delete after 7 days.
+---
 
-- Zero-knowledge storage, similar to [PrivateBin](https://privatebin.info/)
-- Fully open source and **self-hostable** ([see docs](https://plannotator.ai/docs/guides/sharing-and-collaboration/))
+## Code review
+
+<p align="center">
+  <a href="https://youtu.be/_N7uo0EFI-U">
+    <img src="readme-assets/code-review-thumbnail.png" alt="Code review UI with file tree and side-by-side diff" width="720" />
+  </a>
+</p>
+
+```
+/plannotator-review                    # Review uncommitted changes
+/plannotator-review <github-pr-url>    # Review a GitHub pull request
+/plannotator-review <gitlab-mr-url>    # Review a GitLab merge request
+```
+
+Side-by-side or unified diff. File tree navigation. Expandable context. Stage or unstage files directly. Line-level annotations with code suggestions. Feedback goes straight back to the agent session.
+
+Supports switching between staged, unstaged, and branch diffs. Whitespace toggle. Full keyboard navigation.
+
+---
+
+## Sharing
+
+<p align="center">
+  <img src="readme-assets/sharing.png" alt="Sharing portal with upload options" width="720" />
+</p>
+
+**Small plans** are encoded entirely in the URL hash. No server involved — the data lives in the link itself.
+
+**Large plans** use a short-link service with end-to-end encryption: AES-256-GCM in the browser before upload. The server stores only ciphertext. The decryption key lives exclusively in the URL fragment (never sent to the server). Pastes auto-delete after 7 days.
+
+Same model as [PrivateBin](https://privatebin.info/). The paste service is [self-hostable](https://plannotator.ai/docs/guides/sharing-and-collaboration/).
+
+Sharing can be disabled entirely with `PLANNOTATOR_SHARE=disabled`.
+
+
+---
 
 ## Install
 
-- [Claude Code](#install-for-claude-code)
-- [Copilot CLI](#install-for-copilot-cli)
-- [Gemini CLI](#install-for-gemini-cli)
-- [OpenCode](#install-for-opencode)
-- [Pi](#install-for-pi)
-- [Codex](#install-for-codex)
-- [Droid](#install-for-droid)
-
-## Install for Claude Code
-
-**Install the `plannotator` command:**
-
-**macOS / Linux / WSL:**
+One installer covers almost every agent. It installs the `plannotator` binary, auto-detects your installed agents, and configures hooks, skills, and slash commands for each:
 
 ```bash
+# macOS / Linux / WSL
 curl -fsSL https://plannotator.ai/install.sh | bash
 ```
 
-**Windows PowerShell:**
-
 ```powershell
+# Windows PowerShell
 irm https://plannotator.ai/install.ps1 | iex
 ```
 
-**Then in Claude Code:**
+Then finish the step for your agent:
 
-```
-/plugin marketplace add backnotprop/plannotator
-```
+| Agent | After the installer | Details |
+|---|---|---|
+| **Amp** | Copy [`plannotator.ts`](apps/amp-plugin/plannotator.ts) into `~/.config/amp/plugins/`, then `plugins: reload`. Workflows live in the command palette. | [README](apps/amp-plugin/README.md) |
+| **Claude Code** | `/plugin marketplace add backnotprop/plannotator`, then `/plugin install plannotator@plannotator`. Restart Claude Code. | [README](apps/hook/README.md) |
+| **Codex** | Nothing — plan review is enabled automatically via Codex's experimental `Stop` hook (macOS/Linux/WSL; Codex hooks are disabled on Windows). `$plannotator-review`, `$plannotator-annotate`, and `$plannotator-last` skills included. | [README](apps/codex/README.md) |
+| **Copilot CLI** | `/plugin marketplace add backnotprop/plannotator`, then `/plugin install plannotator-copilot@plannotator`. Restart. Plan review activates in plan mode (`Shift+Tab`). | [README](apps/copilot/README.md) |
+| **Droid** | `droid plugin marketplace add https://github.com/backnotprop/plannotator`, then `droid plugin install plannotator@plannotator`. Commands only — no plan interception yet. | [README](apps/droid-plugin/README.md) |
+| **Gemini CLI** | Nothing — hook, policy, and slash commands configured automatically. Requires Gemini CLI 0.36.0+. | [README](apps/gemini/README.md) |
+| **Kiro CLI** | Nothing — skills and an example agent installed automatically. Try `kiro-cli chat --agent plannotator`. | [README](apps/kiro-cli/README.md) |
+| **OpenCode** | Add `"plugin": ["@plannotator/opencode@latest"]` to `opencode.json`. Restart OpenCode. | [README](apps/opencode-plugin/README.md) |
+| **Pi** | Skip the installer — just `pi install npm:@plannotator/pi-extension`. Start Pi with `--plan`, or toggle with `/plannotator`. | [README](apps/pi-extension/README.md) |
 
-Restart Claude Code after plugin install.
+Full walkthroughs live in the [installation docs](https://plannotator.ai/docs/getting-started/installation/).
 
 <details>
-<summary>Pin a specific version or verify provenance</summary>
+<summary>Claude Code: manual hook setup (without the plugin system)</summary>
+
+Add to `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "plannotator",
+            "timeout": 345600
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+</details>
+
+<details>
+<summary>Pin a specific version</summary>
 
 ```bash
 curl -fsSL https://plannotator.ai/install.sh | bash -s -- --version vX.Y.Z
@@ -101,203 +200,160 @@ curl -fsSL https://plannotator.ai/install.sh | bash -s -- --version vX.Y.Z
 & ([scriptblock]::Create((irm https://plannotator.ai/install.ps1))) -Version vX.Y.Z
 ```
 
-Every released binary ships with a SHA256 sidecar (verified automatically). [SLSA provenance](https://slsa.dev/) verification is supported from v0.17.2 onwards — see the [installation docs](https://plannotator.ai/docs/getting-started/installation/#verifying-your-install) for details.
-
 </details>
 
-See [apps/hook/README.md](apps/hook/README.md) for detailed installation instructions including a `manual hook` approach.
+### Try it
+
+The fastest way to see what Plannotator does is to invoke it yourself, right now, from your agent:
+
+```
+/plannotator-last                   # annotate the agent's last reply
+/plannotator-review                 # review your current diff, PR-style
+/plannotator-annotate report.html   # annotate any file, folder, or URL
+```
+
+(Slash commands in most agents; `$plannotator-*` skills in Codex, command palette in Amp.)
+
+Plan review needs no command at all — the next time your agent proposes a plan, it opens in your browser automatically.
 
 ---
 
-## Install for Copilot CLI
+## How it works
 
-**Install the `plannotator` command:**
+### Plan review
 
-**macOS / Linux / WSL:**
+```
+Agent calls ExitPlanMode
+  -> PermissionRequest hook fires
+  -> Local server reads plan from hook input
+  -> Browser opens with review UI
+  -> You annotate and approve/deny
+  -> Approve: agent proceeds
+  -> Deny: structured feedback sent to agent
+  -> Agent revises, plan diff shows what changed
+```
+
+### Code review
+
+```
+You run /plannotator-review
+  -> git diff captures changes (or PR fetched by URL)
+  -> Browser opens with diff viewer
+  -> Annotate lines, stage/unstage files
+  -> Send feedback: returned to agent session
+  -> Approve: "LGTM" sent
+```
+
+---
+
+## Integrations
+
+**VS Code** — Open plans in editor tabs, view diffs inline, add annotations from the editor gutter. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=backnotprop.plannotator-webview).
+
+**Obsidian** — Auto-save approved plans to a vault with YAML frontmatter, tags from the plan title, and backlinks for graph connectivity. Configure in Plannotator's Settings panel.
+
+**Bear** — Save plans as Bear notes with nested tags and project metadata.
+
+**GitHub / GitLab** — Pass any PR or MR URL to `/plannotator-review` and review it with the full diff viewer, annotations, and file tree.
+
+---
+
+## Remote / SSH / devcontainer
+
+Plannotator auto-detects SSH sessions and switches to a fixed port. For explicit control:
 
 ```bash
-curl -fsSL https://plannotator.ai/install.sh | bash
+export PLANNOTATOR_REMOTE=1
+export PLANNOTATOR_PORT=9999  # forward this port
 ```
 
-**Windows PowerShell:**
-
-```powershell
-irm https://plannotator.ai/install.ps1 | iex
-```
-
-**Then in Copilot CLI:**
+VS Code devcontainers forward the port automatically (check the Ports tab). For raw SSH, add to `~/.ssh/config`:
 
 ```
-/plugin marketplace add backnotprop/plannotator
-/plugin install plannotator-copilot@plannotator
+Host your-server
+    LocalForward 9999 localhost:9999
 ```
-
-Restart Copilot CLI after plugin install. Plan review activates automatically when you use plan mode (`Shift+Tab` to enter plan mode).
-
-See [apps/copilot/README.md](apps/copilot/README.md) for details.
 
 ---
 
-## Install for Gemini CLI
+## Security
 
-**Install the `plannotator` command:**
+Every released binary ships with a SHA256 sidecar. [SLSA provenance](https://slsa.dev/) attestations are available from v0.17.2.
 
-**macOS / Linux / WSL:**
+To verify on install:
 
 ```bash
-curl -fsSL https://plannotator.ai/install.sh | bash
+curl -fsSL https://plannotator.ai/install.sh | bash -s -- --verify-attestation
 ```
 
-**Windows PowerShell:**
-
-```powershell
-irm https://plannotator.ai/install.ps1 | iex
-```
-
-The installer auto-detects Gemini CLI (checks for `~/.gemini`) and configures the plan review hook and policy. It also installs `/plannotator-review` and `/plannotator-annotate` slash commands.
-
-**Then in Gemini CLI:**
-
-```
-/plan                              # Enter plan mode — plans open in your browser
-/plannotator-review                # Code review for current changes
-/plannotator-review <pr-url>       # Review a GitHub pull request
-/plannotator-annotate <file.md>    # Annotate a markdown file
-```
-
-Requires Gemini CLI 0.36.0 or later.
-
-See [apps/gemini/README.md](apps/gemini/README.md) for details.
-
----
-
-## Install for OpenCode
-
-Add to your `opencode.json`:
+Requires `gh` installed and authenticated. Can also be set persistently in `~/.plannotator/config.json`:
 
 ```json
-{
-  "plugin": ["@plannotator/opencode@latest"]
-}
+{ "verifyAttestation": true }
 ```
 
-**Run the install script** to get `/plannotator-review`:
-
-```bash
-curl -fsSL https://plannotator.ai/install.sh | bash
-```
-
-**Windows:**
-```powershell
-irm https://plannotator.ai/install.ps1 | iex
-```
-
-This also clears any cached plugin versions. Then restart OpenCode.
+See the [verification docs](https://plannotator.ai/docs/getting-started/installation/#verifying-your-install) for details.
 
 ---
 
-## Install for Pi
+## Configuration
 
-```bash
-pi install npm:@plannotator/pi-extension
-```
+Settings are persisted via cookies (not localStorage) because each hook invocation runs on a random port. You can also set options via environment variables or `~/.plannotator/config.json`.
 
-Then start Pi with `--plan` to enter plan mode, or toggle it during a session with `/plannotator`.
-
-See [apps/pi-extension/README.md](apps/pi-extension/README.md) for full usage details, commands, and flags.
-
----
-
-## Install for Codex
-
-**Install the `plannotator` command:**
-
-**macOS / Linux / WSL:**
-
-```bash
-curl -fsSL https://plannotator.ai/install.sh | bash
-```
-
-The installer also enables Codex Stop hooks when Codex is installed or `~/.codex` already exists. Restart Codex Desktop
-after installing or changing hooks.
-
-**Windows PowerShell:**
-
-```powershell
-irm https://plannotator.ai/install.ps1 | iex
-```
-
-Codex plan review is automatic on macOS, Linux, and WSL. Codex hooks are currently disabled on Windows in the official Codex docs, so the Windows installer does not enable them automatically; the direct `!plannotator` commands still work.
-
-**Then in Codex — feedback flows back into the agent loop automatically:**
-
-```
-$plannotator-review          # Code review skill for current changes
-$plannotator-annotate        # Annotate a markdown file, URL, or folder
-$plannotator-last            # Annotate the last agent message
-```
-
-```
-!plannotator review           # Code review for current changes
-!plannotator review <pr-url>  # Review a GitHub pull request
-!plannotator annotate file.md # Annotate a markdown file
-!plannotator last             # Annotate the last agent message
-```
-
-Plan review uses Codex's experimental `Stop` hook on macOS, Linux, and WSL.
-
-See [apps/codex/README.md](apps/codex/README.md) for details.
+| Variable | Description |
+|---|---|
+| `PLANNOTATOR_REMOTE` | `1`/`true` for remote mode, `0`/`false` for local, unset for SSH auto-detection |
+| `PLANNOTATOR_PORT` | Fixed port (default: random locally, `19432` remote) |
+| `PLANNOTATOR_BROWSER` | Custom browser to open plans in |
+| `PLANNOTATOR_SHARE` | `disabled` to turn off URL sharing |
+| `PLANNOTATOR_SHARE_URL` | Custom base URL for share links (self-hosted portal) |
+| `PLANNOTATOR_PASTE_URL` | Base URL of the paste service API |
+| `PLANNOTATOR_ORIGIN` | Override agent detection: `claude-code`, `amp`, `droid`, `opencode`, `codex`, `copilot-cli`, `gemini-cli`, `kiro-cli`, `pi` |
+| `PLANNOTATOR_JINA` | `0`/`false` to disable Jina Reader for URL annotation |
+| `JINA_API_KEY` | Jina Reader API key for higher rate limits |
 
 ---
 
-## Install for Droid
-
-**Install the `plannotator` command:**
-
-**macOS / Linux / WSL:**
+## Development
 
 ```bash
-curl -fsSL https://plannotator.ai/install.sh | bash
+bun install
+
+bun run dev:hook       # Plan review server
+bun run dev:review     # Code review editor
+bun run dev:marketing  # Marketing site (plannotator.ai)
+bun run dev:vscode     # VS Code extension (watch mode)
 ```
 
-**Windows PowerShell:**
-
-```powershell
-irm https://plannotator.ai/install.ps1 | iex
-```
-
-**Then in Droid:**
+### Build
 
 ```bash
-droid plugin marketplace add https://github.com/backnotprop/plannotator
-droid plugin install plannotator@plannotator
+bun run build          # Main targets (hook + opencode)
+bun run build:hook     # Single-file HTML for the hook server
+bun run build:review   # Code review editor
+bun run build:opencode # OpenCode plugin
+bun run build:vscode   # VS Code extension
 ```
 
-This Droid plugin is commands-only. It adds:
+Build order matters. The hook build copies pre-built HTML from `apps/review/dist/`. If you change UI code in `packages/ui/`, `packages/editor/`, or `packages/review-editor/`, rebuild the review app first:
 
-```text
-/plannotator-review
-/plannotator-annotate <file|folder|url>
-/plannotator-last
+```bash
+bun run --cwd apps/review build && bun run build:hook
 ```
 
-It does not currently intercept Droid's planning flow.
+Test the plugin locally:
 
-See [apps/droid-plugin/README.md](apps/droid-plugin/README.md) for details.
+```bash
+claude --plugin-dir ./apps/hook
+```
 
----
+Full binary build:
 
-## How It Works
+```bash
+bun run --cwd apps/review build && bun run build:hook && \
+  bun build apps/hook/server/index.ts --compile --outfile ~/.local/bin/plannotator
+```
 
-When your AI agent finishes planning, Plannotator:
-
-1. Opens the Plannotator UI in your browser
-2. Lets you annotate the plan visually (delete, insert, replace, comment)
-3. Lets you ask AI about the plan or a highlighted selection when a provider is available
-4. **Approve** → Agent proceeds with implementation
-5. **Request changes** → Your annotations are sent back as structured feedback
-
-(Similar flow for code review, except you can also comment on specific lines of code diffs)
 
 ---
 
@@ -305,30 +361,6 @@ When your AI agent finishes planning, Plannotator:
 
 Copyright 2025-2026 backnotprop
 
-This project is licensed under either of
+Dual-licensed under [Apache 2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT) at your option.
 
-- [Apache License, Version 2.0](LICENSE-APACHE) ([http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0))
-- [MIT license](LICENSE-MIT) ([http://opensource.org/licenses/MIT](http://opensource.org/licenses/MIT))
-
-at your option.
-
-### Contribution
-
-Unless you explicitly state otherwise, any contribution intentionally submitted
-for inclusion in this project by you, as defined in the Apache-2.0 license,
-shall be dual licensed as above, without any additional terms or conditions.
-
-## Development
-
-To make the global `plannotator` command run from this checkout:
-
-```bash
-bun install
-bun link
-```
-
-After linking, commands like `plannotator review` use `apps/hook/server/index.ts` from your local repo. Rebuild the bundled HTML when changing UI code:
-
-```bash
-bun run --cwd apps/review build && bun run build:hook
-```
+Contributions are dual-licensed under the same terms unless you explicitly state otherwise.

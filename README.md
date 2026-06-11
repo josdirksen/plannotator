@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="readme-assets/banner.webp" alt="Plannotator" width="640" />
+  <img src=".github/assets/banner.webp" alt="Plannotator" width="640" />
 </p>
 
 
@@ -11,23 +11,23 @@
 </p>
 
 <p align="center">
-  <img src="readme-assets/icons/amp.svg" alt="Amp" title="Amp" height="28" />&nbsp;&nbsp;
-  <img src="readme-assets/icons/claude.svg" alt="Claude Code" title="Claude Code" height="28" />&nbsp;&nbsp;
-  <img src="readme-assets/icons/codex.png" alt="Codex" title="Codex" height="28" />&nbsp;&nbsp;
+  <img src=".github/assets/icons/amp.svg" alt="Amp" title="Amp" height="28" />&nbsp;&nbsp;
+  <img src=".github/assets/icons/claude.svg" alt="Claude Code" title="Claude Code" height="28" />&nbsp;&nbsp;
+  <img src=".github/assets/icons/codex.png" alt="Codex" title="Codex" height="28" />&nbsp;&nbsp;
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="readme-assets/icons/copilot-dark.svg" />
-    <img src="readme-assets/icons/copilot-light.svg" alt="Copilot CLI" title="Copilot CLI" height="28" />
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/icons/copilot-dark.svg" />
+    <img src=".github/assets/icons/copilot-light.svg" alt="Copilot CLI" title="Copilot CLI" height="28" />
   </picture>&nbsp;&nbsp;
-  <img src="readme-assets/icons/droid.png" alt="Droid" title="Droid" height="28" />&nbsp;&nbsp;
-  <img src="readme-assets/icons/gemini.png" alt="Gemini CLI" title="Gemini CLI" height="28" />&nbsp;&nbsp;
-  <img src="readme-assets/icons/kiro.svg" alt="Kiro" title="Kiro" height="28" />&nbsp;&nbsp;
+  <img src=".github/assets/icons/droid.png" alt="Droid" title="Droid" height="28" />&nbsp;&nbsp;
+  <img src=".github/assets/icons/gemini.png" alt="Gemini CLI" title="Gemini CLI" height="28" />&nbsp;&nbsp;
+  <img src=".github/assets/icons/kiro.svg" alt="Kiro" title="Kiro" height="28" />&nbsp;&nbsp;
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="readme-assets/icons/opencode-dark.svg" />
-    <img src="readme-assets/icons/opencode-light.svg" alt="OpenCode" title="OpenCode" height="28" />
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/icons/opencode-dark.svg" />
+    <img src=".github/assets/icons/opencode-light.svg" alt="OpenCode" title="OpenCode" height="28" />
   </picture>&nbsp;&nbsp;
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="readme-assets/icons/pi-dark.svg" />
-    <img src="readme-assets/icons/pi-light.svg" alt="Pi" title="Pi" height="28" />
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/icons/pi-dark.svg" />
+    <img src=".github/assets/icons/pi-light.svg" alt="Pi" title="Pi" height="28" />
   </picture>
 </p>
 
@@ -52,7 +52,7 @@ Annotate plans, specs, messages, html, then send the feedback to your agent.
 </td>
 <td width="60%">
 
-<img src="readme-assets/annotate.webp" alt="Annotate UI with inline annotations" width="100%" />
+<img src=".github/assets/annotate.webp" alt="Annotate UI with inline annotations" width="100%" />
 
 </td>
 </tr>
@@ -66,7 +66,7 @@ Review local changes or remote PRs. Comment on diffs, suggest code. Your comment
 </td>
 <td width="60%">
 
-<img src="readme-assets/review.webp" alt="Code review with file tree and side-by-side diff" width="100%" />
+<img src=".github/assets/review.webp" alt="Code review with file tree and side-by-side diff" width="100%" />
 
 </td>
 </tr>
@@ -75,7 +75,7 @@ Review local changes or remote PRs. Comment on diffs, suggest code. Your comment
 ## Annotate HTML Artifacts
 
 <p align="center">
-  <img src="readme-assets/html.webp" alt="Annotating a rendered HTML artifact" width="720" />
+  <img src=".github/assets/html.webp" alt="Annotating a rendered HTML artifact" width="720" />
 </p>
 
 ---
@@ -118,7 +118,7 @@ plannotator archive                    # Browse saved plan decisions read-only
 
 <p align="center">
   <a href="https://room.plannotator.ai/">
-    <img src="readme-assets/sharing.png" alt="Sharing portal with upload options" width="720" />
+    <img src=".github/assets/sharing.png" alt="Sharing portal with upload options" width="720" />
   </a>
 </p>
 
@@ -128,7 +128,7 @@ plannotator archive                    # Browse saved plan decisions read-only
 
 <p align="center">
   <a href="https://plannotator.ai/workspaces">
-    <img src="readme-assets/workspaces-cta.svg" alt="Beta is ending. Sign up for Workspaces." height="44" />
+    <img src=".github/assets/workspaces-cta.svg" alt="Beta is ending. Sign up for Workspaces." height="44" />
   </a>
 </p>
 

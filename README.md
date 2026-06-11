@@ -74,7 +74,9 @@ Review local changes or remote PRs. Comment on diffs, suggest code. Your comment
 </tr>
 </table>
 
-**AI built in:** ask AI about anything you're reviewing, or launch AI reviews that post comments to the diff.
+<p align="center">
+  <sub><strong>AI built in:</strong> ask AI about anything you're reviewing,<br/>or launch AI reviews that post comments to the diff.</sub>
+</p>
 
 ## Annotate HTML Artifacts
 

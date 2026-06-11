@@ -120,7 +120,19 @@ plannotator archive                    # Browse saved plan decisions read-only
 ## Sharing
 
 <p align="center">
-  <img src="readme-assets/sharing.png" alt="Sharing portal with upload options" width="720" />
+  <a href="https://room.plannotator.ai/">
+    <img src="readme-assets/sharing.png" alt="Sharing portal with upload options" width="720" />
+  </a>
+</p>
+
+<p align="center">
+  <sub>Beta: <a href="https://room.plannotator.ai/">room.plannotator.ai</a></sub>
+</p>
+
+<p align="center">
+  <a href="https://plannotator.ai/workspaces">
+    <img src="readme-assets/workspaces-cta.svg" alt="Beta is ending. Sign up for Workspaces." height="44" />
+  </a>
 </p>
 
 **Small plans** are encoded entirely in the URL hash. No server involved. The data lives in the link itself.

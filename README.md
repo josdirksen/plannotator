@@ -7,7 +7,7 @@
 <p align="center">
   <strong>Everything you need to annotate and stay in the loop with your agents</strong><br/>
   <strong>Doc Review • Code Review • HTML Artifacts</strong><br/>
-  <sub>Annotate plans, specs, markdown, and HTML before implementation. Review diffs and PRs. Send structured feedback back to the agent.</sub>
+  <sub>Annotate plans, specs, markdown, and HTML before implementation. Review diffs and PRs. Send feedback to your agent.</sub>
 </p>
 
 <p align="center">
@@ -45,7 +45,7 @@ Plannotator is a local, browser-based review layer for AI coding agents: Claude 
 
 ### Review documents, plans, and agent messages
 
-When your agent creates a plan, spec, markdown document, HTML file, or long response, Plannotator opens a focused review UI. Annotate inline, mark deletions, write replacements, attach images, then send structured feedback back to the agent. Opens automatically in supported plan modes, or on demand for any file, folder, or URL.
+When your agent creates a plan, spec, markdown document, HTML file, or long response, Plannotator opens a focused review UI. Annotate inline, mark deletions, write replacements, attach images, then send the feedback to your agent. Opens automatically in supported plan modes, or on demand for any file, folder, or URL.
 
 <p><strong>Demo:</strong> <a href="https://youtu.be/XqFun9XCXPw">Plan review with Pi</a></p>
 

@@ -41,7 +41,7 @@ Plannotator is a local, browser-based review layer for AI coding agents: Claude 
 
 <table>
 <tr>
-<td width="50%">
+<td width="40%" valign="middle">
 
 ### Review documents, plans, and agent messages
 
@@ -50,19 +50,19 @@ When your agent creates a plan, spec, markdown document, HTML file, or long resp
 <p><strong>Demo:</strong> <a href="https://youtu.be/XqFun9XCXPw">Plan review with Pi</a></p>
 
 </td>
-<td width="50%">
+<td width="60%">
 
 <img src="readme-assets/annotate.webp" alt="Annotate UI with inline annotations" width="100%" />
 
 </td>
 </tr>
 <tr>
-<td width="50%">
+<td width="60%">
 
 <img src="readme-assets/review.webp" alt="Code review with file tree and side-by-side diff" width="100%" />
 
 </td>
-<td width="50%">
+<td width="40%" valign="middle">
 
 ### Code Review
 

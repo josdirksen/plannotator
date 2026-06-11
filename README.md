@@ -61,7 +61,7 @@ Annotate plans, specs, messages, html, then send the feedback to your agent.
 
 ### Code Review
 
-A code review UI for local changes or remote PRs. Review diffs, annotate lines, suggest code, stage or unstage files. Your comments go back to the agent. Works with git, jj, p4, GitHub, and GitLab .
+A code review UI for local changes or remote PRs. Review diffs, annotate lines, suggest code, stage or unstage files. Your comments go back to the agent. Works with git, jj, p4, GitHub, and GitLab.
 
 </td>
 <td width="60%">

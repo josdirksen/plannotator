@@ -52,14 +52,14 @@ When your agent creates a plan, spec, markdown document, HTML file, or long resp
 </td>
 <td width="50%">
 
-<img src="readme-assets/annotate.webp" alt="Annotate UI with inline annotations" />
+<img src="readme-assets/annotate.webp" alt="Annotate UI with inline annotations" width="100%" />
 
 </td>
 </tr>
 <tr>
 <td width="50%">
 
-<img src="readme-assets/review.webp" alt="Code review with file tree and side-by-side diff" />
+<img src="readme-assets/review.webp" alt="Code review with file tree and side-by-side diff" width="100%" />
 
 </td>
 <td width="50%">

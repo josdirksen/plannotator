@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="readme-assets/icons/amp.svg" alt="Amp" title="Amp" height="32" />&nbsp;&nbsp;
+  <img src="readme-assets/icons/amp.svg" alt="Amp" title="Amp" height="38" />&nbsp;&nbsp;
   <img src="readme-assets/icons/claude.svg" alt="Claude Code" title="Claude Code" height="28" />&nbsp;&nbsp;
   <img src="readme-assets/icons/codex.png" alt="Codex" title="Codex" height="28" />&nbsp;&nbsp;
   <picture>

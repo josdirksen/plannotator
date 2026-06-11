@@ -37,7 +37,7 @@
 
 # Plannotator
 
-Plannotator is a local, browser-based review layer for AI coding agents: Claude Code, Codex, Copilot CLI, Gemini CLI, OpenCode, Kiro, Droid, Amp, and Pi. It plugs directly into your agent through its hooks and commands. When the agent proposes a plan or finishes writing code, the work opens in your browser and you mark it up like a document: strike things out, comment, attach images, suggest changes. Everything you write lands back in the live agent session as structured feedback, and the agent acts on it. You stay in the loop. No copy-pasting walls of text in a terminal.
+Plannotator is a local, browser-based review surface for AI coding agents: Claude Code, Codex, Copilot CLI, Gemini CLI, OpenCode, Kiro, Droid, Amp, and Pi. It plugs directly into your agent through its hooks and commands. When the agent proposes a plan or finishes writing code, the work opens in your browser and you mark it up, comment, and send feedback directly to the agent. Everything you write lands back in the live agent session as structured feedback, and the agent acts on it.
 
 <table>
 <tr>
@@ -45,7 +45,7 @@ Plannotator is a local, browser-based review layer for AI coding agents: Claude 
 
 ### Review documents, plans, and agent messages
 
-When your agent creates a plan, spec, markdown document, HTML file, or long response, Plannotator opens a focused review UI. Annotate inline, mark deletions, write replacements, attach images, then send the feedback to your agent. Opens automatically in supported plan modes, or on demand for any file, folder, or URL.
+Annotate plans, specs, messages, html, then send the feedback to your agent. 
 
 <p><strong>Demo:</strong> <a href="https://youtu.be/XqFun9XCXPw">Plan review with Pi</a></p>
 
@@ -61,7 +61,7 @@ When your agent creates a plan, spec, markdown document, HTML file, or long resp
 
 ### Code Review
 
-When your agent writes code, Plannotator opens a PR-style review UI for local changes or remote PRs. Review diffs, annotate lines, suggest code, stage or unstage files. Your comments go back into the same agent session. Works with git, jj, p4, GitHub PRs, and GitLab MRs.
+A code review UI for local changes or remote PRs. Review diffs, annotate lines, suggest code, stage or unstage files. Your comments go back to the agent. Works with git, jj, p4, GitHub, and GitLab .
 
 </td>
 <td width="60%">

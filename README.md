@@ -84,7 +84,7 @@ Review local changes or remote PRs. Comment on diffs, suggest code. Your comment
 
 ## Commands
 
-<sub>On Codex, swap the slash commands for `!plannotator …` (e.g. `!plannotator review`) or the `$plannotator-*` skills. The `!` form also works on Windows, where Codex hooks are disabled.</sub>
+<sub>On Codex, swap the slash commands for `!plannotator …` (e.g. `!plannotator review`) or the `$plannotator-*` skills.</sub>
 
 ### Annotate
 

@@ -256,6 +256,7 @@
         "@lezer/highlight": "^1.2.3",
         "@pierre/diffs": "1.2.8",
         "@plannotator/ai": "workspace:*",
+        "@plannotator/markdown-editor": "0.1.0",
         "@plannotator/shared": "workspace:*",
         "@plannotator/web-highlighter": "^0.8.1",
         "@radix-ui/react-dialog": "^1.1.15",
@@ -793,6 +794,8 @@
     "@plannotator/editor": ["@plannotator/editor@workspace:packages/editor"],
 
     "@plannotator/hooks": ["@plannotator/hooks@workspace:apps/hook"],
+
+    "@plannotator/markdown-editor": ["@plannotator/markdown-editor@0.1.0", "", { "peerDependencies": { "@atomic-editor/editor": "^0.4.0", "@codemirror/lang-javascript": "^6.0.0", "@codemirror/lang-json": "^6.0.0", "@codemirror/lang-python": "^6.0.0", "@codemirror/lang-yaml": "^6.0.0", "@codemirror/language": "^6.0.0", "@codemirror/legacy-modes": "^6.0.0", "react": "^18.0.0 || ^19.0.0", "react-dom": "^18.0.0 || ^19.0.0" }, "optionalPeers": ["@codemirror/lang-javascript", "@codemirror/lang-json", "@codemirror/lang-python", "@codemirror/lang-yaml", "@codemirror/legacy-modes"] }, "sha512-tLc7ZeUcnsJCxvS3HNa+R0cP/ZikjGuP8nD1+4JeDUUd/5IB0upygcJRCC0OHZ4V6CJ5C9PdKGwnTp88Y72sog=="],
 
     "@plannotator/marketing": ["@plannotator/marketing@workspace:apps/marketing"],
 

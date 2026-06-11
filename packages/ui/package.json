@@ -39,6 +39,7 @@
     "@lezer/common": "^1.5.2",
     "@lezer/highlight": "^1.2.3",
     "@plannotator/ai": "workspace:*",
+    "@plannotator/markdown-editor": "0.1.0",
     "@plannotator/shared": "workspace:*",
     "@plannotator/web-highlighter": "^0.8.1",
     "@radix-ui/react-dialog": "^1.1.15",

@@ -37,7 +37,7 @@
 
 # Plannotator
 
-Plannotator is a local, browser-based review surface for AI coding agents: Claude Code, Codex, Copilot CLI, Gemini CLI, OpenCode, Kiro, Droid, Amp, and Pi. It plugs directly into your agent through its hooks and commands. When the agent proposes a plan or finishes writing code, the work opens in your browser and you mark it up, comment, and send feedback directly to the agent. Everything you write lands back in the live agent session as structured feedback, and the agent acts on it.
+Plannotator is a local, browser-based review surface for AI coding agents: Claude Code, Codex, Copilot CLI, Gemini CLI, OpenCode, Kiro, Droid, Amp, and Pi. **It plugs directly into your agent** through its hooks and commands. When the agent proposes a plan, html, or finishes writing code, the work opens in your browser and you mark it up, comment, and send feedback directly to the agent. Your feedback is sent directly to the agent for it to act on it.
 
 <table>
 <tr>
@@ -61,7 +61,7 @@ Annotate plans, specs, messages, html, then send the feedback to your agent.
 
 ### Code Review
 
-A code review UI for local changes or remote PRs. Review diffs, annotate lines, suggest code, stage or unstage files. Your comments go back to the agent. Works with git, jj, p4, GitHub, and GitLab.
+Review local changes or remote PRs. Comment on diffs, suggest code. Your comments go back to the agent. Works with git, jj, p4, GitHub, and GitLab.
 
 </td>
 <td width="60%">

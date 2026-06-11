@@ -56,6 +56,9 @@ When your agent creates a plan, spec, markdown document, HTML file, or long resp
 
 </td>
 </tr>
+</table>
+
+<table>
 <tr>
 <td width="60%">
 

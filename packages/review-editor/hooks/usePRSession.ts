@@ -9,11 +9,16 @@ export interface PRSessionState {
   prDiffScope: PRDiffScope;
   prDiffScopeOptions: PRDiffScopeOption[];
   /**
-   * The platform withheld per-file content for this PR (too large). A local
-   * recompute is offered via the partial-diff notice; cleared when a server
-   * response stops reporting the flag.
+   * The platform withheld per-file content for this PR (too large). Always
+   * reported; cleared when a server response stops reporting the flag.
    */
   prPatchIncomplete: boolean;
+  /**
+   * A local checkout (worktree pool) exists, so the partial-diff notice can
+   * offer the "Load full diff" recompute. Without it the notice is
+   * informational only.
+   */
+  prPatchUpgradeAvailable: boolean;
 }
 
 export interface PRSessionUpdate {
@@ -23,6 +28,7 @@ export interface PRSessionUpdate {
   prDiffScope?: PRDiffScope;
   prDiffScopeOptions?: PRDiffScopeOption[];
   prPatchIncomplete?: boolean;
+  prPatchUpgradeAvailable?: boolean;
 }
 
 export function usePRSession() {
@@ -33,6 +39,7 @@ export function usePRSession() {
     prDiffScope: 'layer',
     prDiffScopeOptions: [],
     prPatchIncomplete: false,
+    prPatchUpgradeAvailable: false,
   });
 
   const updatePRSession = useCallback((update: PRSessionUpdate) => {
@@ -44,6 +51,7 @@ export function usePRSession() {
       if (update.prDiffScope !== undefined) next.prDiffScope = update.prDiffScope;
       if (update.prDiffScopeOptions !== undefined) next.prDiffScopeOptions = update.prDiffScopeOptions;
       if (update.prPatchIncomplete !== undefined) next.prPatchIncomplete = update.prPatchIncomplete;
+      if (update.prPatchUpgradeAvailable !== undefined) next.prPatchUpgradeAvailable = update.prPatchUpgradeAvailable;
       return next;
     });
   }, []);

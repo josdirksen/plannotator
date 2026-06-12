@@ -208,7 +208,7 @@ const ReviewApp: React.FC = () => {
     document.title = repoInfo ? `${repoInfo.display} · Code Review` : "Code Review";
   }, [repoInfo]);
 
-  const { prMetadata, prStackInfo, prStackTree, prDiffScope, prDiffScopeOptions, prPatchIncomplete, updatePRSession } = usePRSession();
+  const { prMetadata, prStackInfo, prStackTree, prDiffScope, prDiffScopeOptions, prPatchIncomplete, prPatchUpgradeAvailable, updatePRSession } = usePRSession();
   const { withPRContext } = useAnnotationFactory(prMetadata, prStackInfo ? prDiffScope : undefined);
 
   const prStackCallbacksRef = useRef<import('./hooks/usePRStack').PRStackCallbacks | null>(null);
@@ -924,6 +924,7 @@ const ReviewApp: React.FC = () => {
         prDiffScope?: PRDiffScope;
         prDiffScopeOptions?: PRDiffScopeOption[];
         prPatchIncomplete?: boolean;
+        prPatchUpgradeAvailable?: boolean;
         platformUser?: string;
         viewedFiles?: string[];
         error?: string;
@@ -969,7 +970,10 @@ const ReviewApp: React.FC = () => {
           ...(data.prStackTree !== undefined && { prStackTree: data.prStackTree }),
           ...(data.prDiffScope && { prDiffScope: data.prDiffScope }),
           ...(data.prDiffScopeOptions && { prDiffScopeOptions: data.prDiffScopeOptions }),
-          ...(data.prMetadata && { prPatchIncomplete: data.prPatchIncomplete === true }),
+          ...(data.prMetadata && {
+            prPatchIncomplete: data.prPatchIncomplete === true,
+            prPatchUpgradeAvailable: data.prPatchUpgradeAvailable === true,
+          }),
         });
         if (data.platformUser) setPlatformUser(data.platformUser);
         // Initialize viewed files from GitHub's state (set before draft restore so draft takes precedence)
@@ -1282,6 +1286,7 @@ const ReviewApp: React.FC = () => {
       // Scope/switch responses authoritatively report partiality; absence
       // means the patch is complete (e.g. after the local recompute upgrade).
       prPatchIncomplete: data.prPatchIncomplete === true,
+      prPatchUpgradeAvailable: data.prPatchUpgradeAvailable === true,
     });
     if (data.repoInfo) setRepoInfo(data.repoInfo);
     if (data.prMetadata) {
@@ -2194,7 +2199,16 @@ const ReviewApp: React.FC = () => {
                       Partial diff
                     </span>
                     <span className="md:hidden">Partial</span>
-                    {isLoadingFullDiff ? (
+                    {!prPatchUpgradeAvailable ? (
+                      // Partiality without a local checkout: informational
+                      // only — never offer a button that cannot work.
+                      <span
+                        className="text-amber-700/70 dark:text-amber-300/70"
+                        title="No local checkout in this session — re-run the review with --local to be able to load the full diff"
+                      >
+                        (re-run with --local for the full diff)
+                      </span>
+                    ) : isLoadingFullDiff ? (
                       <span className="flex items-center gap-1.5 font-medium" title="Recomputing the full diff from the local checkout — waiting for the background clone if it's still running. You can keep reviewing.">
                         <span className="inline-block w-3 h-3 border-[1.5px] border-current border-t-transparent rounded-full animate-spin" aria-hidden />
                         Loading full diff…

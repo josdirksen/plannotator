@@ -192,9 +192,11 @@ export async function startReviewServer(
   // limits) becomes available once the checkout warmup finishes — the layer
   // fingerprint flips to drive the refresh notice, and the pr-diff-scope
   // "layer" branch performs the upgrade. Tracked per-PR across pr-switch.
-  // Gated on the pool: without a local checkout the upgrade can never run,
-  // so the client must not be offered one.
-  let layerPatchIncomplete = (options.prPatchIncomplete ?? false) && isPRMode && !!options.worktreePool;
+  // Partiality is INFORMATION (the platform withheld content) and is always
+  // reported; whether a local recompute can be OFFERED is a separate
+  // capability, gated on the pool below (layerUpgradeAvailable).
+  let layerPatchIncomplete = (options.prPatchIncomplete ?? false) && isPRMode;
+  const layerUpgradeAvailable = !!options.worktreePool;
   let prListCache: PRListItem[] | null = null;
   let prListCacheTime = 0;
   const prSwitchCache = new Map<string, { metadata: PRMetadata; rawPatch: string; patchIncomplete?: boolean }>();
@@ -437,9 +439,20 @@ export async function startReviewServer(
 
       // Agents run inside the PR checkout — wait out the background warmup so
       // the spawn-time getCwd() below resolves to a path that exists.
-      const cwd = options.worktreePool && launchMetadata
-        ? (await ensurePRLocalCwd(launchMetadata)) ?? resolveAgentCwd()
-        : await resolveAgentCwdReady();
+      let cwd: string;
+      if (options.worktreePool && launchMetadata) {
+        const checkout = await ensurePRLocalCwd(launchMetadata);
+        if (!checkout) {
+          // Fail fast: without the checkout the job would run in whatever
+          // directory the CLI was launched from — possibly an unrelated repo.
+          throw new Error(
+            "Local PR checkout unavailable — the agent can't run against the PR files. Retry shortly (the checkout may still be recovering).",
+          );
+        }
+        cwd = checkout;
+      } else {
+        cwd = await resolveAgentCwdReady();
+      }
       const workspacePrompt = getWorkspacePromptContext();
       // Honest local-access claim: in PR mode the checkout must actually be
       // available (warmup done, not failed) — the prompt tells the agent it
@@ -748,7 +761,7 @@ export async function startReviewServer(
                 prDiffScope: currentPRDiffScope,
                 prDiffScopeOptions,
               }),
-              ...(isPRMode && layerPatchIncomplete && { prPatchIncomplete: true }),
+              ...(isPRMode && layerPatchIncomplete && { prPatchIncomplete: true, prPatchUpgradeAvailable: layerUpgradeAvailable }),
               ...(isPRMode && initialViewedFiles.length > 0 && { viewedFiles: initialViewedFiles }),
               ...(currentError && { error: currentError }),
               semanticDiff: await getSemanticDiffAdvert(),
@@ -903,7 +916,7 @@ export async function startReviewServer(
                   rawPatch: currentPatch,
                   gitRef: currentGitRef,
                   prDiffScope: currentPRDiffScope,
-                  ...(layerPatchIncomplete && { prPatchIncomplete: true }),
+                  ...(layerPatchIncomplete && { prPatchIncomplete: true, prPatchUpgradeAvailable: layerUpgradeAvailable }),
                   ...(currentError && { error: currentError }),
                   semanticDiff,
                 });
@@ -953,7 +966,7 @@ export async function startReviewServer(
                   rawPatch: currentPatch,
                   gitRef: currentGitRef,
                   prDiffScope: currentPRDiffScope,
-                  ...(layerPatchIncomplete && { prPatchIncomplete: true }),
+                  ...(layerPatchIncomplete && { prPatchIncomplete: true, prPatchUpgradeAvailable: layerUpgradeAvailable }),
                   ...((currentError ?? upgradeError) && { error: currentError ?? upgradeError }),
                   semanticDiff: await getSemanticDiffAdvert(),
                 });
@@ -1056,7 +1069,7 @@ export async function startReviewServer(
               originalPRGitRef = currentGitRef;
               originalPRError = undefined;
               currentPRDiffScope = "layer";
-              layerPatchIncomplete = (pr.patchIncomplete ?? false) && !!options.worktreePool;
+              layerPatchIncomplete = pr.patchIncomplete ?? false;
               draftKey = contentHash(pr.rawPatch);
               prListCache = null;
               captureDiffFingerprint();
@@ -1120,7 +1133,7 @@ export async function startReviewServer(
                 prStackTree,
                 prDiffScope: currentPRDiffScope,
                 prDiffScopeOptions,
-                ...(layerPatchIncomplete && { prPatchIncomplete: true }),
+                ...(layerPatchIncomplete && { prPatchIncomplete: true, prPatchUpgradeAvailable: layerUpgradeAvailable }),
                 repoInfo,
                 ...(switchedViewedFiles.length > 0 && { viewedFiles: switchedViewedFiles }),
                 ...(currentError ? { error: currentError } : {}),
@@ -1505,8 +1518,16 @@ export async function startReviewServer(
               // AI sessions pin their cwd at creation — wait out the PR
               // checkout warmup so a session opened in the first seconds
               // isn't rooted in a transient fallback directory for life.
+              // If the checkout can't be produced (warmup failed), refuse
+              // instead of starting a session in the wrong directory.
               if (req.method === "POST" && url.pathname === "/api/ai/session" && options.worktreePool && prMetadata) {
-                await ensurePRLocalCwd();
+                const checkout = await ensurePRLocalCwd();
+                if (!checkout) {
+                  return Response.json(
+                    { error: "Local PR checkout unavailable — Ask AI can't read the PR files right now. Retry shortly." },
+                    { status: 503 },
+                  );
+                }
               }
               if (url.pathname === AI_QUERY_ENDPOINT) {
                 server.timeout(req, 0);

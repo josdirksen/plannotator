@@ -240,9 +240,11 @@ export async function startReviewServer(options: {
 	// limits) becomes available once a pool checkout exists — the layer
 	// fingerprint flips to drive the refresh notice, and the pr-diff-scope
 	// "layer" branch performs the upgrade. Tracked per-PR across pr-switch.
-	// Gated on the pool: without a local checkout the upgrade can never run,
-	// so the client must not be offered one.
-	let layerPatchIncomplete = (options.prPatchIncomplete ?? false) && isPRMode && !!options.worktreePool;
+	// Partiality is INFORMATION (the platform withheld content) and is always
+	// reported; whether a local recompute can be OFFERED is a separate
+	// capability, gated on the pool below (layerUpgradeAvailable).
+	let layerPatchIncomplete = (options.prPatchIncomplete ?? false) && isPRMode;
+	const layerUpgradeAvailable = !!options.worktreePool;
 	const prSwitchCache = new Map<string, { metadata: PRMetadata; rawPatch: string; patchIncomplete?: boolean }>();
 	if (isPRMode && prMeta) {
 		prSwitchCache.set(prMeta.url, {
@@ -463,6 +465,14 @@ export async function startReviewServer(options: {
 		getCwd: resolveAgentCwd,
 
 		async buildCommand(provider, config) {
+			// Fail fast in PR-pool mode when this PR's checkout doesn't exist
+			// (e.g. a pr-switch whose worktree creation failed): falling back
+			// would run the agent against the wrong revision or directory.
+			if (options.worktreePool && prMeta && !options.worktreePool.resolve(prMeta.url)) {
+				throw new Error(
+					"Local PR checkout unavailable — the agent can't run against the PR files. Retry shortly (the checkout may still be recovering).",
+				);
+			}
 			const cwd = resolveAgentCwd();
 			const workspacePrompt = getWorkspacePromptContext();
 			const hasAgentLocalAccess = !!workspacePrompt || !!options.worktreePool || !!options.agentCwd || !!options.gitContext;
@@ -696,7 +706,7 @@ export async function startReviewServer(options: {
 					prDiffScope: currentPRDiffScope,
 					prDiffScopeOptions,
 				}),
-				...(isPRMode && layerPatchIncomplete && { prPatchIncomplete: true }),
+				...(isPRMode && layerPatchIncomplete && { prPatchIncomplete: true, prPatchUpgradeAvailable: layerUpgradeAvailable }),
 				...(isPRMode && initialViewedFiles.length > 0 && { viewedFiles: initialViewedFiles }),
 				...(currentError && { error: currentError }),
 				semanticDiff: await getSemanticDiffAdvert(),
@@ -833,7 +843,7 @@ export async function startReviewServer(options: {
 						rawPatch: currentPatch,
 						gitRef: currentGitRef,
 						prDiffScope: currentPRDiffScope,
-						...(layerPatchIncomplete ? { prPatchIncomplete: true } : {}),
+						...(layerPatchIncomplete ? { prPatchIncomplete: true, prPatchUpgradeAvailable: layerUpgradeAvailable } : {}),
 						...(currentError ? { error: currentError } : {}),
 						semanticDiff,
 					});
@@ -892,7 +902,7 @@ export async function startReviewServer(options: {
 						rawPatch: currentPatch,
 						gitRef: currentGitRef,
 						prDiffScope: currentPRDiffScope,
-						...(layerPatchIncomplete ? { prPatchIncomplete: true } : {}),
+						...(layerPatchIncomplete ? { prPatchIncomplete: true, prPatchUpgradeAvailable: layerUpgradeAvailable } : {}),
 						...((currentError ?? upgradeError) ? { error: currentError ?? upgradeError } : {}),
 						semanticDiff: await getSemanticDiffAdvert(),
 					});
@@ -955,7 +965,7 @@ export async function startReviewServer(options: {
 				originalPRGitRef = currentGitRef;
 				originalPRError = undefined;
 				currentPRDiffScope = "layer";
-				layerPatchIncomplete = (pr.patchIncomplete ?? false) && !!options.worktreePool;
+				layerPatchIncomplete = pr.patchIncomplete ?? false;
 				draftKey = contentHash(pr.rawPatch);
 				prListCache = null;
 				captureDiffFingerprint();
@@ -1007,7 +1017,7 @@ export async function startReviewServer(options: {
 					prStackTree,
 					prDiffScope: currentPRDiffScope,
 					prDiffScopeOptions,
-					...(layerPatchIncomplete ? { prPatchIncomplete: true } : {}),
+					...(layerPatchIncomplete ? { prPatchIncomplete: true, prPatchUpgradeAvailable: layerUpgradeAvailable } : {}),
 					repoInfo,
 					...(switchedViewedFiles.length > 0 && { viewedFiles: switchedViewedFiles }),
 					...(currentError ? { error: currentError } : {}),
@@ -1351,7 +1361,14 @@ export async function startReviewServer(options: {
 			// exists first so sessions never root in a transient fallback
 			// (mirrors the Bun server; no-op while the pool entry is ready).
 			if (req.method === "POST" && url.pathname === "/api/ai/session" && options.worktreePool && prMeta) {
-				try { await options.worktreePool.ensure(reviewRuntime, prMeta); } catch { /* capability degrades below */ }
+				// If the checkout can't be produced, refuse instead of starting a
+				// session rooted in the wrong directory.
+				try {
+					await options.worktreePool.ensure(reviewRuntime, prMeta);
+				} catch {
+					json(res, { error: "Local PR checkout unavailable — Ask AI can't read the PR files right now. Retry shortly." }, 503);
+					return;
+				}
 			}
 			if (await handlePiAIRequest(req, res, url, aiRuntime)) return;
 			// Unmatched /api/ai/* paths fall through to the app shell, same as

@@ -37,6 +37,10 @@ plannotator/
 │   │   ├── index.html
 │   │   ├── index.tsx
 │   │   └── vite.config.ts
+│   ├── canvas/                   # Canvas app build host (vite single-file → canvas.html)
+│   │   ├── index.html
+│   │   ├── index.tsx
+│   │   └── vite.config.ts
 │   ├── vscode-extension/         # VS Code extension — opens plans in editor tabs
 │   │   ├── bin/                   # Router scripts (open-in-vscode, xdg-open)
 │   │   ├── src/                   # extension.ts, cookie-proxy.ts, ipc-server.ts, panel-manager.ts, editor-annotations.ts, vscode-theme.ts
@@ -45,7 +49,8 @@ plannotator/
 │       ├── core/                  # CORE skills (single-sourced) — installed to ~/.claude/skills and ~/.agents/skills (Codex)
 │       │   ├── plannotator-review/    # Lightweight: opens review UI
 │       │   ├── plannotator-annotate/  # Lightweight: opens annotate UI
-│       │   └── plannotator-last/      # Lightweight: annotates last message
+│       │   ├── plannotator-last/      # Lightweight: annotates last message
+│       │   └── plannotator-canvas/    # Publish live HTML frames to the canvas + watch feedback
 │       └── extra/                 # EXTRA skills — NOT default-installed (except Kiro); add via `npx skills add backnotprop/plannotator/apps/skills/extra`
 │           ├── plannotator-compound/        # Research analysis agent (map-reduce over denied plans)
 │           ├── plannotator-setup-goal/      # Goal package scaffolder for /goal workflows
@@ -88,13 +93,20 @@ plannotator/
 │   ├── editor/                   # Plan review app
 │   │   ├── App.tsx               # Main plan review app
 │   │   └── shortcuts.ts          # planReviewSurface + annotateSurface — composes plan-review scopes into per-surface registries
-│   └── review-editor/            # Code review UI
-│       ├── App.tsx               # Main review app
-│       ├── shortcuts.ts          # codeReviewSurface — composes code-review scopes into the review registry
-│       ├── components/           # DiffViewer, FileTree, ReviewSidebar
-│       ├── dock/                 # Dockview center panel infrastructure
-│       ├── demoData.ts           # Demo diff for standalone mode
-│       └── index.css             # Review-specific styles
+│   ├── review-editor/            # Code review UI
+│   │   ├── App.tsx               # Main review app
+│   │   ├── shortcuts.ts          # codeReviewSurface — composes code-review scopes into the review registry
+│   │   ├── components/           # DiffViewer, FileTree, ReviewSidebar
+│   │   ├── dock/                 # Dockview center panel infrastructure
+│   │   ├── demoData.ts           # Demo diff for standalone mode
+│   │   └── index.css             # Review-specific styles
+│   └── canvas-editor/            # Agent HTML canvas UI (docs/canvas-spec.md)
+│       ├── App.tsx               # Root: SSE wiring, project boards, bridge annotations
+│       ├── camera.ts             # Pure camera math (zoomAt, fitBounds, culling)
+│       ├── api.ts                # HTTP + SSE client for the canvas server
+│       ├── components/           # CanvasViewport (two-layer), FrameContent, CommentsPanel, FocusBar
+│       │   └── sidebar/          # Offcanvas project rail + edge-peek (flat list, most recent first)
+│       └── index.css             # Canvas-specific styles
 ├── .claude-plugin/marketplace.json  # For marketplace install
 └── legacy/                       # Old pre-monorepo code (reference only)
 ```
@@ -139,6 +151,7 @@ claude --plugin-dir ./apps/hook
 | `PLANNOTATOR_GLIMPSE` | Set to `0` / `false` to disable the Glimpse native window even when `glimpseui` is installed. Default: enabled. Can also be set via `~/.plannotator/config.json` (`{ "glimpse": false }`). |
 | `PLANNOTATOR_GLIMPSE_WIDTH` | Width in pixels for the Glimpse native window. Default: `1280`. |
 | `PLANNOTATOR_GLIMPSE_HEIGHT` | Height in pixels for the Glimpse native window. Default: `900`. |
+| `PLANNOTATOR_CANVAS_PORT` | Base port for the long-running canvas server. Default: `19434` (retries +1…+10 on conflict; discovery is via `~/.plannotator/canvas/server.json`, not the port). |
 | `PLANNOTATOR_VERIFY_ATTESTATION` | **Read by the install scripts only**, not by the runtime binary. Set to `1` / `true` to have `scripts/install.sh` / `install.ps1` / `install.cmd` run `gh attestation verify` on every install. Off by default. Can also be set persistently via `~/.plannotator/config.json` (`{ "verifyAttestation": true }`) or per-invocation via `--verify-attestation`. Requires `gh` installed and authenticated. |
 
 **Config-only settings (`~/.plannotator/config.json`)**: Some settings have no env-var equivalent and are toggled by editing the config file directly:
@@ -244,6 +257,31 @@ Done → POST /api/done closes the browser
 
 During normal plan review, an Archive sidebar tab provides the same browsing via linked doc overlay without leaving the current session.
 
+## Canvas Flow
+
+Full spec: `docs/canvas-spec.md`. Unlike the decision-scoped plan/review/annotate servers, the canvas server is a **long-running machine-wide singleton** discovered via `~/.plannotator/canvas/server.json` (port 19434 by default, `PLANNOTATOR_CANVAS_PORT` to override). Each project directory gets its own persistent board under `~/.plannotator/canvas/projects/{key}/` (frames + revision history + comments + feedback log).
+
+```
+Agent runs: plannotator canvas add page.html --title "Login v2"
+        ↓
+CLI auto-starts the canvas server (detached) if none is healthy, POSTs the frame
+        ↓
+Frame appears live on the project's board (SSE push; sandboxed srcdoc iframe)
+        ↓
+User pans/zooms, focuses frames, comments (frame-level or on selected text
+inside the frame via the annotation bridge)
+        ↓
+User clicks "Send feedback" (per frame, or board-wide "Send all")
+        ↓
+Agent's backgrounded `plannotator canvas watch --json` receives one NDJSON
+frame.feedback event ({comments, feedbackMarkdown}); agent revises and runs
+`plannotator canvas update <frameId> page.html` (new revision, position kept)
+```
+
+**Reply threads** are a parallel, conversational path: a comment sent with "Send now" expects a *reply* (not a document revision), so it shows **no** awaiting-revision dots — instead the comment thread shows "waiting for a reply." The agent's `watch` receives a `comment.reply_request` event (commentId + thread) and replies with `plannotator canvas reply <commentId> --as <name> "<message>"`. The reply appears live in the thread; a user follow-up re-emits a `comment.reply_request`. Agents declare their own identity via `--as` (no auth).
+
+`canvas feedback [--since ISO]` is the pull alternative to `watch`. `canvas list`, `canvas stop` round out the CLI. The UI (apps/canvas → packages/canvas-editor) uses a two-layer viewport: a camera-transformed chrome layer and an untransformed content layer whose iframes are positioned imperatively — iframes never re-parent, so focus mode and pan/zoom never reload frame state.
+
 ## Server API
 
 ### Plan Server (`packages/server/index.ts`)
@@ -348,6 +386,31 @@ During normal plan review, an Archive sidebar tab provides the same browsing via
 | `/api/external-annotations` | DELETE | Remove by `?id=`, `?source=`, or clear all |
 
 All servers use random ports locally or fixed port (`19432`) in remote mode.
+
+### Canvas Server (`packages/server/canvas.ts`)
+
+Long-running singleton (default port `19434`; registry `~/.plannotator/canvas/server.json`). Storage in `packages/shared/canvas-store.ts`.
+
+| Endpoint              | Method | Purpose                                    |
+| --------------------- | ------ | ------------------------------------------ |
+| `/api/canvas/health`  | GET    | Liveness probe `{ ok, canvas, pid }` (used for registry staleness) |
+| `/api/canvas/projects` | GET   | Board summaries, most recently updated first |
+| `/api/canvas/projects` | POST  | Ensure a board exists for `{ root }` |
+| `/api/canvas/board`   | GET    | Full board snapshot (`?project=key`) |
+| `/api/canvas/frames`  | POST   | Create frame `{ projectRoot, html, title?, sessionId?, groupHint?, suggestedSize? }` → `{ frameId, projectKey, url }`. Grid auto-placement (≤3 frames side by side, then square-ish wrapping downward), 5MB cap. `suggestedSize` pins the frame (`sizedBy: "agent"`); otherwise the UI auto-fits height to rendered content. |
+| `/api/canvas/projects/:key/arrange` | POST | Tidy: reflow all frames into a masonry layout (shortest-column packing; one commit → `board.arranged` SSE) |
+| `/api/canvas/frames/:id` | PATCH | `{ html }` → new revision; `{ x,y,width,height }` → geometry (no revision bump); `{ title?, status? }`; `{ sizedBy: "auto"\|"user" }` → size ownership — `auto` (an auto-fit) also pushes overlapped neighbors down and broadcasts `board.arranged` when they moved, `user` pins against future auto-fits |
+| `/api/canvas/frames/:id/html` | GET | Frame HTML as JSON (`?project=&rev=`) — never served as text/html (must only execute in the sandboxed iframe) |
+| `/api/canvas/frames/:id/comments` | GET/POST | List / add comments (`selection.originalText` anchors in-frame text comments) |
+| `/api/canvas/comments/:id` | PATCH/DELETE | Resolve/edit / remove a comment (`?project=`) |
+| `/api/canvas/comments/:id/send-now` | POST | "Send now": dispatch one comment expecting a **reply** (no dots) → `comment.reply_request` watch event |
+| `/api/canvas/comments/:id/reply` | POST | Add a reply to the thread (`{author, body, fromAgent}`); agent replies clear awaiting, user replies re-emit a reply request |
+| `/api/canvas/frames/:id/dispatch` | POST | Bundle pending comments → feedback event (NDJSON log + streams) |
+| `/api/canvas/projects/:key/dispatch` | POST | Board-wide dispatch |
+| `/api/canvas/feedback` | GET   | Pull dispatched events (`?project=key` or `?root=path`, `&since=ISO`) |
+| `/api/canvas/stream`  | GET    | SSE for the UI: `frame.*`, `comment.*`, `feedback.dispatched` (all projects, `seq`-gated) |
+| `/api/canvas/feedback/stream` | GET | SSE for `canvas watch`: replays `?since`, then live `frame.feedback` events |
+| `/api/canvas/shutdown` | POST  | Graceful stop (`canvas stop`) |
 
 ### Paste Service (`apps/paste-service/`)
 
@@ -534,6 +597,7 @@ bun install
 # Run any app
 bun run dev:hook       # Hook server (plan review)
 bun run dev:review     # Review editor (code review)
+bun run dev:canvas     # Canvas editor (agent HTML canvas; proxies /api to :19434)
 bun run dev:portal     # Portal editor
 bun run dev:marketing  # Marketing site
 bun run dev:vscode     # VS Code extension (watch mode)
@@ -544,6 +608,7 @@ bun run dev:vscode     # VS Code extension (watch mode)
 ```bash
 bun run build:hook       # Single-file HTML for hook server
 bun run build:review     # Code review editor
+bun run build:canvas     # Canvas editor (agent HTML canvas)
 bun run build:opencode   # OpenCode plugin (copies HTML from hook + review)
 bun run build:portal     # Static build for share.plannotator.ai
 bun run build:marketing  # Static build for plannotator.ai
@@ -554,18 +619,19 @@ bun run build            # Build hook + opencode (main targets)
 
 **Important: Tailwind `@source` paths.** When creating new directories that contain `.tsx` files with Tailwind classes, add a matching `@source` entry to the app's `index.css`. Tailwind only generates CSS for classes it finds in scanned files — missing paths means classes appear in the DOM but have no effect.
 
-**Important: Build order matters.** The hook build (`build:hook`) copies pre-built HTML from `apps/review/dist/`. If you change UI code in `packages/ui/`, `packages/editor/`, or `packages/review-editor/`, you **must** rebuild the review app first, then the hook:
+**Important: Build order matters.** The hook build (`build:hook`) copies pre-built HTML from `apps/review/dist/` **and** `apps/canvas/dist/`. If you change UI code in `packages/ui/`, `packages/editor/`, `packages/review-editor/`, or `packages/canvas-editor/`, you **must** rebuild the affected app first, then the hook:
 
 ```bash
 bun run --cwd apps/review build && bun run build:hook   # For review UI changes
+bun run build:canvas && bun run build:hook               # For canvas UI changes
 bun run build:hook                                       # For plan UI changes only
 bun run build:hook && bun run build:opencode             # For OpenCode plugin
 ```
 
-Running only `build:hook` after review-editor changes will copy stale HTML files. When testing locally with a compiled binary, the full sequence is:
+Running only `build:hook` after review-editor or canvas-editor changes will copy stale HTML files. When testing locally with a compiled binary, the full sequence is:
 
 ```bash
-bun run --cwd apps/review build && bun run build:hook && \
+bun run --cwd apps/review build && bun run build:canvas && bun run build:hook && \
   bun build apps/hook/server/index.ts --compile --outfile ~/.local/bin/plannotator
 ```
 

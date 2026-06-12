@@ -307,16 +307,12 @@ describe("getAnnotateApprovedPrompt", () => {
 // ─── A4b. Review denied suffix ───────────────────────────────────────────────
 
 describe("getReviewDeniedSuffix", () => {
-  test("returns default suffix for claude-code", () => {
-    const result = getReviewDeniedSuffix("claude-code", {});
-    expect(result).toContain("identified issues");
-  });
-
-  test("opencode and pi use softer runtime default", () => {
-    const oc = getReviewDeniedSuffix("opencode", {});
-    const pi = getReviewDeniedSuffix("pi", {});
-    expect(oc).toBe("\n\nThis feedback came from external AI reviewers. Please triage it and verify it against the code and then come back to me with your thoughts on the findings. Do not change any code until we've discussed the findings.");
-    expect(pi).toBe("\n\nThis feedback came from external AI reviewers. Please triage it and verify it against the code and then come back to me with your thoughts on the findings. Do not change any code until we've discussed the findings.");
+  test("every runtime gets the same triage-first default — no agent starts coding off raw review feedback", () => {
+    const runtimes = ["claude-code", "opencode", "pi", "amp", "droid", "codex", "copilot-cli", "gemini-cli", "kiro-cli"] as const;
+    for (const runtime of runtimes) {
+      expect(getReviewDeniedSuffix(runtime, {})).toBe(DEFAULT_REVIEW_DENIED_SUFFIX);
+    }
+    expect(DEFAULT_REVIEW_DENIED_SUFFIX).toContain("Do not change any code until we've discussed");
   });
 
   test("uses configured override", () => {

@@ -1005,7 +1005,10 @@ function CanvasApp() {
       >
         {/* Top chrome */}
         <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/60 bg-card/60 px-2.5">
-          {!sidebarOpen && <SidebarTrigger />}
+          {/* The sidebar toggle lives here, always — leftmost in both states,
+              same spot, same glyph (single-server-runtime shell convention).
+              It must never jump to the other side of the screen on toggle. */}
+          <SidebarTrigger />
           <div className="min-w-0 truncate text-[13px] font-medium text-foreground">
             {activeProject?.projectName ?? "Canvas"}
           </div>
@@ -1067,7 +1070,6 @@ function CanvasApp() {
               )}
             </button>
             <ModeButton />
-            {sidebarOpen && <SidebarTrigger />}
           </div>
         </div>
 

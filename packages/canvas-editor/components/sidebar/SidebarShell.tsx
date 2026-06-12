@@ -19,6 +19,7 @@ import React, {
   useMemo,
   useState,
 } from "react";
+import { PanelLeftIcon } from "@plannotator/ui/components/icons/PanelLeftIcon";
 
 export const SIDEBAR_WIDTH = 244;
 const STORAGE_KEY = "plannotator-canvas-sidebar";
@@ -108,7 +109,11 @@ export function SidebarRail({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Toggle button rendered in the main surface's chrome (not in the sidebar). */
+/**
+ * Toggle button — ALWAYS the leftmost element of the main surface's header,
+ * regardless of sidebar state, with the same PanelLeftIcon glyph as the
+ * single-server-runtime shell. The toggle never moves; only the sidebar does.
+ */
 export function SidebarTrigger({ className }: { className?: string }) {
   const { open, toggle } = useSidebar();
   return (
@@ -117,10 +122,7 @@ export function SidebarTrigger({ className }: { className?: string }) {
       title={`${open ? "Hide" : "Show"} sidebar (⌘B)`}
       className={`flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer ${className ?? ""}`}
     >
-      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-        <rect x="3" y="4" width="18" height="16" rx="2" />
-        <line x1="9" y1="4" x2="9" y2="20" />
-      </svg>
+      <PanelLeftIcon className="h-4 w-4" />
     </button>
   );
 }

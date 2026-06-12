@@ -276,3 +276,22 @@ semantics and a note that `add` prints the frame's deep-link URL.
 Vector tools, edges, HTML editing in UI, screenshots/thumbnails (placeholder-only),
 webhooks, OpenCode/Pi native plugin commands, presence/multi-user, mobile editing
 (pinch/pan should still work), remote-session share links for canvas.
+
+## 6. Follow-ups (designed or discussed, not built)
+
+- **Board-level auto-layout mode** (FigJam-style social contract): a board stays in
+  auto-layout — masonry placement + auto-fit, reflowing freely — until the user manually
+  drags or resizes any frame, which flips the board to free-form; **Tidy** re-opts into
+  auto-layout. v1 ships the simpler per-frame version only (`sizedBy: user` pins a frame
+  against auto-fit; positions are never auto-managed after placement).
+- **Remote/SSH canvas** is half-wired: the server has the `isRemoteSession()` Host-guard
+  bypass, but the CLI hardcodes `isRemote: false` when opening the browser. Devcontainer
+  /SSH usage needs the CLI to respect `PLANNOTATOR_REMOTE` and print-not-open.
+- **Parked decisions** (need a call before building):
+  - Document port `19434` / `PLANNOTATOR_CANVAS_PORT` in the marketing docs, or keep it
+    internal (discovery is via the registry file, not the port).
+  - Port conflict behavior: keep silent auto-bump (+1…+10) vs fail loud so two data dirs
+    can't silently run side-by-side.
+  - Optional `portless` integration (`canvas.plannotator.localhost` via
+    `portless alias`) — bonus only, never a dependency (pre-1.0, requires local CA).
+  - CLI `canvas close <frameId|--all>` so agents/scripts can close frames without the UI.

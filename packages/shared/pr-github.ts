@@ -6,6 +6,7 @@
 
 import type { PRRuntime, PRMetadata, PRContext, PRReviewThread, PRThreadComment, PRReviewFileComment, CommandResult, PRStackTree, PRStackNode, PRListItem } from "./pr-types";
 import { encodeApiFilePath } from "./pr-types";
+import { parsePaginatedArray } from "./cli-pagination";
 
 // GitHub-specific PRRef shape (used internally)
 interface GhPRRef {
@@ -59,6 +60,74 @@ export async function getGhUser(runtime: PRRuntime, host: string): Promise<strin
 
 // --- Fetch PR ---
 
+/** Shape of each entry from the GitHub pulls files API (fields we use) */
+export interface GitHubFileEntry {
+  filename: string;
+  previous_filename?: string;
+  status: "added" | "removed" | "modified" | "renamed" | "copied" | "changed" | "unchanged";
+  patch?: string;
+}
+
+// Git only C-quotes paths containing quotes, backslashes, or control chars —
+// bare spaces stay raw. Downstream parsers (our diff-paths regex branch,
+// Pierre's filename regexes, code-nav's extractChangedFiles) expect git's
+// exact shape; over-quoting makes them misparse or silently drop files.
+function needsGitQuoting(p: string): boolean {
+  return /["\\\u0000-\u001F]/.test(p);
+}
+function headerPathToken(side: "a" | "b", p: string): string {
+  const full = `${side}/${p}`;
+  return needsGitQuoting(p) ? JSON.stringify(full) : full;
+}
+function metadataPathToken(p: string): string {
+  return needsGitQuoting(p) ? JSON.stringify(p) : p;
+}
+
+/**
+ * Reconstruct a unified patch from GitHub's pulls files API response.
+ *
+ * Used when `gh pr diff` fails — GitHub refuses to render very large PR diffs
+ * as one document (HTTP 406, "diff exceeded the maximum number of lines"), but
+ * the files API still serves the same diff file-by-file. Entries without a
+ * `patch` field (binary files, or single files whose own diff exceeds the
+ * limit) become header-only sections — the UI still lists them and loads full
+ * contents through the contents API on demand.
+ */
+export function reconstructGhPatch(files: GitHubFileEntry[]): string {
+  const parts: string[] = [];
+
+  for (const f of files) {
+    const oldPath = f.previous_filename ?? f.filename;
+    const newPath = f.filename;
+    const isNew = f.status === "added";
+    const isDeleted = f.status === "removed";
+
+    let header = `diff --git ${headerPathToken("a", oldPath)} ${headerPathToken("b", newPath)}`;
+    if (f.status === "renamed") {
+      header += `\nrename from ${metadataPathToken(oldPath)}\nrename to ${metadataPathToken(newPath)}`;
+    } else if (f.status === "copied") {
+      header += `\ncopy from ${metadataPathToken(oldPath)}\ncopy to ${metadataPathToken(newPath)}`;
+    }
+    if (isNew) {
+      header += "\nnew file mode 100644";
+    }
+    if (isDeleted) {
+      header += "\ndeleted file mode 100644";
+    }
+
+    if (f.patch) {
+      const aToken = isNew ? "/dev/null" : headerPathToken("a", oldPath);
+      const bToken = isDeleted ? "/dev/null" : headerPathToken("b", newPath);
+      const body = f.patch.endsWith("\n") ? f.patch : `${f.patch}\n`;
+      parts.push(`${header}\n--- ${aToken}\n+++ ${bToken}\n${body}`);
+    } else {
+      parts.push(`${header}\n`);
+    }
+  }
+
+  return parts.join("");
+}
+
 export async function fetchGhPR(
   runtime: PRRuntime,
   ref: GhPRRef,
@@ -74,7 +143,7 @@ export async function fetchGhPR(
     runtime.runCommand("gh", [
       "pr", "view", String(ref.number),
       "--repo", repo,
-      "--json", "id,title,author,baseRefName,headRefName,baseRefOid,headRefOid,url",
+      "--json", "id,title,author,baseRefName,headRefName,baseRefOid,headRefOid,url,changedFiles",
     ]),
     runtime.runCommand("gh", [
       "repo", "view", repo,
@@ -83,16 +152,45 @@ export async function fetchGhPR(
     ]),
   ]);
 
-  if (diffResult.exitCode !== 0) {
-    throw new Error(
-      `Failed to fetch PR diff: ${diffResult.stderr.trim() || `exit code ${diffResult.exitCode}`}`,
-    );
-  }
-
   if (viewResult.exitCode !== 0) {
     throw new Error(
       `Failed to fetch PR metadata: ${viewResult.stderr.trim() || `exit code ${viewResult.exitCode}`}`,
     );
+  }
+
+  // Resolve the patch. Primary: `gh pr diff` — one server-rendered document,
+  // perfect fidelity. GitHub refuses to render it for very large PRs (406 /
+  // "diff exceeded the maximum number of lines"); in that case fetch the same
+  // diff file-by-file from the paginated files API and stitch it back together.
+  let rawPatch: string;
+  if (diffResult.exitCode === 0) {
+    rawPatch = diffResult.stdout;
+  } else {
+    const filesResult = await runtime.runCommand("gh", hostnameArgs(ref.host, [
+      "api",
+      `repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/files?per_page=100`,
+      "--paginate",
+    ]));
+    if (filesResult.exitCode !== 0) {
+      const diffErr = diffResult.stderr.trim() || `exit code ${diffResult.exitCode}`;
+      const filesErr = filesResult.stderr.trim() || `exit code ${filesResult.exitCode}`;
+      throw new Error(`Failed to fetch PR diff (pr diff: ${diffErr}; files API: ${filesErr}).`);
+    }
+    const fileEntries = parsePaginatedArray<GitHubFileEntry>(filesResult.stdout);
+    rawPatch = reconstructGhPatch(fileEntries);
+    if (!rawPatch.trim()) {
+      throw new Error(
+        "PR diff is empty — it may be too large to fetch via the GitHub API. Review it on the GitHub web UI.",
+      );
+    }
+    // The files API silently caps at 3000 files — never present a truncated
+    // review as complete.
+    const expectedFiles = (JSON.parse(viewResult.stdout) as { changedFiles?: number }).changedFiles;
+    if (typeof expectedFiles === "number" && fileEntries.length < expectedFiles) {
+      console.error(
+        `Warning: PR reports ${expectedFiles} changed files but the GitHub files API returned ${fileEntries.length} (the API caps at 3000). The review is missing the remainder.`,
+      );
+    }
   }
 
   const raw = JSON.parse(viewResult.stdout) as {
@@ -141,7 +239,7 @@ export async function fetchGhPR(
     url: raw.url,
   };
 
-  return { metadata, rawPatch: diffResult.stdout };
+  return { metadata, rawPatch };
 }
 
 // --- PR Context ---

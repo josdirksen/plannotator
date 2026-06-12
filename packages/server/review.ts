@@ -13,6 +13,7 @@ import { isRemoteSession, getServerHostname, getServerPort } from "./remote";
 import type { Origin } from "@plannotator/shared/agents";
 import { type DiffType, type GitContext, runVcsDiff, getVcsFileContentsForDiff, getVcsDiffFingerprint, canStageFiles, stageFile, unstageFile, resolveVcsCwd, validateFilePath, getVcsContext, detectRemoteDefaultCompareTarget, gitRuntime } from "./vcs";
 import { basename } from "node:path";
+import { existsSync } from "node:fs";
 import { parseWorktreeDiffType, resolveBaseBranch } from "@plannotator/shared/review-core";
 import {
   createDefaultSemanticDiffRuntime,
@@ -188,6 +189,56 @@ export async function startReviewServer(
   let currentBase = options.initialBase || detectedCompareTarget();
   let baseEverSwitched = false;
 
+  // --- PR local checkout resolution -----------------------------------------
+  // The pool's initial entry may still be warming up: the checkout is built in
+  // the background so the server can start on the platform diff alone. Three
+  // states matter:
+  //   ready entry      → use its path
+  //   entry, not ready → the path does not exist on disk yet (or warmup
+  //                      failed) — never hand it out; options.agentCwd points
+  //                      at the same not-yet-created path
+  //   no entry         → PR not in the pool (e.g. cross-repo pr-switch) —
+  //                      legacy fallback to the initial checkout (agentCwd)
+  // The initial checkout path is only trustworthy once it actually exists —
+  // the warmup may not have created it yet, or may have failed and removed it.
+  const agentCwdIfExists = (): string | undefined =>
+    options.agentCwd && existsSync(options.agentCwd) ? options.agentCwd : undefined;
+  const resolvePRLocalCwd = (meta: PRMetadata | undefined = prMetadata): string | undefined => {
+    const pool = options.worktreePool;
+    if (pool && meta) {
+      const entry = pool.get(meta.url);
+      if (entry?.ready) return entry.path;
+      if (entry) return undefined;
+    }
+    return agentCwdIfExists();
+  };
+  // Failure memo: a persistently-failing checkout (network down, ref denied)
+  // must not turn every code-nav hover / agent launch into a multi-second
+  // re-fetch against origin. Failed URLs are skipped for a cooldown window.
+  const prLocalFailureMemo = new Map<string, number>();
+  const PR_LOCAL_RETRY_COOLDOWN_MS = 30_000;
+  // Await the current PR's checkout: blocks on the in-flight warmup, retries
+  // failed same-repo creations, returns undefined when no checkout can exist.
+  const ensurePRLocalCwd = async (meta: PRMetadata | undefined = prMetadata): Promise<string | undefined> => {
+    const pool = options.worktreePool;
+    if (pool && meta) {
+      const hadEntry = pool.has(meta.url);
+      const failedAt = prLocalFailureMemo.get(meta.url);
+      if (failedAt && Date.now() - failedAt < PR_LOCAL_RETRY_COOLDOWN_MS) {
+        return hadEntry ? undefined : agentCwdIfExists();
+      }
+      try {
+        const entry = await pool.ensure(gitRuntime, meta);
+        prLocalFailureMemo.delete(meta.url);
+        return entry.path;
+      } catch {
+        prLocalFailureMemo.set(meta.url, Date.now());
+        return hadEntry ? undefined : agentCwdIfExists();
+      }
+    }
+    return options.agentCwd;
+  };
+
   // --- Diff staleness fingerprint -------------------------------------------
   // Captured beside every patch snapshot (startup + every switch endpoint);
   // GET /api/diff/fresh recomputes and compares so the client can show a
@@ -206,10 +257,7 @@ export async function startReviewServer(
         }
         // Full-stack: three-dot diff against the local checkout — fingerprint
         // (merge-base, HEAD), which changes exactly when the patch can.
-        const fullStackCwd =
-          (options.worktreePool && prMetadata
-            ? options.worktreePool.resolve(prMetadata.url)
-            : undefined) ?? options.agentCwd;
+        const fullStackCwd = resolvePRLocalCwd();
         if (!prMetadata) return null;
         return await getPRFullStackFingerprint(gitRuntime, prMetadata, fullStackCwd);
       }
@@ -253,10 +301,20 @@ export async function startReviewServer(
   const resolveAgentCwd = (): string => {
     if (workspace) return workspace.root;
     if (options.worktreePool && prMetadata) {
-      const poolPath = options.worktreePool.resolve(prMetadata.url);
-      if (poolPath) return poolPath;
+      return resolvePRLocalCwd()
+        ?? resolveVcsCwd(currentDiffType as DiffType, gitContext?.cwd)
+        ?? process.cwd();
     }
     return options.agentCwd ?? resolveVcsCwd(currentDiffType as DiffType, gitContext?.cwd) ?? process.cwd();
+  };
+  // Async sibling of resolveAgentCwd: waits for the current PR's checkout
+  // warmup instead of falling back while it is still being created.
+  const resolveAgentCwdReady = async (): Promise<string> => {
+    if (options.worktreePool && prMetadata) {
+      const poolPath = await ensurePRLocalCwd();
+      if (poolPath) return poolPath;
+    }
+    return resolveAgentCwd();
   };
   const getWorkspacePromptContext = (): WorkspaceReviewPromptContext | undefined => {
     if (!workspace) return undefined;
@@ -266,8 +324,11 @@ export async function startReviewServer(
   const resolveSemanticDiffCwd = (): string => {
     if (workspace) return workspace.root;
     if (options.worktreePool && prMetadata) {
-      const poolPath = options.worktreePool.resolve(prMetadata.url);
+      const poolPath = resolvePRLocalCwd();
       if (poolPath) return poolPath;
+      // Checkout warming up — probe sem availability in the scratch dir; the
+      // real run below awaits the checkout before resolving its cwd.
+      if (options.worktreePool.has(prMetadata.url)) return semanticDiffScratchCwd;
     }
     if (options.agentCwd) return options.agentCwd;
     if (gitContext) {
@@ -308,6 +369,8 @@ export async function startReviewServer(
   };
 
   const getSemanticDiff = async (url: URL): Promise<SemanticDiffResponse> => {
+    // Semantic diff reads real files — wait out the checkout warmup in PR mode.
+    if (isPRMode && options.worktreePool) await ensurePRLocalCwd();
     const cwd = resolveSemanticDiffCwd();
     const fileExts = semanticDiffFileExtsFromSearchParams(url.searchParams);
     const cacheKey = semanticDiffCacheKey({ rawPatch: currentPatch, cwd, fileExts });
@@ -330,13 +393,33 @@ export async function startReviewServer(
     getCwd: resolveAgentCwd,
 
     async buildCommand(provider, config) {
-      const cwd = resolveAgentCwd();
+      // Snapshot ALL launch-relevant state before any await: waiting out the
+      // checkout warmup below yields to other requests (e.g. pr-switch), and
+      // the job's cwd, prompt, and PR attribution must describe the same PR.
+      const launchMetadata = prMetadata;
+      const launchPatch = currentPatch;
+      const launchDiffType = currentDiffType;
+      const launchBase = currentBase;
+      const launchScope = currentPRDiffScope;
+
+      // Agents run inside the PR checkout — wait out the background warmup so
+      // the spawn-time getCwd() below resolves to a path that exists.
+      const cwd = options.worktreePool && launchMetadata
+        ? (await ensurePRLocalCwd(launchMetadata)) ?? resolveAgentCwd()
+        : await resolveAgentCwdReady();
       const workspacePrompt = getWorkspacePromptContext();
-      const hasAgentLocalAccess = !!workspacePrompt || !!options.worktreePool || !!options.agentCwd || !!gitContext;
+      // Honest local-access claim: in PR mode the checkout must actually be
+      // available (warmup done, not failed) — the prompt tells the agent it
+      // can read PR files, so a bare pool/agentCwd existence check would have
+      // it confidently reviewing whatever directory it landed in.
+      const hasAgentLocalAccess = !!workspacePrompt || !!gitContext ||
+        (options.worktreePool && launchMetadata
+          ? resolvePRLocalCwd(launchMetadata) !== undefined
+          : !!options.agentCwd);
       const userMessageOptions = {
-        defaultBranch: currentBase,
+        defaultBranch: launchBase,
         hasLocalAccess: hasAgentLocalAccess,
-        prDiffScope: currentPRDiffScope,
+        prDiffScope: launchScope,
         ...(workspacePrompt && { workspace: workspacePrompt }),
       };
 
@@ -344,28 +427,28 @@ export async function startReviewServer(
       // downstream "Copy All" produces the same markdown as /api/feedback
       // would right now, even if the reviewer switches modes/bases later.
       // Skipped in PR mode (prMetadata carries equivalent context).
-      const worktreeParts = String(currentDiffType).startsWith("worktree:")
-        ? parseWorktreeDiffType(currentDiffType as DiffType)
+      const worktreeParts = String(launchDiffType).startsWith("worktree:")
+        ? parseWorktreeDiffType(launchDiffType as DiffType)
         : null;
-      const launchPrUrl = prMetadata?.url;
-      const launchDiffScope = isPRMode ? currentPRDiffScope : undefined;
+      const launchPrUrl = launchMetadata?.url;
+      const launchDiffScope = isPRMode ? launchScope : undefined;
       const diffContext: AgentJobInfo["diffContext"] | undefined = workspacePrompt
-        ? { mode: String(currentDiffType), worktreePath: null }
-        : prMetadata
+        ? { mode: String(launchDiffType), worktreePath: null }
+        : launchMetadata
         ? undefined
         : {
-            mode: (worktreeParts?.subType ?? currentDiffType) as string,
-            base: currentBase,
+            mode: (worktreeParts?.subType ?? launchDiffType) as string,
+            base: launchBase,
             worktreePath: worktreeParts?.path ?? null,
           };
 
       if (provider === "tour") {
         const built = await tour.buildCommand({
           cwd,
-          patch: currentPatch,
-          diffType: currentDiffType as DiffType,
+          patch: launchPatch,
+          diffType: launchDiffType as DiffType,
           options: userMessageOptions,
-          prMetadata,
+          prMetadata: launchMetadata,
           config,
         });
         return built ? { ...built, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext } : built;
@@ -374,10 +457,10 @@ export async function startReviewServer(
       const userMessage = workspacePrompt
         ? buildAgentReviewUserMessageForTarget({
             kind: "workspace",
-            patch: currentPatch,
+            patch: launchPatch,
             workspace: workspacePrompt,
           })
-        : buildAgentReviewUserMessage(currentPatch, currentDiffType as DiffType, userMessageOptions, prMetadata);
+        : buildAgentReviewUserMessage(launchPatch, launchDiffType as DiffType, userMessageOptions, launchMetadata);
       const jobLabel = workspacePrompt ? "Workspace Review" : "Code Review";
 
       if (provider === "codex") {
@@ -795,7 +878,14 @@ export async function startReviewServer(
                 );
               }
 
-              const fullStackCwd = (options.worktreePool && prMetadata ? options.worktreePool.resolve(prMetadata.url) : undefined) ?? options.agentCwd;
+              // Blocks on the background checkout warmup if it's still running.
+              const fullStackCwd = await ensurePRLocalCwd();
+              if (!fullStackCwd) {
+                return Response.json(
+                  { error: "Local checkout is unavailable — full stack diff cannot run" },
+                  { status: 400 },
+                );
+              }
               const result = await runPRFullStackDiff(gitRuntime, prMetadata, fullStackCwd);
 
               if (result.error) {
@@ -996,7 +1086,7 @@ export async function startReviewServer(
 
             // Full-stack PR mode uses local git for file expansion because
             // the patch is no longer the platform's layer diff.
-            const fileContentCwd = (options.worktreePool && prMetadata) ? options.worktreePool.resolve(prMetadata.url) : options.agentCwd;
+            const fileContentCwd = resolvePRLocalCwd();
             if (
               isPRMode &&
               currentPRDiffScope === "full-stack" &&
@@ -1062,7 +1152,14 @@ export async function startReviewServer(
                 { status: 400 },
               );
             }
-            const navCwd = resolveAgentCwd();
+            // PR mode: the checkout must actually exist — ripgrep over a
+            // fallback directory returns confidently-wrong results.
+            const navCwd = options.worktreePool && prMetadata
+              ? await ensurePRLocalCwd()
+              : await resolveAgentCwdReady();
+            if (!navCwd) {
+              return Response.json({ error: "Local checkout unavailable" }, { status: 400 });
+            }
             const changedFiles = extractChangedFiles(currentPatch);
             return handleCodeNavResolve(req, navCwd, changedFiles);
           }
@@ -1081,7 +1178,12 @@ export async function startReviewServer(
               return Response.json({ error: "Invalid path" }, { status: 400 });
             }
             try {
-              const navCwd = resolveAgentCwd();
+              const navCwd = options.worktreePool && prMetadata
+                ? await ensurePRLocalCwd()
+                : await resolveAgentCwdReady();
+              if (!navCwd) {
+                return Response.json({ error: "Local checkout unavailable" }, { status: 400 });
+              }
               const content = await Bun.file(`${navCwd}/${filePath}`).text();
               return Response.json({ content });
             } catch {
@@ -1306,6 +1408,12 @@ export async function startReviewServer(
           if (url.pathname.startsWith("/api/ai/")) {
             const handler = aiRuntime.endpoints[url.pathname as keyof AIEndpoints];
             if (handler) {
+              // AI sessions pin their cwd at creation — wait out the PR
+              // checkout warmup so a session opened in the first seconds
+              // isn't rooted in a transient fallback directory for life.
+              if (req.method === "POST" && url.pathname === "/api/ai/session" && options.worktreePool && prMetadata) {
+                await ensurePRLocalCwd();
+              }
               if (url.pathname === AI_QUERY_ENDPOINT) {
                 server.timeout(req, 0);
               }

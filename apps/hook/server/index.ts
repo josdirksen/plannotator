@@ -93,8 +93,7 @@ import {
 import { stripAtPrefix, resolveAtReference } from "@plannotator/shared/at-reference";
 import { htmlToMarkdown } from "@plannotator/shared/html-to-markdown";
 import { urlToMarkdown, isConvertedSource } from "@plannotator/shared/url-to-markdown";
-import { fetchRef, createWorktree, removeWorktree, ensureObjectAvailable } from "@plannotator/shared/worktree";
-import { createWorktreePool, type WorktreePool } from "@plannotator/shared/worktree-pool";
+import { createWorktreePool, type WorktreePool, type PoolEntry } from "@plannotator/shared/worktree-pool";
 import { parsePRUrl, checkPRAuth, fetchPR, getCliName, getCliInstallUrl, getMRLabel, getMRNumberLabel, getDisplayRepo } from "@plannotator/server/pr";
 import { writeRemoteShareLink } from "@plannotator/server/share-url";
 import { resolveMarkdownFile, resolveUserPath, hasMarkdownFiles } from "@plannotator/shared/resolve-file";
@@ -550,7 +549,12 @@ if (args[0] === "sessions") {
       process.exit(1);
     }
 
-    // --local: create a local checkout with the PR head for full file access
+    // --local: create a local checkout with the PR head for full file access.
+    // The checkout is built in the BACKGROUND — the platform diff is already
+    // in hand, so the review server starts immediately. The pool entry starts
+    // ready:false and flips to ready when the warmup completes; consumers that
+    // need real files (agent jobs, full-stack diff, code-nav) await it via
+    // pool.ensure().
     if (useLocal && prMetadata) {
       // Hoisted so catch block can clean up partially-created directories
       let localPath: string | undefined;
@@ -594,101 +598,151 @@ if (args[0] === "sessions") {
           }
         } catch { /* not in a git repo — cross-repo path */ }
 
-        if (isSameRepo) {
-          // ── Same-repo: fast worktree path ──
-          console.error("Fetching PR branch and creating local worktree...");
-          // Fetch base branch so origin/<baseBranch> is current for agent diffs.
-          // Ensure baseSha is available (may fetch, which overwrites FETCH_HEAD).
-          // Both MUST happen before the PR head fetch since FETCH_HEAD is what
-          // createWorktree uses — the PR head fetch must be last.
-          await fetchRef(gitRuntime, prMetadata.baseBranch, { cwd: repoDir });
-          await ensureObjectAvailable(gitRuntime, prMetadata.baseSha, { cwd: repoDir });
-          // Fetch PR head LAST — sets FETCH_HEAD to the PR tip for createWorktree.
-          await fetchRef(gitRuntime, fetchRefStr, { cwd: repoDir });
+        // Capture closure values — the warmup outlives this block.
+        const warmupPath = localPath;
+        const warmupSessionDir = sessionDir;
+        const { baseBranch, baseSha, url: prUrl } = prMetadata;
+        const platform = prMetadata.platform;
+        const host = prMetadata.host;
+        const prRepo = platform === "github"
+          ? `${prMetadata.owner}/${prMetadata.repo}`
+          : prMetadata.projectPath;
+        // Validate repo identifier to prevent flag injection via crafted URLs
+        if (/^-/.test(prRepo)) throw new Error(`Invalid repository identifier: ${prRepo}`);
 
-          await createWorktree(gitRuntime, {
-            ref: "FETCH_HEAD",
-            path: localPath,
-            detach: true,
-            cwd: repoDir,
+        // Async spawn for background steps — spawnSync would block the event
+        // loop and freeze the review server while cloning. Children are
+        // tracked so a process exit mid-warmup can kill them instead of
+        // letting an orphaned clone/fetch resurrect the removed session dir
+        // or register a stale worktree after we're gone.
+        const warmupProcs = new Set<ReturnType<typeof Bun.spawn>>();
+        const runStep = async (
+          cmd: string[],
+          opts: { cwd?: string; env?: Record<string, string> } = {},
+        ): Promise<{ exitCode: number; stderr: string }> => {
+          const proc = Bun.spawn(cmd, {
+            cwd: opts.cwd,
+            env: opts.env,
+            stdout: "ignore",
+            stderr: "pipe",
           });
+          warmupProcs.add(proc);
+          try {
+            const [stderr, exitCode] = await Promise.all([
+              new Response(proc.stderr).text(),
+              proc.exited,
+            ]);
+            return { exitCode, stderr };
+          } finally {
+            warmupProcs.delete(proc);
+          }
+        };
 
-          worktreeCleanup = async () => {
-            if (worktreePool) await worktreePool.cleanup(gitRuntime);
-            try { rmSync(sessionDir, { recursive: true, force: true }); } catch {}
-          };
-          process.once("exit", () => {
-            // Best-effort sync cleanup: remove each pool worktree from git, then rm session dir
-            try {
-              for (const entry of worktreePool?.entries() ?? []) {
-                Bun.spawnSync(["git", "worktree", "remove", "--force", entry.path], { cwd: repoDir });
+        const warmup: Promise<PoolEntry> = isSameRepo
+          ? (async () => {
+              // ── Same-repo: fast worktree path (tracked spawns — see above) ──
+              // Fetch base branch so origin/<baseBranch> is current for agent
+              // diffs. Ensure baseSha is available (may fetch, which overwrites
+              // FETCH_HEAD). Both MUST happen before the PR head fetch since
+              // FETCH_HEAD is what worktree add uses — PR head fetch is last.
+              const baseFetchRes = await runStep(["git", "fetch", "origin", "--", baseBranch], { cwd: repoDir });
+              if (baseFetchRes.exitCode !== 0) throw new Error(`git fetch origin ${baseBranch} failed: ${baseFetchRes.stderr.trim()}`);
+              // Best-effort baseSha availability — mirrors ensureObjectAvailable
+              const catRes = await runStep(["git", "cat-file", "-t", baseSha], { cwd: repoDir });
+              if (catRes.exitCode !== 0) await runStep(["git", "fetch", "origin", "--", baseSha], { cwd: repoDir });
+              const headFetchRes = await runStep(["git", "fetch", "origin", "--", fetchRefStr], { cwd: repoDir });
+              if (headFetchRes.exitCode !== 0) throw new Error(`git fetch origin ${fetchRefStr} failed: ${headFetchRes.stderr.trim()}`);
+
+              const addRes = await runStep(["git", "worktree", "add", "--detach", warmupPath, "FETCH_HEAD"], { cwd: repoDir });
+              if (addRes.exitCode !== 0) throw new Error(`git worktree add failed: ${addRes.stderr.trim()}`);
+              return { path: warmupPath, prUrl, number: prNumber, ready: true };
+            })()
+          : (async () => {
+              // ── Cross-repo: shallow clone + fetch PR head ──
+              const cli = platform === "github" ? "gh" : "glab";
+              // gh/glab repo clone doesn't accept --hostname; set GH_HOST/GITLAB_HOST env instead
+              const isDefaultHost = host === "github.com" || host === "gitlab.com";
+              const cloneEnv = isDefaultHost ? undefined : {
+                ...process.env,
+                ...(platform === "github" ? { GH_HOST: host } : { GITLAB_HOST: host }),
+              } as Record<string, string>;
+
+              // Step 1: Fast skeleton clone (no checkout, depth 1 — minimal data transfer)
+              const cloneResult = await runStep(
+                [cli, "repo", "clone", prRepo, warmupPath, "--", "--depth=1", "--no-checkout"],
+                { env: cloneEnv },
+              );
+              if (cloneResult.exitCode !== 0) {
+                throw new Error(`${cli} repo clone failed: ${cloneResult.stderr.trim()}`);
               }
-            } catch {}
-            try { Bun.spawnSync(["rm", "-rf", sessionDir]); } catch {}
-          });
-        } else {
-          // ── Cross-repo: shallow clone + fetch PR head ──
-          const prRepo = prMetadata.platform === "github"
-            ? `${prMetadata.owner}/${prMetadata.repo}`
-            : prMetadata.projectPath;
-          // Validate repo identifier to prevent flag injection via crafted URLs
-          if (/^-/.test(prRepo)) throw new Error(`Invalid repository identifier: ${prRepo}`);
-          const cli = prMetadata.platform === "github" ? "gh" : "glab";
-          const host = prMetadata.host;
-          // gh/glab repo clone doesn't accept --hostname; set GH_HOST/GITLAB_HOST env instead
-          const isDefaultHost = host === "github.com" || host === "gitlab.com";
-          const cloneEnv = isDefaultHost ? undefined : {
-            ...process.env,
-            ...(prMetadata.platform === "github" ? { GH_HOST: host } : { GITLAB_HOST: host }),
-          };
 
-          // Step 1: Fast skeleton clone (no checkout, depth 1 — minimal data transfer)
-          console.error(`Cloning ${prRepo} (shallow)...`);
-          const cloneResult = Bun.spawnSync(
-            [cli, "repo", "clone", prRepo, localPath, "--", "--depth=1", "--no-checkout"],
-            { stderr: "pipe", env: cloneEnv },
-          );
-          if (cloneResult.exitCode !== 0) {
-            throw new Error(`${cli} repo clone failed: ${new TextDecoder().decode(cloneResult.stderr).trim()}`);
-          }
+              // Step 2: Fetch only the PR head ref (targeted, much faster than full fetch)
+              const fetchResult = await runStep(
+                ["git", "fetch", "--depth=200", "origin", fetchRefStr],
+                { cwd: warmupPath },
+              );
+              if (fetchResult.exitCode !== 0) throw new Error(`Failed to fetch PR head ref: ${fetchResult.stderr.trim()}`);
 
-          // Step 2: Fetch only the PR head ref (targeted, much faster than full fetch)
-          console.error("Fetching PR branch...");
-          const fetchResult = Bun.spawnSync(
-            ["git", "fetch", "--depth=200", "origin", fetchRefStr],
-            { cwd: localPath, stderr: "pipe" },
-          );
-          if (fetchResult.exitCode !== 0) throw new Error(`Failed to fetch PR head ref: ${new TextDecoder().decode(fetchResult.stderr).trim()}`);
+              // Step 3: Checkout PR head (critical — if this fails, worktree is empty)
+              const checkoutResult = await runStep(["git", "checkout", "FETCH_HEAD"], { cwd: warmupPath });
+              if (checkoutResult.exitCode !== 0) {
+                throw new Error(`git checkout FETCH_HEAD failed: ${checkoutResult.stderr.trim()}`);
+              }
 
-          // Step 3: Checkout PR head (critical — if this fails, worktree is empty)
-          const checkoutResult = Bun.spawnSync(["git", "checkout", "FETCH_HEAD"], { cwd: localPath, stderr: "pipe" });
-          if (checkoutResult.exitCode !== 0) {
-            throw new Error(`git checkout FETCH_HEAD failed: ${new TextDecoder().decode(checkoutResult.stderr).trim()}`);
-          }
+              // Best-effort: create base refs so `git diff main...HEAD` and `git diff origin/main...HEAD` work
+              const baseFetch = await runStep(["git", "fetch", "--depth=200", "origin", baseSha], { cwd: warmupPath });
+              if (baseFetch.exitCode !== 0) console.error("Warning: failed to fetch baseSha, agent diffs may be inaccurate");
+              await runStep(["git", "branch", "--", baseBranch, baseSha], { cwd: warmupPath });
+              await runStep(["git", "update-ref", `refs/remotes/origin/${baseBranch}`, baseSha], { cwd: warmupPath });
 
-          // Best-effort: create base refs so `git diff main...HEAD` and `git diff origin/main...HEAD` work
-          const baseFetch = Bun.spawnSync(["git", "fetch", "--depth=200", "origin", prMetadata.baseSha], { cwd: localPath, stderr: "pipe" });
-          if (baseFetch.exitCode !== 0) console.error("Warning: failed to fetch baseSha, agent diffs may be inaccurate");
-          Bun.spawnSync(["git", "branch", "--", prMetadata.baseBranch, prMetadata.baseSha], { cwd: localPath, stderr: "pipe" });
-          Bun.spawnSync(["git", "update-ref", `refs/remotes/origin/${prMetadata.baseBranch}`, prMetadata.baseSha], { cwd: localPath, stderr: "pipe" });
-
-          worktreeCleanup = () => { try { rmSync(sessionDir, { recursive: true, force: true }); } catch {} };
-          process.once("exit", () => {
-            try { Bun.spawnSync(["rm", "-rf", sessionDir]); } catch {}
-          });
-        }
+              return { path: warmupPath, prUrl, number: prNumber, ready: true };
+            })();
 
         // --local only provides a sandbox path for agent processes.
         // Do NOT set gitContext — that would contaminate the diff pipeline.
         agentCwd = localPath;
 
-        // Create worktree pool with the initial PR as the first entry
+        // Pool starts with the initial PR as a not-ready entry; the seeded
+        // warmup flips it to ready (or leaves it not-ready on failure).
         worktreePool = createWorktreePool(
           { sessionDir, repoDir, isSameRepo },
-          { path: localPath, prUrl: prMetadata.url, number: prNumber, ready: true },
+          { path: localPath, prUrl, number: prNumber, ready: false },
+          warmup,
         );
 
-        console.error(`Local checkout ready at ${localPath}`);
+        worktreeCleanup = async () => {
+          if (isSameRepo && worktreePool) await worktreePool.cleanup(gitRuntime);
+          try { rmSync(warmupSessionDir, { recursive: true, force: true }); } catch {}
+        };
+        process.once("exit", () => {
+          // Best-effort sync cleanup: kill in-flight warmup children first so
+          // an orphaned clone/fetch can't write into the dir we're removing,
+          // then remove each pool worktree from git, then rm session dir.
+          for (const proc of warmupProcs) { try { proc.kill(); } catch {} }
+          if (isSameRepo) {
+            try {
+              for (const entry of worktreePool?.entries() ?? []) {
+                Bun.spawnSync(["git", "worktree", "remove", "--force", entry.path], { cwd: repoDir });
+              }
+            } catch {}
+            // Clear any registration left by a worktree add that completed
+            // after the kill (or by a not-ready entry the loop can't see).
+            try { Bun.spawnSync(["git", "worktree", "prune"], { cwd: repoDir }); } catch {}
+          }
+          try { Bun.spawnSync(["rm", "-rf", warmupSessionDir]); } catch {}
+        });
+
+        console.error(isSameRepo
+          ? "Preparing local worktree in the background..."
+          : `Cloning ${prRepo} (shallow) in the background...`);
+        warmup.then(
+          () => console.error(`Local checkout ready at ${warmupPath}`),
+          (err) => {
+            console.error("Warning: local checkout failed — features needing local files (agents, full-stack diff) are limited");
+            console.error(err instanceof Error ? err.message : String(err));
+            try { rmSync(warmupSessionDir, { recursive: true, force: true }); } catch {}
+          },
+        );
       } catch (err) {
         console.error(`Warning: --local failed, falling back to remote diff`);
         console.error(err instanceof Error ? err.message : String(err));

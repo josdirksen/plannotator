@@ -1245,8 +1245,17 @@ export async function startReviewServer(options: {
 			return;
 		} else if (await agentJobs.handle(req, res, url)) {
 			return;
-		} else if (url.pathname.startsWith("/api/ai/") && await handlePiAIRequest(req, res, url, aiRuntime)) {
-			return;
+		} else if (url.pathname.startsWith("/api/ai/")) {
+			// AI sessions pin their cwd at creation — make sure the PR checkout
+			// exists first so sessions never root in a transient fallback
+			// (mirrors the Bun server; no-op while the pool entry is ready).
+			if (req.method === "POST" && url.pathname === "/api/ai/session" && options.worktreePool && prMeta) {
+				try { await options.worktreePool.ensure(reviewRuntime, prMeta); } catch { /* capability degrades below */ }
+			}
+			if (await handlePiAIRequest(req, res, url, aiRuntime)) return;
+			// Unmatched /api/ai/* paths fall through to the app shell, same as
+			// the original dispatch chain.
+			html(res, options.htmlContent);
 		} else if (url.pathname === "/api/exit" && req.method === "POST") {
 			deleteDraft(draftKey);
 			resolveDecision({ approved: false, feedback: '', annotations: [], exit: true });

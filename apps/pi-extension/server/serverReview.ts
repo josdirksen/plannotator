@@ -449,6 +449,10 @@ export async function startReviewServer(options: {
 		);
 		if (result.status === "ok") {
 			semanticDiffCache.set(cacheKey, currentPatch, result);
+		} else if (result.status === "error") {
+			// Cooldown-memoized: request rate (file badges remount on scroll) must
+			// not drive sem execution rate when it's failing.
+			semanticDiffCache.setFailure(cacheKey, currentPatch, result);
 		}
 		return result;
 	}

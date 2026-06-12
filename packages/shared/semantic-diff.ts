@@ -417,13 +417,21 @@ export function semanticDiffCacheKey(input: {
 
 export class SemanticDiffResponseCache {
   private readonly cache = new Map<string, SemanticDiffResponse>();
+  private readonly failures = new Map<string, { response: SemanticDiffResponse; expiresAt: number }>();
   private rawPatch: string | null = null;
 
   constructor(private readonly maxEntries = 8) {}
 
   get(cacheKey: string, rawPatch: string): SemanticDiffResponse | undefined {
     this.syncPatch(rawPatch);
-    return this.cache.get(cacheKey);
+    const ok = this.cache.get(cacheKey);
+    if (ok) return ok;
+    const failed = this.failures.get(cacheKey);
+    if (failed) {
+      if (failed.expiresAt > Date.now()) return failed.response;
+      this.failures.delete(cacheKey);
+    }
+    return undefined;
   }
 
   set(cacheKey: string, rawPatch: string, response: SemanticDiffResponse): void {
@@ -437,11 +445,25 @@ export class SemanticDiffResponseCache {
     }
 
     this.cache.set(cacheKey, response);
+    this.failures.delete(cacheKey);
+  }
+
+  /**
+   * Memoize a FAILED run for a short window. Without this, every request for
+   * a failing (patch, cwd) re-executes sem — and the review UI's file badges
+   * re-request on every scroll-driven mount, so an erroring sem turns
+   * scrolling into a process stampede. The TTL keeps failures retryable
+   * without letting request rate drive execution rate.
+   */
+  setFailure(cacheKey: string, rawPatch: string, response: SemanticDiffResponse, ttlMs = 30_000): void {
+    this.syncPatch(rawPatch);
+    this.failures.set(cacheKey, { response, expiresAt: Date.now() + ttlMs });
   }
 
   private syncPatch(rawPatch: string): void {
     if (this.rawPatch === rawPatch) return;
     this.cache.clear();
+    this.failures.clear();
     this.rawPatch = rawPatch;
   }
 }

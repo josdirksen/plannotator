@@ -19,6 +19,12 @@ let cacheKey: string | null = null;
 let cachePromise: Promise<SemanticDiffResponse> | null = null;
 
 const RETRY_DELAYS_MS = [5_000, 15_000, 30_000];
+// After the in-flight retries are exhausted, the failure stays memoized for
+// this long before a fresh attempt is allowed. Badges mount/unmount on every
+// scroll in the virtualized all-files view — clearing the cache immediately
+// on failure turned scrolling into a refetch (and server-side sem re-run)
+// stampede whenever sem was erroring.
+const FAILURE_RETRY_COOLDOWN_MS = 60_000;
 
 async function fetchSemanticDiff(): Promise<SemanticDiffResponse> {
   const res = await fetch('/api/semantic-diff');
@@ -56,8 +62,12 @@ function loadSemanticDiff(rawPatch: string): Promise<SemanticDiffResponse> {
       console.error('Failed to load semantic diff for file badges:', data.message ?? data.reason ?? data.status);
     }
     if (data.status === 'error' && cacheKey === rawPatch && cachePromise === promise) {
-      cacheKey = null;
-      cachePromise = null;
+      setTimeout(() => {
+        if (cacheKey === rawPatch && cachePromise === promise) {
+          cacheKey = null;
+          cachePromise = null;
+        }
+      }, FAILURE_RETRY_COOLDOWN_MS);
     }
     return data;
   });

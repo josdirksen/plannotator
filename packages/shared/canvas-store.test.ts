@@ -27,6 +27,7 @@ import {
   formatFeedbackMarkdown,
   isSafeProjectKey,
   closeFrame,
+  closeBoard,
   arrangeBoard,
   dispatchCommentReply,
   addReply,
@@ -381,6 +382,43 @@ describe("comments + dispatch", () => {
     c = getBoard(board.projectKey)!.comments[0];
     expect(c.awaitingReply).toBe(true);
     expect(c.awaitingReplySince).toBeGreaterThanOrEqual(beforeFollowUp);
+  });
+
+  test("closing/archiving a frame settles its comments (no orphaned pending state)", () => {
+    const root = "/tmp/proj-settle";
+    const { board, frame: closed } = createFrame(root, { html: "a" });
+    const { frame: patched } = createFrame(root, { html: "b" });
+    addComment(board.projectKey, closed.id, { body: "pending forever?" });
+    const sentNow = addComment(board.projectKey, closed.id, { body: "reply?" })!;
+    dispatchCommentReply(board.projectKey, sentNow.id); // awaitingReply
+    addComment(board.projectKey, patched.id, { body: "also pending" });
+
+    closeFrame(board.projectKey, closed.id);
+    // Archive the second frame through the PATCH path (multi-select archive).
+    applyFramePatch(board.projectKey, patched.id, { status: "archived" });
+
+    const after = getBoard(board.projectKey)!;
+    for (const c of after.comments) {
+      expect(c.resolved).toBe(true);
+      expect(c.awaitingReply ?? false).toBe(false);
+      expect(c.awaitingReplySince).toBeUndefined();
+    }
+    // Nothing left for "Send all" to pick up.
+    expect(dispatchBoardFeedback(board.projectKey)).toEqual([]);
+  });
+
+  test("closeBoard settles comments on every archived frame", () => {
+    const root = "/tmp/proj-settle-board";
+    const { board, frame: a } = createFrame(root, { html: "a" });
+    const { frame: b } = createFrame(root, { html: "b" });
+    addComment(board.projectKey, a.id, { body: "one" });
+    addComment(board.projectKey, b.id, { body: "two" });
+
+    closeBoard(board.projectKey);
+
+    const after = getBoard(board.projectKey)!;
+    expect(after.comments.every((c) => c.resolved)).toBe(true);
+    expect(dispatchBoardFeedback(board.projectKey)).toEqual([]);
   });
 
   test("closeFrame archives the frame and logs a frame.closed watch event", () => {

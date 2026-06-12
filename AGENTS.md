@@ -405,8 +405,8 @@ Long-running singleton (default port `19434`; registry `~/.plannotator/canvas/se
 | `/api/canvas/comments/:id` | PATCH/DELETE | Resolve/edit / remove a comment (`?project=`) |
 | `/api/canvas/comments/:id/send-now` | POST | "Send now": dispatch one comment expecting a **reply** (no dots) → `comment.reply_request` watch event |
 | `/api/canvas/comments/:id/reply` | POST | Add a reply to the thread (`{author, body, fromAgent}`); agent replies clear awaiting, user replies re-emit a reply request |
-| `/api/canvas/frames/:id/dispatch` | POST | Bundle pending comments → feedback event (NDJSON log + streams) |
-| `/api/canvas/projects/:key/dispatch` | POST | Board-wide dispatch |
+| `/api/canvas/frames/:id/dispatch` | POST | Bundle pending comments → feedback event (NDJSON log + streams). Responses include `watchers` (live `canvas watch` count) so the UI can warn when nobody is listening. |
+| `/api/canvas/projects/:key/dispatch` | POST | Board-wide dispatch (response includes `watchers`) |
 | `/api/canvas/feedback` | GET   | Pull dispatched events (`?project=key` or `?root=path`, `&since=ISO`) |
 | `/api/canvas/stream`  | GET    | SSE for the UI: `frame.*`, `comment.*`, `feedback.dispatched` (all projects, `seq`-gated) |
 | `/api/canvas/feedback/stream` | GET | SSE for `canvas watch`: replays `?since`, then live `frame.feedback` events |

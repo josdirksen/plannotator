@@ -44,6 +44,9 @@ declare const __APP_VERSION__: string;
 
 const BRIDGE_PREFIX = "plannotator-bridge-";
 
+/** Toast tail when feedback was dispatched with no live `canvas watch`. */
+const NO_WATCHER_MSG = "no agent is watching; delivered when one connects";
+
 // Auto-fit: frames sized by no one (sizedBy "auto" / legacy undefined) grow to
 // their bridge-measured content height, so pages land at natural size instead
 // of uniform constrained cards. Bounds keep a pathological page from creating
@@ -188,6 +191,19 @@ function CanvasApp() {
     } else {
       toast(message);
     }
+  }, []);
+
+  // Local mirror of the server's comment settling on archive: resolved +
+  // no longer awaiting. Keeps "Send all"/pending counts honest without
+  // waiting for a board resync.
+  const settleCommentsLocally = useCallback((frameIds: Set<string>) => {
+    setComments((prev) =>
+      prev.map((c) =>
+        frameIds.has(c.frameId) && !c.resolved
+          ? { ...c, resolved: true, awaitingReply: false }
+          : c,
+      ),
+    );
   }, []);
 
   const openComments = useCallback((frameId?: string) => {
@@ -377,6 +393,8 @@ function CanvasApp() {
           const frame = event.frame!;
           setFrames((prev) => prev.map((f) => (f.id === frame.id ? frame : f)));
           if (event.htmlChanged) invalidateFrameHtml(frame.id, frame.revision);
+          // Archiving settles the frame's comments server-side — mirror it.
+          if (frame.status === "archived") settleCommentsLocally(new Set([frame.id]));
           break;
         }
         case "comment.created": {
@@ -406,6 +424,7 @@ function CanvasApp() {
           // so it's safe whether this is our own echo or another client's.
           const ids = new Set(event.frameIds ?? []);
           setFrames((prev) => prev.filter((f) => !ids.has(f.id)));
+          settleCommentsLocally(ids);
           setFocusedFrameId((prev) => (prev && ids.has(prev) ? null : prev));
           setActiveFrameId((prev) => (prev && ids.has(prev) ? null : prev));
           setSelection((prev) => (prev && ids.has(prev.frameId) ? null : prev));
@@ -427,7 +446,7 @@ function CanvasApp() {
         }
       }
     },
-    [scheduleProjectsRefresh, loadBoard, pushToast, invalidateFrameHtml],
+    [scheduleProjectsRefresh, loadBoard, pushToast, invalidateFrameHtml, settleCommentsLocally],
   );
 
   useEffect(() => {
@@ -529,6 +548,7 @@ function CanvasApp() {
       const projectKey = activeProjectRef.current;
       if (!projectKey) return;
       setFrames((prev) => prev.filter((f) => !ids.includes(f.id)));
+      settleCommentsLocally(new Set(ids));
       for (const id of ids) {
         void api.patchFrame(projectKey, id, { status: "archived" }).catch(() => {
           void loadBoard(projectKey);
@@ -536,7 +556,7 @@ function CanvasApp() {
       }
       pushToast(`Archived ${ids.length} frame${ids.length > 1 ? "s" : ""}`);
     },
-    [pushToast, loadBoard],
+    [pushToast, loadBoard, settleCommentsLocally],
   );
 
   // Close a frame: archive it locally and tell the server, which notifies the
@@ -547,6 +567,7 @@ function CanvasApp() {
       if (!projectKey) return;
       const frame = framesRef.current.find((f) => f.id === frameId);
       setFrames((prev) => prev.filter((f) => f.id !== frameId));
+      settleCommentsLocally(new Set([frameId]));
       if (focusedFrameId === frameId) setFocusedFrameId(null);
       if (activeFrameId === frameId) setActiveFrameId(null);
       void api.closeFrame(projectKey, frameId).catch(() => {
@@ -555,7 +576,7 @@ function CanvasApp() {
       });
       pushToast(`Closed “${frame?.title ?? "frame"}” — agent notified`);
     },
-    [pushToast, loadBoard, focusedFrameId, activeFrameId],
+    [pushToast, loadBoard, focusedFrameId, activeFrameId, settleCommentsLocally],
   );
 
   // Close (archive) every active frame on the board at once — the bulk version
@@ -566,6 +587,7 @@ function CanvasApp() {
     setClearBusy(true);
     const ids = framesRef.current.filter((f) => f.status === "active").map((f) => f.id);
     setFrames((prev) => prev.filter((f) => !ids.includes(f.id)));
+    settleCommentsLocally(new Set(ids));
     setFocusedFrameId(null);
     setActiveFrameId(null);
     setSelection(null);
@@ -581,7 +603,7 @@ function CanvasApp() {
       setClearBusy(false);
       setClearConfirm(false);
     }
-  }, [pushToast, loadBoard]);
+  }, [pushToast, loadBoard, settleCommentsLocally]);
 
   const addComment = useCallback(
     async (frameId: string, body: string, selection?: { originalText: string }) => {
@@ -628,7 +650,14 @@ function CanvasApp() {
       if (!projectKey) return;
       setComments((prev) =>
         prev.map((c) =>
-          c.id === id ? { ...c, dispatchedAt: c.dispatchedAt ?? Date.now(), awaitingReply: true } : c,
+          c.id === id
+            ? {
+                ...c,
+                dispatchedAt: c.dispatchedAt ?? Date.now(),
+                awaitingReply: true,
+                awaitingReplySince: Date.now(),
+              }
+            : c,
         ),
       );
       void api
@@ -640,7 +669,7 @@ function CanvasApp() {
             pushToast("Already sent");
             void loadBoard(projectKey);
           } else if (r.watchers === 0) {
-            pushToast("Sent — no agent is watching; delivered when one connects");
+            pushToast(`Sent — ${NO_WATCHER_MSG}`);
           } else {
             pushToast("Sent — waiting for a reply");
           }
@@ -681,7 +710,7 @@ function CanvasApp() {
             r.empty
               ? "Nothing pending to send"
               : r.watchers === 0
-                ? "Feedback sent — no agent is watching; delivered when one connects"
+                ? `Feedback sent — ${NO_WATCHER_MSG}`
                 : "Feedback sent to agent",
           ),
         )
@@ -700,7 +729,7 @@ function CanvasApp() {
           sent === 0
             ? "Nothing pending to send"
             : watchers === 0
-              ? "Feedback sent — no agent is watching; delivered when one connects"
+              ? `Feedback sent — ${NO_WATCHER_MSG}`
               : "All pending feedback sent to agent",
         ),
       )

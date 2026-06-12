@@ -568,6 +568,7 @@ export function updateFrameMeta(
   if (!board || !frame) return null;
 
   applyMeta(frame, meta);
+  if (frame.status === "archived") settleFrameComments(board, frameId);
   frame.updatedAt = Date.now();
   commit(board);
   return frame;
@@ -615,6 +616,7 @@ export function applyFramePatch(
   }
   applyGeometry(frame, patch);
   applyMeta(frame, patch);
+  if (frame.status === "archived") settleFrameComments(board, frameId);
   if (patch.sizedBy === "auto" || patch.sizedBy === "user") frame.sizedBy = patch.sizedBy;
   const now = Date.now();
   frame.updatedAt = now;
@@ -935,6 +937,21 @@ export function addReply(
  * the watch log so the agent knows the preview was dismissed. The event is a
  * no-op acknowledgement — no revision is expected in response.
  */
+/**
+ * Closing/archiving a frame ends its feedback conversation: resolve its
+ * unresolved comments and stop awaiting replies. Without this they'd sit in
+ * the pending pool forever — counted by "Send all" and the panel header but
+ * invisible, since archived frames' groups aren't shown.
+ */
+function settleFrameComments(board: CanvasBoard, frameId: string): void {
+  for (const c of board.comments) {
+    if (c.frameId !== frameId || c.resolved) continue;
+    c.resolved = true;
+    c.awaitingReply = false;
+    delete c.awaitingReplySince;
+  }
+}
+
 export function closeFrame(
   projectKey: string,
   frameId: string,
@@ -945,6 +962,7 @@ export function closeFrame(
 
   frame.status = "archived";
   frame.updatedAt = Date.now();
+  settleFrameComments(board, frameId);
 
   const now = nextDispatchMs();
   const event: CanvasFrameClosedEvent = {
@@ -984,6 +1002,7 @@ export function closeBoard(projectKey: string): CanvasFrameClosedEvent[] {
   for (const frame of active) {
     frame.status = "archived";
     frame.updatedAt = Date.now();
+    settleFrameComments(board, frame.id);
     const now = nextDispatchMs();
     events.push({
       event: "frame.closed",

@@ -33,8 +33,8 @@ function CommentRow({
 
   return (
     <div
-      className={`group rounded-md border p-2 ${
-        inThread ? "border-accent/40 bg-accent/5" : "border-border/60 bg-background/40"
+      className={`group rounded-md p-2 ${
+        inThread ? "bg-accent/10" : "bg-muted/35"
       } ${comment.resolved ? "opacity-60" : ""}`}
     >
       {comment.selection?.originalText && (
@@ -192,8 +192,10 @@ export function CommentsPanel({
   );
 
   // Group comments by frame. Include the active frame even when empty so the
-  // user can always see where a new comment will land. Order: active frame
-  // first, then frames with the most pending comments, then by recency.
+  // user can always see where a new comment will land. Stable order (most
+  // pending first, then recency) — deliberately NOT active-first, so clicking
+  // a document doesn't reshuffle the list under the cursor; the active doc is
+  // indicated by the accent bar on its header instead.
   const groups = useMemo(() => {
     const byFrame = new Map<string, CanvasComment[]>();
     for (const c of comments) {
@@ -213,20 +215,22 @@ export function CommentsPanel({
       }))
       .filter((g) => g.frame); // drop archived/missing frames
     entries.sort((a, b) => {
-      if (a.frameId === activeFrameId) return -1;
-      if (b.frameId === activeFrameId) return 1;
       if (b.pending !== a.pending) return b.pending - a.pending;
       return (b.frame!.updatedAt ?? 0) - (a.frame!.updatedAt ?? 0);
     });
     return entries;
   }, [comments, frameById, activeFrameId]);
 
-  // Scroll the focused frame's group into view when requested.
+  // Scroll the requested frame's group into view with a brief flash — a
+  // transient pointer, not a persistent box around the group.
+  const [flashFrameId, setFlashFrameId] = useState<string | null>(null);
   React.useEffect(() => {
     if (!focusFrameId) return;
-    const el = groupRefs.current.get(focusFrameId);
-    el?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [focusFrameId, groups]);
+    groupRefs.current.get(focusFrameId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setFlashFrameId(focusFrameId);
+    const t = setTimeout(() => setFlashFrameId(null), 1400);
+    return () => clearTimeout(t);
+  }, [focusFrameId]);
 
   async function submitDraft(sendNow = false) {
     const body = draft.trim();
@@ -273,8 +277,9 @@ export function CommentsPanel({
             Select text inside a frame, or click a frame and write one below.
           </div>
         )}
-        {groups.map((g) => {
-          const isFocus = g.frameId === focusFrameId;
+        {groups.map((g, index) => {
+          const isActive = g.frameId === activeFrameId;
+          const isFlash = g.frameId === flashFrameId;
           return (
             <div
               key={g.frameId}
@@ -282,17 +287,21 @@ export function CommentsPanel({
                 if (el) groupRefs.current.set(g.frameId, el);
                 else groupRefs.current.delete(g.frameId);
               }}
-              className={`rounded-lg border p-2 ${
-                isFocus ? "border-accent/50 bg-accent/5" : "border-transparent"
-              }`}
+              className={`rounded-md transition-colors duration-700 ${
+                index > 0 ? "border-t border-border/40 pt-2.5" : ""
+              } ${isFlash ? "bg-accent/10" : "bg-transparent"}`}
             >
               <div className="mb-1.5 flex items-center gap-2">
                 <button
                   onClick={() => onJumpToFrame(g.frameId)}
-                  className="min-w-0 flex-1 truncate text-left text-[12px] font-semibold text-foreground hover:text-accent"
-                  title="Jump to frame"
+                  className={`flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left text-[12px] font-semibold ${
+                    isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  title={isActive ? "Currently viewing" : "View this document"}
                 >
-                  {g.frame!.title}
+                  {/* Accent bar = the document you're viewing/commenting on. */}
+                  {isActive && <span className="h-3 w-[3px] shrink-0 rounded-full bg-accent" />}
+                  <span className="truncate">{g.frame!.title}</span>
                 </button>
                 {g.pending > 0 && (
                   <button

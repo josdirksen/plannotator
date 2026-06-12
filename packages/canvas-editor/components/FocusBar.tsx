@@ -9,22 +9,28 @@ import type { CanvasFrame } from "../types";
 export interface FocusBarProps {
   frame: CanvasFrame;
   pendingComments: number;
+  /** Feedback was sent and the agent hasn't pushed a new revision yet. */
+  awaiting: boolean;
   hasPrev: boolean;
   hasNext: boolean;
   onPrev: () => void;
   onNext: () => void;
   onOpenComments: () => void;
+  /** Send this frame's pending feedback (immediate, no dialog). */
+  onSendFeedback: () => void;
   onExit: () => void;
 }
 
 export function FocusBar({
   frame,
   pendingComments,
+  awaiting,
   hasPrev,
   hasNext,
   onPrev,
   onNext,
   onOpenComments,
+  onSendFeedback,
   onExit,
 }: FocusBarProps) {
   return (
@@ -64,6 +70,25 @@ export function FocusBar({
           </span>
         )}
       </button>
+      {/* Feedback state lives here too — in focus mode the frame chrome
+          (and its dot-wave indicator) is hidden behind the full view. */}
+      {awaiting && (
+        <div
+          className="px-1"
+          title="Feedback sent — awaiting a new revision from the agent"
+        >
+          <div className="awaiting-dots" style={{ width: 84 }} aria-hidden />
+        </div>
+      )}
+      {!awaiting && pendingComments > 0 && (
+        <button
+          onClick={onSendFeedback}
+          className="cursor-pointer rounded bg-primary px-1.5 py-0.5 text-[11.5px] font-medium text-primary-foreground hover:opacity-90"
+          title="Send this frame's pending feedback to the agent"
+        >
+          Send
+        </button>
+      )}
       <button
         onClick={onExit}
         className="cursor-pointer rounded px-1.5 py-0.5 text-[11.5px] text-muted-foreground hover:bg-muted hover:text-foreground"

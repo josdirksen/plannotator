@@ -14,7 +14,7 @@ import React, {
   useState,
 } from "react";
 import { toast, Toaster } from "sonner";
-import { MessageSquare, LayoutGrid, X } from "lucide-react";
+import { MessageSquare, LayoutGrid, Maximize, X } from "lucide-react";
 import { ThemeProvider, useTheme } from "@plannotator/ui/components/ThemeProvider";
 import { CommentPopover } from "@plannotator/ui/components/CommentPopover";
 import { getIdentity } from "@plannotator/ui/utils/identity";
@@ -65,9 +65,6 @@ interface SelectionState {
   text: string;
   anchorEl: HTMLElement;
 }
-
-/** A pending feedback-dispatch confirmation. */
-type DispatchTarget = { kind: "frame"; frameId: string } | { kind: "all" };
 
 function cameraStorageKey(projectKey: string): string {
   return `plannotator-canvas-camera:${projectKey}`;
@@ -129,9 +126,6 @@ function CanvasApp() {
   const [focusCommentFrameId, setFocusCommentFrameId] = useState<string | null>(null);
 
   const [selection, setSelection] = useState<SelectionState | null>(null);
-  const [dispatchTarget, setDispatchTarget] = useState<DispatchTarget | null>(null);
-  const [dispatchBusy, setDispatchBusy] = useState(false);
-  const [dispatchError, setDispatchError] = useState<string | null>(null);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
 
@@ -671,39 +665,30 @@ function CanvasApp() {
     [pushToast],
   );
 
-  // Dispatch is two-step: request (opens the shared confirm dialog) → confirm
-  // (executes). Keeps every "send feedback to the agent" action behind one
-  // explicit, previewed confirmation.
-  const requestDispatchFrame = useCallback((frameId: string) => {
-    setDispatchError(null);
-    setDispatchTarget({ kind: "frame", frameId });
-  }, []);
+  // Send feedback immediately — the panel already shows exactly what's
+  // pending, so a confirm dialog was pure friction. Failures toast.
+  const dispatchFrameNow = useCallback(
+    (frameId: string) => {
+      const projectKey = activeProjectRef.current;
+      if (!projectKey) return;
+      void api
+        .dispatchFrame(projectKey, frameId)
+        .then((r) => pushToast(r.empty ? "Nothing pending to send" : "Feedback sent to agent"))
+        .catch(() => pushToast("Couldn't send feedback — try again"));
+    },
+    [pushToast],
+  );
 
-  const requestDispatchAll = useCallback(() => {
-    setDispatchError(null);
-    setDispatchTarget({ kind: "all" });
-  }, []);
-
-  const confirmDispatch = useCallback(async () => {
+  const dispatchAllNow = useCallback(() => {
     const projectKey = activeProjectRef.current;
-    if (!projectKey || !dispatchTarget) return;
-    setDispatchBusy(true);
-    setDispatchError(null);
-    try {
-      if (dispatchTarget.kind === "all") {
-        const sent = await api.dispatchBoard(projectKey);
-        pushToast(sent > 0 ? "All pending feedback sent to agent" : "Nothing pending to send");
-      } else {
-        const result = await api.dispatchFrame(projectKey, dispatchTarget.frameId);
-        pushToast(result.empty ? "Nothing pending to send" : "Feedback sent to agent");
-      }
-      setDispatchTarget(null);
-    } catch (err) {
-      setDispatchError(err instanceof Error ? err.message : "Dispatch failed — try again");
-    } finally {
-      setDispatchBusy(false);
-    }
-  }, [dispatchTarget, pushToast]);
+    if (!projectKey) return;
+    void api
+      .dispatchBoard(projectKey)
+      .then((sent) =>
+        pushToast(sent > 0 ? "All pending feedback sent to agent" : "Nothing pending to send"),
+      )
+      .catch(() => pushToast("Couldn't send feedback — try again"));
+  }, [pushToast]);
 
   // ---------------------------------------------------------------------
   // In-frame annotation bridge (selection → comment), gated by e.source so
@@ -887,22 +872,6 @@ function CanvasApp() {
     ? activeFramesSorted.findIndex((f) => f.id === focusedFrame.id)
     : -1;
 
-  // Pending comments included in the active dispatch (for the confirm preview).
-  const dispatchPreview = useMemo(() => {
-    if (!dispatchTarget) return [];
-    return comments.filter(
-      (c) =>
-        !c.resolved &&
-        !c.dispatchedAt &&
-        (dispatchTarget.kind === "all" || c.frameId === dispatchTarget.frameId),
-    );
-  }, [comments, dispatchTarget]);
-
-  const dispatchTargetTitle = useMemo(() => {
-    if (dispatchTarget?.kind !== "frame") return null;
-    return frames.find((f) => f.id === dispatchTarget.frameId)?.title ?? "frame";
-  }, [dispatchTarget, frames]);
-
   const pendingForFocused = useMemo(
     () =>
       focusedFrameId
@@ -984,14 +953,30 @@ function CanvasApp() {
             </div>
           )}
           <div className="ml-auto flex items-center gap-1.5">
-            <button
-              onClick={() => void tidyBoard()}
-              className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
-              title="Arrange all frames into a grid"
-            >
-              <LayoutGrid className="h-3.5 w-3.5" />
-              Tidy
-            </button>
+            {/* View controls, paired: Tidy mutates the layout, Fit only moves
+                the camera — the tooltips carry that distinction. */}
+            <div className="flex items-center overflow-hidden rounded-md border border-border/60">
+              <button
+                onClick={() => void tidyBoard()}
+                className="flex cursor-pointer items-center gap-1.5 px-2 py-1 text-[11.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                title="Tidy — repack the frames into a clean grid, then zoom to fit"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+                Tidy
+              </button>
+              <div className="h-3.5 w-px bg-border/60" />
+              <button
+                onClick={() => {
+                  cameraCommandRef.current = { type: "fit" };
+                  setFrames((prev) => [...prev]);
+                }}
+                className="flex cursor-pointer items-center gap-1.5 px-2 py-1 text-[11.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                title="Fit — zoom the view to show everything; frames stay put (0)"
+              >
+                <Maximize className="h-3.5 w-3.5" />
+                Fit
+              </button>
+            </div>
             {frames.some((f) => f.status === "active") && (
               <button
                 onClick={() => setClearConfirm(true)}
@@ -1002,16 +987,6 @@ function CanvasApp() {
                 Close all
               </button>
             )}
-            <button
-              onClick={() => {
-                cameraCommandRef.current = { type: "fit" };
-                setFrames((prev) => [...prev]);
-              }}
-              className="cursor-pointer rounded-md px-2 py-1 text-[11.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
-              title="Zoom to fit (0)"
-            >
-              Fit
-            </button>
             <button
               onClick={() => (commentsPanelOpen ? setCommentsPanelOpen(false) : openComments())}
               className={`flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] font-medium transition-colors ${
@@ -1081,11 +1056,13 @@ function CanvasApp() {
                   <FocusBar
                     frame={focusedFrame}
                     pendingComments={pendingForFocused}
+                    awaiting={awaitingFrameIds.has(focusedFrame.id)}
                     hasPrev={focusedIndex > 0}
                     hasNext={focusedIndex >= 0 && focusedIndex < activeFramesSorted.length - 1}
                     onPrev={() => setFocusedFrameId(activeFramesSorted[focusedIndex - 1].id)}
                     onNext={() => setFocusedFrameId(activeFramesSorted[focusedIndex + 1].id)}
                     onOpenComments={() => openComments(focusedFrame.id)}
+                    onSendFeedback={() => dispatchFrameNow(focusedFrame.id)}
                     onExit={() => setFocusedFrameId(null)}
                   />
                 )}
@@ -1122,11 +1099,19 @@ function CanvasApp() {
               onSendCommentNow={sendCommentNow}
               onReplyInThread={replyInThread}
               onJumpToFrame={(frameId) => {
-                cameraCommandRef.current = { type: "center-frame", frameId };
-                setFrames((prev) => [...prev]);
+                // Switch to the document, don't just point at it: it becomes
+                // the composer target, and in focus mode the full view swaps
+                // to it (a camera move would be invisible behind the overlay).
+                setActiveFrameId(frameId);
+                if (focusedFrameId) {
+                  setFocusedFrameId(frameId);
+                } else {
+                  cameraCommandRef.current = { type: "center-frame", frameId };
+                  setFrames((prev) => [...prev]);
+                }
               }}
-              onDispatchFrame={requestDispatchFrame}
-              onDispatchAll={requestDispatchAll}
+              onDispatchFrame={dispatchFrameNow}
+              onDispatchAll={dispatchAllNow}
               onClose={() => setCommentsPanelOpen(false)}
             />
           )}
@@ -1144,43 +1129,6 @@ function CanvasApp() {
           onClose={() => setSelection(null)}
         />
       )}
-
-      {/* Feedback dispatch confirmation (shared shadcn dialog) */}
-      <ConfirmDialog
-        open={dispatchTarget !== null}
-        title={
-          dispatchTarget?.kind === "all"
-            ? `Send ${dispatchPreview.length} comment${dispatchPreview.length === 1 ? "" : "s"} to the agent?`
-            : `Send ${dispatchPreview.length} comment${dispatchPreview.length === 1 ? "" : "s"} on “${dispatchTargetTitle ?? "frame"}”?`
-        }
-        description={
-          <>
-            Delivered to <span className="font-mono text-foreground/80">plannotator canvas watch</span>{" "}
-            for this project.
-          </>
-        }
-        confirmLabel="Send feedback"
-        busy={dispatchBusy}
-        error={dispatchError}
-        onConfirm={() => void confirmDispatch()}
-        onOpenChange={(open) => {
-          if (!open) setDispatchTarget(null);
-        }}
-        body={
-          dispatchPreview.length === 0 ? (
-            <span className="text-muted-foreground">No pending comments to send.</span>
-          ) : (
-            dispatchPreview.map((c) => (
-              <div key={c.id} className="text-foreground">
-                {c.selection?.originalText && (
-                  <span className="text-muted-foreground">“{c.selection.originalText}” — </span>
-                )}
-                {c.body}
-              </div>
-            ))
-          )
-        }
-      />
 
       <ConfirmDialog
         open={clearConfirm}

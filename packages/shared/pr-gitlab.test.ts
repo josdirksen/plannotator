@@ -152,6 +152,38 @@ describe("fetchGlMR raw_diffs fallback", () => {
     expect(calls.some((c) => c.includes("/diffs?per_page=100"))).toBe(true);
   });
 
+  test("reconstructed renames carry a similarity line so parsers classify them as renames", async () => {
+    const entries = JSON.stringify([
+      {
+        old_path: "src/old.ts",
+        new_path: "src/new.ts",
+        new_file: false,
+        deleted_file: false,
+        renamed_file: true,
+        diff: "", // pure rename — GitLab sends an empty diff
+      },
+      {
+        old_path: "src/before.ts",
+        new_path: "src/after.ts",
+        new_file: false,
+        deleted_file: false,
+        renamed_file: true,
+        diff: "@@ -1 +1 @@\n-a\n+b\n",
+      },
+    ]);
+    const { runtime } = gitlabRuntime({
+      rawDiffs: { exitCode: 1, stderr: "404 Not Found" },
+      diffs: { exitCode: 0, stdout: entries },
+    });
+    const result = await fetchGlMR(runtime, REF);
+    expect(result.rawPatch).toContain(
+      "diff --git a/src/old.ts b/src/new.ts\nsimilarity index 100%\nrename from src/old.ts\nrename to src/new.ts",
+    );
+    expect(result.rawPatch).toContain(
+      "diff --git a/src/before.ts b/src/after.ts\nsimilarity index 99%\nrename from src/before.ts\nrename to src/after.ts",
+    );
+  });
+
   test("falls back when raw_diffs returns empty (oversized MR)", async () => {
     const { runtime, calls } = gitlabRuntime({
       rawDiffs: { exitCode: 0, stdout: "" },

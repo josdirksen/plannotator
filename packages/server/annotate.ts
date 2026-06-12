@@ -178,6 +178,9 @@ export async function startAnnotateServer(
       server = Bun.serve({
         hostname: getServerHostname(),
         port: configuredPort,
+        // Bun's default 10s idleTimeout kills AI SSE streams that stall
+        // between bytes (e.g. while a permission prompt waits on the user).
+        idleTimeout: 0,
 
         async fetch(req, server) {
           const url = new URL(req.url);

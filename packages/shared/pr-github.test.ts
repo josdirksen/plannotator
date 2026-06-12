@@ -197,6 +197,9 @@ describe("reconstructGhPatch", () => {
     expect(lines[0]).toBe("diff --git a/before.ts b/after.ts");
     expect(parseDiffGitHeader(lines[0])).toEqual({ oldPath: "before.ts", newPath: "after.ts" });
     expect(parseDiffMetadataPathLines(lines)).toEqual({ oldPath: "before.ts", newPath: "after.ts" });
+    // Pierre's parser classifies renames off the similarity line — a patched
+    // rename must carry a sub-100% score or it renders as a plain change.
+    expect(lines[1]).toBe("similarity index 99%");
   });
 
   test("pure rename (no patch field) emits a header-only section", () => {
@@ -204,7 +207,9 @@ describe("reconstructGhPatch", () => {
       { filename: "after.ts", previous_filename: "before.ts", status: "renamed" },
     ]);
 
-    expect(patch).toBe("diff --git a/before.ts b/after.ts\nrename from before.ts\nrename to after.ts\n");
+    expect(patch).toBe(
+      "diff --git a/before.ts b/after.ts\nsimilarity index 100%\nrename from before.ts\nrename to after.ts\n",
+    );
   });
 
   test("entry without patch (binary / per-file too large) doesn't corrupt the next file's section", () => {
@@ -272,6 +277,7 @@ describe("reconstructGhPatch", () => {
       { filename: "copy.ts", previous_filename: "orig.ts", status: "copied", patch: "@@ -1 +1 @@\n-a\n+b" },
     ]);
 
+    expect(patch).toContain("similarity index 99%");
     expect(patch).toContain("copy from orig.ts");
     expect(patch).toContain("copy to copy.ts");
     expect(patch.split("\n")[0]).toBe("diff --git a/orig.ts b/copy.ts");

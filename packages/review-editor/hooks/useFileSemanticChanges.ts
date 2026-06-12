@@ -9,32 +9,60 @@ import { isOrphanChange } from '../dock/panels/semanticDiffShared';
 /**
  * Single shared fetch of the semantic diff, cached by the active patch so every
  * file-header badge reuses one request (sem already caches per-patch server-side).
+ *
+ * Failures are retried with backoff and never memoized — in PR mode the server
+ * parks this request while the checkout warms up (a clone that can take
+ * minutes), and a connection killed mid-wait must not pin every badge to empty
+ * for the rest of the session.
  */
 let cacheKey: string | null = null;
 let cachePromise: Promise<SemanticDiffResponse> | null = null;
 
+const RETRY_DELAYS_MS = [5_000, 15_000, 30_000];
+
+async function fetchSemanticDiff(): Promise<SemanticDiffResponse> {
+  const res = await fetch('/api/semantic-diff');
+  if (!res.ok) throw new Error('Semantic diff failed');
+  return res.json() as Promise<SemanticDiffResponse>;
+}
+
 function loadSemanticDiff(rawPatch: string): Promise<SemanticDiffResponse> {
   if (cacheKey === rawPatch && cachePromise) return cachePromise;
   cacheKey = rawPatch;
-  cachePromise = fetch('/api/semantic-diff')
-    .then((res) => {
-      if (!res.ok) throw new Error('Semantic diff failed');
-      return res.json() as Promise<SemanticDiffResponse>;
-    })
-    .catch((error): SemanticDiffResponse => ({
-      status: 'error',
-      reason: 'fetch-failed',
-      message: error instanceof Error ? error.message : String(error),
-    }))
-    .then((data) => {
-      // Logged once per patch (the promise is cached) rather than per badge, so a
-      // systemic failure leaves a trace instead of every badge vanishing silently.
-      if (data.status !== 'ok') {
-        console.error('Failed to load semantic diff for file badges:', data.message ?? data.reason ?? data.status);
+
+  const attempt = async (): Promise<SemanticDiffResponse> => {
+    for (let i = 0; ; i++) {
+      let result: SemanticDiffResponse;
+      try {
+        result = await fetchSemanticDiff();
+      } catch (error) {
+        result = {
+          status: 'error',
+          reason: 'fetch-failed',
+          message: error instanceof Error ? error.message : String(error),
+        };
       }
-      return data;
-    });
-  return cachePromise;
+      // 'unavailable' means sem isn't installed — retrying won't change that.
+      if (result.status !== 'error' || i >= RETRY_DELAYS_MS.length) return result;
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[i]));
+      if (cacheKey !== rawPatch) return result; // patch changed mid-retry; let the new fetch win
+    }
+  };
+
+  const promise = attempt().then((data) => {
+    // Logged once per patch (the promise is cached) rather than per badge, so a
+    // systemic failure leaves a trace instead of every badge vanishing silently.
+    if (data.status !== 'ok') {
+      console.error('Failed to load semantic diff for file badges:', data.message ?? data.reason ?? data.status);
+    }
+    if (data.status === 'error' && cacheKey === rawPatch && cachePromise === promise) {
+      cacheKey = null;
+      cachePromise = null;
+    }
+    return data;
+  });
+  cachePromise = promise;
+  return promise;
 }
 
 export interface FileSemanticChanges {

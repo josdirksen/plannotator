@@ -657,6 +657,10 @@ export async function startReviewServer(
       server = Bun.serve({
         hostname: getServerHostname(),
         port: configuredPort,
+        // Bun's default 10s idleTimeout kills requests that legitimately park:
+        // PR-mode endpoints await the background checkout warmup (a clone that
+        // can take minutes) and AI SSE streams can stall between bytes.
+        idleTimeout: 0,
 
         async fetch(req, server) {
           const url = new URL(req.url);

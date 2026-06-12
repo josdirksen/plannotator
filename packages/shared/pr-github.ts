@@ -103,10 +103,17 @@ export function reconstructGhPatch(files: GitHubFileEntry[]): string {
     const isDeleted = f.status === "removed";
 
     let header = `diff --git ${headerPathToken("a", oldPath)} ${headerPathToken("b", newPath)}`;
-    if (f.status === "renamed") {
-      header += `\nrename from ${metadataPathToken(oldPath)}\nrename to ${metadataPathToken(newPath)}`;
-    } else if (f.status === "copied") {
-      header += `\ncopy from ${metadataPathToken(oldPath)}\ncopy to ${metadataPathToken(newPath)}`;
+    if (f.status === "renamed" || f.status === "copied") {
+      // Git always prints a similarity score before rename/copy lines, and
+      // diff parsers (e.g. Pierre's) key rename classification off it —
+      // without the line a rename renders as a plain change with no old path.
+      // The files API doesn't expose the score: a patch-less entry is by
+      // definition a 100% match; for patched entries emit a synthetic <100%
+      // value (consumers only branch on 100% vs not).
+      header += f.patch ? "\nsimilarity index 99%" : "\nsimilarity index 100%";
+      header += f.status === "renamed"
+        ? `\nrename from ${metadataPathToken(oldPath)}\nrename to ${metadataPathToken(newPath)}`
+        : `\ncopy from ${metadataPathToken(oldPath)}\ncopy to ${metadataPathToken(newPath)}`;
     }
     if (isNew) {
       header += "\nnew file mode 100644";

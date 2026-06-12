@@ -63,6 +63,10 @@ function reconstructPatch(diffs: GitLabDiffEntry[]): string {
 
     let header = `diff --git a/${displayOld} b/${displayNew}`;
     if (d.renamed_file) {
+      // Diff parsers (e.g. Pierre's) key rename classification off the
+      // similarity line; the API doesn't expose the score, so emit 100% for
+      // pure renames (empty diff) and a synthetic <100% otherwise.
+      header += d.diff.trim() === "" ? "\nsimilarity index 100%" : "\nsimilarity index 99%";
       header += `\nrename from ${d.old_path}\nrename to ${d.new_path}`;
     }
     if (d.new_file) {

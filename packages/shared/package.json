@@ -4,6 +4,8 @@
   "private": true,
   "exports": {
     "./agents": "./agents.ts",
+    "./canvas-store": "./canvas-store.ts",
+    "./canvas-layout": "./canvas-layout.ts",
     "./compress": "./compress.ts",
     "./crypto": "./crypto.ts",
     "./diff-paths": "./diff-paths.ts",

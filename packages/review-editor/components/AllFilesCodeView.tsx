@@ -22,6 +22,7 @@ import type {
 } from '@plannotator/ui/types';
 import { CommentPopover } from '@plannotator/ui/components/CommentPopover';
 import { usePierreTheme } from '../hooks/usePierreTheme';
+import { useIsWorkerPoolReadyOrDisabled, useWorkerPoolThemeSync } from '../workerPool';
 import type { DiffFile } from '../types';
 import { buildFileTree, getVisualFileOrder } from '../utils/buildFileTree';
 import { buildCodeNavRequest } from '../utils/buildCodeNavRequest';
@@ -419,6 +420,11 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
   // way — we keep `true` to be explicit that the built-in title is irrelevant
   // here (our FileHeader owns all header chrome).
   const pierreTheme = usePierreTheme({ fontFamily, fontSize, showFileHeader: true });
+  // Worker-pool highlighting: wait for the pool so the first tokenization
+  // wave runs in workers (not a main-thread fallback), and keep the pool's
+  // theme pair in step with the UI theme.
+  const workerPoolReady = useIsWorkerPoolReadyOrDisabled();
+  useWorkerPoolThemeSync(pierreTheme.syntaxTheme);
   const viewerRef = useRef<CodeViewHandle<DiffAnnotationMetadata> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const toolbarHostRef = useRef<ToolbarHostHandle>(null);
@@ -1807,6 +1813,12 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
       handlePostRender,
     ],
   );
+
+  // After all hooks: hold the surface until the worker pool can take the
+  // first tokenization wave (≈100-300ms once per session; instant after).
+  if (!workerPoolReady) {
+    return <div className="relative h-full" />;
+  }
 
   return (
     <div className="relative h-full">

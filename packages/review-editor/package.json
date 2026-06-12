@@ -5,7 +5,8 @@
   "exports": {
     ".": "./App.tsx",
     "./styles": "./index.css",
-    "./shortcuts": "./shortcuts.ts"
+    "./shortcuts": "./shortcuts.ts",
+    "./worker-pool": "./workerPool.tsx"
   },
   "dependencies": {
     "@fontsource-variable/geist-mono": "5.2.7",

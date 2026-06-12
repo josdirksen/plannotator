@@ -41,6 +41,10 @@ interface GitLabDiffEntry {
   new_file: boolean;
   deleted_file: boolean;
   renamed_file: boolean;
+  /** Content withheld because the file's diff exceeds GitLab's size limits. Absent on older GitLab. */
+  too_large?: boolean | null;
+  /** Diff collapsed (content omitted from the response). Absent on older GitLab. */
+  collapsed?: boolean | null;
 }
 
 export { parsePaginatedArray } from "./cli-pagination";
@@ -116,12 +120,23 @@ export async function getGlUser(runtime: PRRuntime, host: string): Promise<strin
 
 /**
  * True when a JSON diffs-API entry should carry diff content but doesn't.
- * Empty diffs are legitimate for pure renames and empty added files; an empty
- * diff on a plain modification means GitLab withheld the content (collapsed /
- * over-limit file on a very large MR).
+ *
+ * Modern GitLab marks withheld content explicitly per entry (`too_large`,
+ * `collapsed`) — authoritative both ways: a too-large ADDED file is caught
+ * (it would otherwise be indistinguishable from a legitimately empty new
+ * file), and binaries/empty files are never misflagged.
+ *
+ * Older GitLab (the same versions this JSON fallback exists for) omits the
+ * flags entirely; there an empty diff on a plain modification is the only
+ * reliable withheld signal — empty adds/deletes/renames stay exempt.
  */
 function entryMissingContent(d: GitLabDiffEntry): boolean {
-  return d.diff.trim() === "" && !d.renamed_file && !d.new_file && !d.deleted_file;
+  if (d.diff.trim() !== "") return false;
+  if (d.too_large || d.collapsed) return true;
+  if (d.too_large === undefined && d.collapsed === undefined) {
+    return !d.renamed_file && !d.new_file && !d.deleted_file;
+  }
+  return false;
 }
 
 export async function fetchGlMR(

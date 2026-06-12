@@ -113,8 +113,8 @@ export function getReviewApprovedPrompt(
 }
 
 const REVIEW_DENIED_RUNTIME_DEFAULTS: Partial<Record<PromptRuntime, string>> = {
-  opencode: "\n\nPlease address this feedback.",
-  pi: "\n\nPlease address this feedback.",
+  opencode: "\n\nThis feedback came from external AI reviewers. Please triage it and verify it against the code and then come back to me with your thoughts on the findings. Do not change any code until we've discussed the findings.",
+  pi: "\n\nThis feedback came from external AI reviewers. Please triage it and verify it against the code and then come back to me with your thoughts on the findings. Do not change any code until we've discussed the findings.",
 };
 
 export function getReviewDeniedSuffix(

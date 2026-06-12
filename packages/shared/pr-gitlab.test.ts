@@ -227,6 +227,67 @@ describe("fetchGlMR raw_diffs fallback", () => {
     }
   });
 
+  test("too_large/collapsed flags catch withheld ADDED files (modern GitLab)", async () => {
+    // A too-large added file has new_file:true and an empty diff — without
+    // the explicit flag it would be indistinguishable from a legitimately
+    // empty new file and the upgrade would never be offered.
+    const entries = JSON.stringify([
+      {
+        old_path: "src/huge.ts",
+        new_path: "src/huge.ts",
+        new_file: true,
+        deleted_file: false,
+        renamed_file: false,
+        too_large: true,
+        collapsed: false,
+        diff: "",
+      },
+    ]);
+    const { runtime } = gitlabRuntime({
+      rawDiffs: { exitCode: 1, stderr: "404 Not Found" },
+      diffs: { exitCode: 0, stdout: entries },
+    });
+
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await fetchGlMR(runtime, REF);
+      expect(result.patchIncomplete).toBe(true);
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  test("explicit too_large:false exonerates empty-diff entries (binary/empty files, modern GitLab)", async () => {
+    const entries = JSON.stringify([
+      {
+        old_path: "logo.png",
+        new_path: "logo.png",
+        new_file: false,
+        deleted_file: false,
+        renamed_file: false,
+        too_large: false,
+        collapsed: false,
+        diff: "", // binary — complete information, must not flag
+      },
+      {
+        old_path: "src/ok.ts",
+        new_path: "src/ok.ts",
+        new_file: false,
+        deleted_file: false,
+        renamed_file: false,
+        too_large: false,
+        collapsed: false,
+        diff: "@@ -1 +1 @@\n-a\n+b\n",
+      },
+    ]);
+    const { runtime } = gitlabRuntime({
+      rawDiffs: { exitCode: 1, stderr: "404 Not Found" },
+      diffs: { exitCode: 0, stdout: entries },
+    });
+    const result = await fetchGlMR(runtime, REF);
+    expect(result.patchIncomplete).toBeFalsy();
+  });
+
   test("does not flag a fallback where every entry carries content", async () => {
     const { runtime } = gitlabRuntime({
       rawDiffs: { exitCode: 1, stderr: "404 Not Found" },

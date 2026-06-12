@@ -148,7 +148,7 @@ describe("OpenCode CLI bridge helpers", () => {
     });
     expect(localFeedback.agent).toBeUndefined();
     expect(localFeedback.message).toContain("Fix these issues.");
-    expect(localFeedback.message).toContain("Please address this feedback.");
+    expect(localFeedback.message).toContain("This feedback came from external AI reviewers. Please triage it and verify it against the code and then come back to me with your thoughts on the findings. Do not change any code until we've discussed the findings.");
 
     const prFeedback = buildReviewPromptFromBridgeOutcome({
       decision: "annotated",

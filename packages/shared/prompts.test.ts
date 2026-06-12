@@ -315,8 +315,8 @@ describe("getReviewDeniedSuffix", () => {
   test("opencode and pi use softer runtime default", () => {
     const oc = getReviewDeniedSuffix("opencode", {});
     const pi = getReviewDeniedSuffix("pi", {});
-    expect(oc).toBe("\n\nPlease address this feedback.");
-    expect(pi).toBe("\n\nPlease address this feedback.");
+    expect(oc).toBe("\n\nThis feedback came from external AI reviewers. Please triage it and verify it against the code and then come back to me with your thoughts on the findings. Do not change any code until we've discussed the findings.");
+    expect(pi).toBe("\n\nThis feedback came from external AI reviewers. Please triage it and verify it against the code and then come back to me with your thoughts on the findings. Do not change any code until we've discussed the findings.");
   });
 
   test("uses configured override", () => {

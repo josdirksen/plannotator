@@ -119,7 +119,7 @@ export async function dispatchFrame(
   projectKey: string,
   frameId: string,
   commentIds?: string[],
-): Promise<{ empty?: boolean }> {
+): Promise<{ empty?: boolean; watchers?: number }> {
   return json(
     await fetch(
       `/api/canvas/frames/${encodeURIComponent(frameId)}/dispatch?project=${encodeURIComponent(projectKey)}`,
@@ -132,14 +132,16 @@ export async function dispatchFrame(
   );
 }
 
-/** Dispatch all pending comments on a board. Returns the dispatched-event count. */
-export async function dispatchBoard(projectKey: string): Promise<number> {
-  const body = await json<{ events: unknown[] }>(
+/** Dispatch all pending comments on a board. */
+export async function dispatchBoard(
+  projectKey: string,
+): Promise<{ sent: number; watchers?: number }> {
+  const body = await json<{ events: unknown[]; watchers?: number }>(
     await fetch(`/api/canvas/projects/${encodeURIComponent(projectKey)}/dispatch`, {
       method: "POST",
     }),
   );
-  return body.events.length;
+  return { sent: body.events.length, watchers: body.watchers };
 }
 
 /** Close (archive) a frame and notify the watching agent as a no-op. */
@@ -166,7 +168,7 @@ export async function closeBoard(projectKey: string): Promise<number> {
 export async function sendCommentNow(
   projectKey: string,
   commentId: string,
-): Promise<{ empty?: boolean }> {
+): Promise<{ empty?: boolean; watchers?: number }> {
   return json(
     await fetch(
       `/api/canvas/comments/${encodeURIComponent(commentId)}/send-now?project=${encodeURIComponent(projectKey)}`,

@@ -18,6 +18,8 @@ export interface CanvasFrame {
   sourcePath?: string;
   /** Revision feedback was last dispatched at; awaiting revision while === revision. */
   feedbackPendingRevision?: number;
+  /** When feedback was dispatched (ms) — the awaiting indicator expires from this. */
+  feedbackPendingSince?: number;
   /** Size owner: auto (UI fits content height), agent (--size), user (manual resize pins). */
   sizedBy?: "auto" | "agent" | "user";
   status: "active" | "archived";
@@ -44,8 +46,19 @@ export interface CanvasComment {
   dispatchedAt?: number;
   replies?: CanvasReply[];
   awaitingReply?: boolean;
+  /** When the reply was last requested (ms) — the waiting pulse expires from this. */
+  awaitingReplySince?: number;
   createdAt: number;
 }
+
+/**
+ * How long "awaiting" indicators (revision dots, reply pulse) stay live after
+ * a send. An agent that never comes back must not leave them animating for
+ * days — past the TTL the UI stops claiming anything is on its way. The
+ * underlying state stays on disk untouched (a late revision or reply still
+ * lands and clears it properly).
+ */
+export const AWAITING_TTL_MS = 10 * 60_000;
 
 export interface CanvasBoard {
   projectKey: string;

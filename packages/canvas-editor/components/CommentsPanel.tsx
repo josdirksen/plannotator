@@ -1,26 +1,28 @@
 /**
  * Board comments panel — shows ALL comments on the board by default, grouped
  * by frame, with jump-to-frame, resolve/delete, per-frame and board-wide
- * dispatch. The composer targets the currently-active frame.
- *
- * Dispatch confirmation is owned by the parent (a shared shadcn dialog), so
- * this panel just requests dispatch and never renders its own modal.
+ * dispatch (immediate — no confirm; the panel itself is the preview). The
+ * composer targets the currently-active frame.
  */
 
 import React, { useMemo, useRef, useState } from "react";
 import { X, CornerDownLeft } from "lucide-react";
 import type { CanvasComment, CanvasFrame } from "../types";
+import { AWAITING_TTL_MS } from "../types";
 
 const ROW_QUOTE = "border-l-2 border-accent/60 pl-2 text-[11px] italic text-muted-foreground";
 
 function CommentRow({
   comment,
+  now,
   onResolve,
   onDelete,
   onSendNow,
   onReply,
 }: {
   comment: CanvasComment;
+  /** Coarse clock from the parent — expires the waiting pulse. */
+  now: number;
   onResolve: (resolved: boolean) => void;
   onDelete: () => void;
   onSendNow: () => void;
@@ -29,6 +31,14 @@ function CommentRow({
   const dispatched = !!comment.dispatchedAt;
   const replies = comment.replies ?? [];
   const inThread = replies.length > 0 || comment.awaitingReply;
+  // The "waiting for a reply" pulse expires: an agent that never answers must
+  // not leave it animating for days. Legacy comments without the timestamp
+  // are treated as expired. The thread (and its reply box) stays open.
+  const replyWaitLive =
+    !!comment.awaitingReply &&
+    !comment.resolved &&
+    comment.awaitingReplySince != null &&
+    now - comment.awaitingReplySince < AWAITING_TTL_MS;
   const [replyDraft, setReplyDraft] = useState("");
 
   return (
@@ -67,7 +77,7 @@ function CommentRow({
         </div>
       )}
 
-      {comment.awaitingReply && !comment.resolved && (
+      {replyWaitLive && (
         <div className="mt-2 flex items-center gap-1.5 text-[10.5px] text-accent">
           <span className="awaiting-reply-pulse h-1.5 w-1.5 rounded-full bg-accent" />
           waiting for a reply…
@@ -148,6 +158,8 @@ function CommentRow({
 export interface CommentsPanelProps {
   frames: CanvasFrame[];
   comments: CanvasComment[];
+  /** Coarse clock (minute ticks) for expiring awaiting indicators. */
+  now: number;
   activeFrameId: string | null;
   /** Frame whose group should be scrolled into view + highlighted, if any. */
   focusFrameId: string | null;
@@ -167,6 +179,7 @@ export interface CommentsPanelProps {
 export function CommentsPanel({
   frames,
   comments,
+  now,
   activeFrameId,
   focusFrameId,
   onAddComment,
@@ -323,6 +336,7 @@ export function CommentsPanel({
                     <CommentRow
                       key={c.id}
                       comment={c}
+                      now={now}
                       onResolve={(resolved) => onResolveComment(c.id, resolved)}
                       onDelete={() => onDeleteComment(c.id)}
                       onSendNow={() => onSendCommentNow(c.id)}

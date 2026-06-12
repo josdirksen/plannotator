@@ -25,6 +25,7 @@ import type {
   CanvasFrame,
   CanvasProjectSummary,
 } from "./types";
+import { AWAITING_TTL_MS } from "./types";
 import * as api from "./api";
 import { CanvasViewport } from "./components/CanvasViewport";
 import { CommentsPanel } from "./components/CommentsPanel";
@@ -638,6 +639,8 @@ function CanvasApp() {
             // awaiting-reply flag doesn't stick on an already-sent comment.
             pushToast("Already sent");
             void loadBoard(projectKey);
+          } else if (r.watchers === 0) {
+            pushToast("Sent — no agent is watching; delivered when one connects");
           } else {
             pushToast("Sent — waiting for a reply");
           }
@@ -673,7 +676,15 @@ function CanvasApp() {
       if (!projectKey) return;
       void api
         .dispatchFrame(projectKey, frameId)
-        .then((r) => pushToast(r.empty ? "Nothing pending to send" : "Feedback sent to agent"))
+        .then((r) =>
+          pushToast(
+            r.empty
+              ? "Nothing pending to send"
+              : r.watchers === 0
+                ? "Feedback sent — no agent is watching; delivered when one connects"
+                : "Feedback sent to agent",
+          ),
+        )
         .catch(() => pushToast("Couldn't send feedback — try again"));
     },
     [pushToast],
@@ -684,8 +695,14 @@ function CanvasApp() {
     if (!projectKey) return;
     void api
       .dispatchBoard(projectKey)
-      .then((sent) =>
-        pushToast(sent > 0 ? "All pending feedback sent to agent" : "Nothing pending to send"),
+      .then(({ sent, watchers }) =>
+        pushToast(
+          sent === 0
+            ? "Nothing pending to send"
+            : watchers === 0
+              ? "Feedback sent — no agent is watching; delivered when one connects"
+              : "All pending feedback sent to agent",
+        ),
       )
       .catch(() => pushToast("Couldn't send feedback — try again"));
   }, [pushToast]);
@@ -889,14 +906,30 @@ function CanvasApp() {
 
   // Frames awaiting a revision: feedback was dispatched at the current revision
   // and the agent hasn't uploaded a new one. Clears when revision bumps past it.
+  // Coarse clock for expiring awaiting indicators (minute resolution is fine).
+  const [awaitingTick, setAwaitingTick] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setAwaitingTick(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Frames showing the awaiting-revision dots: feedback sent at the current
+  // revision AND recently enough. Frames dispatched before feedbackPendingSince
+  // existed have no timestamp — treated as expired, which heals old boards.
   const awaitingFrameIds = useMemo(
     () =>
       new Set(
         frames
-          .filter((f) => f.feedbackPendingRevision != null && f.feedbackPendingRevision === f.revision)
+          .filter(
+            (f) =>
+              f.feedbackPendingRevision != null &&
+              f.feedbackPendingRevision === f.revision &&
+              f.feedbackPendingSince != null &&
+              awaitingTick - f.feedbackPendingSince < AWAITING_TTL_MS,
+          )
           .map((f) => f.id),
       ),
-    [frames],
+    [frames, awaitingTick],
   );
 
   const initialCamera = useMemo(
@@ -1087,6 +1120,7 @@ function CanvasApp() {
             <CommentsPanel
               frames={activeFramesSorted}
               comments={comments}
+              now={awaitingTick}
               activeFrameId={activeFrameId}
               focusFrameId={focusCommentFrameId}
               onAddComment={(frameId, body) => addComment(frameId, body).then(() => undefined)}

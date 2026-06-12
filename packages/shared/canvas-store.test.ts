@@ -340,18 +340,47 @@ describe("comments + dispatch", () => {
     const root = "/tmp/proj-await";
     const { board, frame } = createFrame(root, { html: "v1" });
     addComment(board.projectKey, frame.id, { body: "fix this" });
+    const before = Date.now();
     dispatchFrameFeedback(board.projectKey, frame.id);
 
     let after = getBoard(board.projectKey)!.frames[0];
     expect(after.feedbackPendingRevision).toBe(1);
     expect(after.feedbackPendingRevision === after.revision).toBe(true); // awaiting
+    // Timestamped so the UI can expire the indicator if no revision ever comes.
+    expect(after.feedbackPendingSince).toBeGreaterThanOrEqual(before);
 
     updateFrameHtml(board.projectKey, frame.id, "v2");
     after = getBoard(board.projectKey)!.frames[0];
     expect(after.revision).toBe(2);
     expect(after.feedbackPendingRevision === after.revision).toBe(false); // cleared
-    // The field itself is removed (not left stale) once a revision answers it.
+    // The fields themselves are removed (not left stale) once a revision answers.
     expect(after.feedbackPendingRevision).toBeUndefined();
+    expect(after.feedbackPendingSince).toBeUndefined();
+  });
+
+  test("awaitingReplySince: stamped on send-now, re-stamped on user follow-up, cleared by agent reply", () => {
+    const root = "/tmp/proj-reply-since";
+    const { board, frame } = createFrame(root, { html: "x" });
+    const comment = addComment(board.projectKey, frame.id, { body: "thoughts?" })!;
+
+    const before = Date.now();
+    dispatchCommentReply(board.projectKey, comment.id);
+    let c = getBoard(board.projectKey)!.comments[0];
+    expect(c.awaitingReply).toBe(true);
+    expect(c.awaitingReplySince).toBeGreaterThanOrEqual(before);
+
+    // Agent reply answers the request — waiting state fully cleared.
+    addReply(board.projectKey, comment.id, { author: "Claude", body: "teal", fromAgent: true });
+    c = getBoard(board.projectKey)!.comments[0];
+    expect(c.awaitingReply).toBe(false);
+    expect(c.awaitingReplySince).toBeUndefined();
+
+    // User follow-up re-arms it with a fresh timestamp.
+    const beforeFollowUp = Date.now();
+    addReply(board.projectKey, comment.id, { author: "me", body: "why teal?", fromAgent: false });
+    c = getBoard(board.projectKey)!.comments[0];
+    expect(c.awaitingReply).toBe(true);
+    expect(c.awaitingReplySince).toBeGreaterThanOrEqual(beforeFollowUp);
   });
 
   test("closeFrame archives the frame and logs a frame.closed watch event", () => {

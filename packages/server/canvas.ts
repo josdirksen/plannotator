@@ -519,7 +519,9 @@ export async function startCanvasServer(
             }
             if ("empty" in result) return Response.json({ empty: true });
             emitDispatched(board.projectKey, [result]);
-            return Response.json({ event: result });
+            // watchers: live `canvas watch` connections — 0 means the feedback
+            // is logged but nobody is listening right now (UI tells the user).
+            return Response.json({ event: result, watchers: feedbackSubscribers.size });
           }
 
           // --- Frame patch (html revision / geometry / meta) ---
@@ -591,7 +593,7 @@ export async function startCanvasServer(
             if (result === null) return Response.json({ error: "Comment not found" }, { status: 404 });
             if ("empty" in result) return Response.json({ empty: true });
             emitReplyRequest(board.projectKey, sendNowMatch[1], result);
-            return Response.json({ event: result });
+            return Response.json({ event: result, watchers: feedbackSubscribers.size });
           }
 
           // --- Reply to a comment (agent via CLI, or user follow-up via UI) ---
@@ -711,7 +713,7 @@ export async function startCanvasServer(
                 emitDispatched(projectKey, [result]);
               }
             }
-            return Response.json({ events });
+            return Response.json({ events, watchers: feedbackSubscribers.size });
           }
 
           // --- Feedback snapshot (pull) ---

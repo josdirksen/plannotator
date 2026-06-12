@@ -61,6 +61,14 @@ export interface CanvasFrame {
    */
   feedbackPendingRevision?: number;
   /**
+   * When feedback was last dispatched (ms). Set alongside
+   * `feedbackPendingRevision`, cleared with it. The UI uses this to expire
+   * the awaiting-revision indicator: an agent that never comes back must not
+   * leave the dots animating forever. Absent on frames dispatched before
+   * this field existed — treated as already expired.
+   */
+  feedbackPendingSince?: number;
+  /**
    * Who decided this frame's size. `auto` (default): the UI grows the frame
    * to fit its measured content height. `agent`: an explicit `--size` was
    * passed — treat as a fixed viewport, never auto-fit. `user`: the user
@@ -101,6 +109,9 @@ export interface CanvasComment {
   /** Sent for a reply and not yet answered. Distinct from the frame's
    *  feedbackPendingRevision (dots) — a reply is expected, not a doc change. */
   awaitingReply?: boolean;
+  /** When the reply was last requested (ms) — set on send-now and re-stamped
+   *  on each user follow-up; the UI expires the waiting pulse from it. */
+  awaitingReplySince?: number;
   createdAt: number;
 }
 
@@ -470,6 +481,7 @@ export function updateFrameHtml(
 
   frame.revision += 1;
   delete frame.feedbackPendingRevision; // new revision answers the feedback
+  delete frame.feedbackPendingSince;
   frame.updatedAt = Date.now();
   writeFrameHtml(projectKey, frameId, frame.revision, html);
   commit(board);
@@ -597,6 +609,7 @@ export function applyFramePatch(
   if (typeof patch.html === "string") {
     frame.revision += 1;
     delete frame.feedbackPendingRevision; // new revision answers the feedback
+  delete frame.feedbackPendingSince;
     writeFrameHtml(projectKey, frameId, frame.revision, patch.html);
     htmlChanged = true;
   }
@@ -754,8 +767,10 @@ export function dispatchFrameFeedback(
   const now = nextDispatchMs();
   for (const c of eligible) c.dispatchedAt = now;
   // Mark the frame as awaiting a revision at its current revision. Cleared
-  // automatically once an HTML update bumps the revision past this value.
+  // automatically once an HTML update bumps the revision past this value;
+  // the timestamp lets the UI expire the indicator if no revision ever comes.
   frame.feedbackPendingRevision = frame.revision;
+  frame.feedbackPendingSince = now;
 
   const event: CanvasFeedbackEvent = {
     event: "frame.feedback",
@@ -864,6 +879,7 @@ export function dispatchCommentReply(
   const now = nextDispatchMs();
   comment.dispatchedAt = now;
   comment.awaitingReply = true;
+  comment.awaitingReplySince = now;
 
   const event = buildReplyRequestEvent(projectKey, frame, comment, new Date(now).toISOString());
   appendFileSync(feedbackLogPath(projectKey), JSON.stringify(event) + "\n", "utf-8");
@@ -902,8 +918,10 @@ export function addReply(
   let event: CanvasReplyRequestEvent | undefined;
   if (input.fromAgent) {
     comment.awaitingReply = false;
+    delete comment.awaitingReplySince;
   } else {
     comment.awaitingReply = true;
+    comment.awaitingReplySince = reply.createdAt;
     const nowIso = new Date(nextDispatchMs()).toISOString();
     event = buildReplyRequestEvent(projectKey, frame, comment, nowIso);
     appendFileSync(feedbackLogPath(projectKey), JSON.stringify(event) + "\n", "utf-8");

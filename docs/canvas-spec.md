@@ -295,3 +295,23 @@ webhooks, OpenCode/Pi native plugin commands, presence/multi-user, mobile editin
   - Optional `portless` integration (`canvas.plannotator.localhost` via
     `portless alias`) — bonus only, never a dependency (pre-1.0, requires local CA).
   - CLI `canvas close <frameId|--all>` so agents/scripts can close frames without the UI.
+
+## 7. Awaiting-state lifecycle (and decay)
+
+Two pieces of "an agent owes us something" state exist, both on disk:
+
+- `frame.feedbackPendingRevision` (+ `feedbackPendingSince` ms) — set on feedback
+  dispatch; cleared when an HTML update bumps the revision. Drives the dot-wave.
+- `comment.awaitingReply` (+ `awaitingReplySince` ms) — set on send-now, re-stamped
+  on each user follow-up; cleared by an agent reply. Drives the waiting pulse.
+
+Agents are not obligated to come back, so **indicators expire client-side after
+`AWAITING_TTL_MS` (10 min, `packages/canvas-editor/types.ts`)** — past that the UI
+stops claiming anything is on its way. The disk state is deliberately left
+untouched: it is a true record ("feedback sent at rev N, never answered"), and a
+late revision or reply still lands and clears it properly. Records without the
+`…Since` timestamps predate them and render as already expired.
+
+Dispatch responses include `watchers` (live `canvas watch` connections); the UI
+toast warns when feedback was sent with nobody listening (it is still logged to
+feedback.ndjson and replayed to the next watcher via `?since`).

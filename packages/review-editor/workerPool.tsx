@@ -93,6 +93,11 @@ export function useWorkerPoolThemeSync(theme: { dark: string; light: string } | 
     const key = `${theme.dark}\0${theme.light}`;
     if (key === lastSyncedTheme) return;
     lastSyncedTheme = key;
-    void workerPool.setRenderOptions({ theme });
+    workerPool.setRenderOptions({ theme }).catch((err) => {
+      // Un-poison the dedup so a later render retries — otherwise one failed
+      // round-trip would pin the pool to the wrong theme for the session.
+      if (lastSyncedTheme === key) lastSyncedTheme = '';
+      console.warn('Plannotator: failed to sync highlight theme to worker pool', err);
+    });
   }, [workerPool, theme?.dark, theme?.light]); // eslint-disable-line react-hooks/exhaustive-deps
 }

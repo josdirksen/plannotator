@@ -32,6 +32,7 @@ import {
   resolveStackInfo,
   resolvePRFullStackBaseRef,
   runPRFullStackDiff,
+  runPRLayerLocalDiff,
   checkoutPRHead,
   type PRDiffScope,
 } from "@plannotator/shared/pr-stack";
@@ -109,6 +110,12 @@ export interface ReviewServerOptions {
   opencodeClient?: OpencodeClient;
   /** PR metadata when reviewing a pull request (PR mode) */
   prMetadata?: PRMetadata;
+  /**
+   * The initial layer patch is missing per-file content (platform APIs
+   * withhold patches on very large PRs). Enables the local recompute upgrade
+   * once a pool checkout is ready.
+   */
+  prPatchIncomplete?: boolean;
   /** Working directory for agent processes (e.g., --local worktree). Independent of diff pipeline. */
   agentCwd?: string;
   /** Per-PR worktree pool. When set, pr-switch creates worktrees instead of checking out. */
@@ -176,10 +183,28 @@ export async function startReviewServer(
   let originalPRGitRef = options.gitRef;
   let originalPRError = options.error;
   let currentPRDiffScope: PRDiffScope = "layer";
+  // Monotonic guard for PR scope/switch state writes. Scope requests now park
+  // on long awaits (checkout warmup, full recompute) — a request that resumed
+  // after a NEWER scope select or pr-switch must not overwrite their state.
+  let prScopeEpoch = 0;
+  // Platform APIs withhold per-file patches on very large PRs. When the layer
+  // patch is incomplete, a local recompute (exact merge-base diff, no size
+  // limits) becomes available once the checkout warmup finishes — the layer
+  // fingerprint flips to drive the refresh notice, and the pr-diff-scope
+  // "layer" branch performs the upgrade. Tracked per-PR across pr-switch.
+  // Gated on the pool: without a local checkout the upgrade can never run,
+  // so the client must not be offered one.
+  let layerPatchIncomplete = (options.prPatchIncomplete ?? false) && isPRMode && !!options.worktreePool;
   let prListCache: PRListItem[] | null = null;
   let prListCacheTime = 0;
-  const prSwitchCache = new Map<string, { metadata: PRMetadata; rawPatch: string }>();
-  if (isPRMode && prMetadata) prSwitchCache.set(prMetadata.url, { metadata: prMetadata, rawPatch: options.rawPatch });
+  const prSwitchCache = new Map<string, { metadata: PRMetadata; rawPatch: string; patchIncomplete?: boolean }>();
+  if (isPRMode && prMetadata) {
+    prSwitchCache.set(prMetadata.url, {
+      metadata: prMetadata,
+      rawPatch: options.rawPatch,
+      patchIncomplete: layerPatchIncomplete,
+    });
+  }
   const prStackTreeCache = new Map<string, PRStackTree | null>();
   // Tracks the base branch the user picked from the UI. Agent review prompts
   // read this (not gitContext.defaultBranch) so they analyze the same diff
@@ -251,9 +276,13 @@ export async function startReviewServer(
       if (workspace) return await workspace.getFingerprint();
       if (isPRMode) {
         if (currentPRDiffScope === "layer") {
-          // Platform-computed diff — immutable locally. Recaptured on
-          // pr-switch; remote-side PR updates are out of scope here.
-          return `pr-layer:${prMetadata?.url ?? ""}`;
+          // Platform-computed diff — immutable locally. The :incomplete
+          // suffix keeps the baseline honest across the local-recompute
+          // upgrade (the upgrade recaptures without it); the upgrade notice
+          // itself is client-driven via prPatchIncomplete, not this probe.
+          // Recaptured on pr-switch; remote-side PR updates are out of scope.
+          const suffix = layerPatchIncomplete ? ":incomplete" : "";
+          return `pr-layer:${prMetadata?.url ?? ""}${suffix}`;
         }
         // Full-stack: three-dot diff against the local checkout — fingerprint
         // (merge-base, HEAD), which changes exactly when the patch can.
@@ -715,6 +744,7 @@ export async function startReviewServer(
                 prDiffScope: currentPRDiffScope,
                 prDiffScopeOptions,
               }),
+              ...(isPRMode && layerPatchIncomplete && { prPatchIncomplete: true }),
               ...(isPRMode && initialViewedFiles.length > 0 && { viewedFiles: initialViewedFiles }),
               ...(currentError && { error: currentError }),
               semanticDiff: await getSemanticDiffAdvert(),
@@ -859,17 +889,68 @@ export async function startReviewServer(
                 return Response.json({ error: "Invalid PR diff scope" }, { status: 400 });
               }
 
+              const scopeEpoch = ++prScopeEpoch;
+              // A newer scope select or pr-switch landed while this request
+              // was parked on an await: drop this request's writes and return
+              // the newest state so the client converges on it.
+              const supersededResponse = async () => {
+                const semanticDiff = await getSemanticDiffAdvert();
+                return Response.json({
+                  rawPatch: currentPatch,
+                  gitRef: currentGitRef,
+                  prDiffScope: currentPRDiffScope,
+                  ...(layerPatchIncomplete && { prPatchIncomplete: true }),
+                  ...(currentError && { error: currentError }),
+                  semanticDiff,
+                });
+              };
+
               if (body.scope === "layer") {
+                // Upgrade path: the platform withheld per-file content for
+                // this PR (too large). Once the local checkout is ready,
+                // recompute the exact layer diff locally and replace the
+                // truncated API reconstruction. Snapshot the PR before the
+                // await — a pr-switch landing mid-recompute must not have its
+                // patch overwritten with the previous PR's diff.
+                const upgradeMetadata = prMetadata;
+                let upgradeError: string | undefined;
+                if (layerPatchIncomplete && options.worktreePool && upgradeMetadata) {
+                  const upgradeCwd = await ensurePRLocalCwd(upgradeMetadata);
+                  if (upgradeCwd && prMetadata === upgradeMetadata) {
+                    const result = await runPRLayerLocalDiff(gitRuntime, upgradeMetadata, upgradeCwd);
+                    if (prMetadata === upgradeMetadata) {
+                      if (!result.error) {
+                        originalPRPatch = result.patch;
+                        originalPRError = undefined;
+                        layerPatchIncomplete = false;
+                        prSwitchCache.set(upgradeMetadata.url, {
+                          metadata: upgradeMetadata,
+                          rawPatch: result.patch,
+                          patchIncomplete: false,
+                        });
+                      } else {
+                        upgradeError = `Could not recompute the full diff locally: ${result.error}`;
+                        console.error(`Local PR diff recompute failed: ${result.error}`);
+                      }
+                    }
+                  }
+                }
+                if (scopeEpoch !== prScopeEpoch) return supersededResponse();
                 currentPatch = originalPRPatch;
                 currentGitRef = originalPRGitRef;
                 currentError = originalPRError;
                 currentPRDiffScope = "layer";
+                // The upgrade changed the patch this session serves; drafts
+                // must key off it so a pr-switch round-trip (which rehashes
+                // from the cache) resolves to the same key.
+                if (!layerPatchIncomplete) draftKey = contentHash(currentPatch);
                 captureDiffFingerprint();
                 return Response.json({
                   rawPatch: currentPatch,
                   gitRef: currentGitRef,
                   prDiffScope: currentPRDiffScope,
-                  ...(currentError && { error: currentError }),
+                  ...(layerPatchIncomplete && { prPatchIncomplete: true }),
+                  ...((currentError ?? upgradeError) && { error: currentError ?? upgradeError }),
                   semanticDiff: await getSemanticDiffAdvert(),
                 });
               }
@@ -896,6 +977,7 @@ export async function startReviewServer(
                 return Response.json({ error: result.error }, { status: 400 });
               }
 
+              if (scopeEpoch !== prScopeEpoch) return supersededResponse();
               currentPatch = result.patch;
               currentGitRef = result.label;
               currentError = undefined;
@@ -958,7 +1040,9 @@ export async function startReviewServer(
               const pr = cached ?? await fetchPR(newRef);
               if (!cached) prSwitchCache.set(body.url, pr);
 
-              // Update mutable server state
+              // Update mutable server state. Bump the scope epoch so a scope
+              // request parked on a long await cannot overwrite this switch.
+              prScopeEpoch++;
               prMetadata = pr.metadata;
               prRef = prRefFromMetadata(pr.metadata);
               currentPatch = pr.rawPatch;
@@ -968,6 +1052,7 @@ export async function startReviewServer(
               originalPRGitRef = currentGitRef;
               originalPRError = undefined;
               currentPRDiffScope = "layer";
+              layerPatchIncomplete = (pr.patchIncomplete ?? false) && !!options.worktreePool;
               draftKey = contentHash(pr.rawPatch);
               prListCache = null;
               captureDiffFingerprint();
@@ -1031,6 +1116,7 @@ export async function startReviewServer(
                 prStackTree,
                 prDiffScope: currentPRDiffScope,
                 prDiffScopeOptions,
+                ...(layerPatchIncomplete && { prPatchIncomplete: true }),
                 repoInfo,
                 ...(switchedViewedFiles.length > 0 && { viewedFiles: switchedViewedFiles }),
                 ...(currentError ? { error: currentError } : {}),

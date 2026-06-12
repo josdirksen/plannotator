@@ -114,10 +114,20 @@ export async function getGlUser(runtime: PRRuntime, host: string): Promise<strin
 
 // --- Fetch MR ---
 
+/**
+ * True when a JSON diffs-API entry should carry diff content but doesn't.
+ * Empty diffs are legitimate for pure renames and empty added files; an empty
+ * diff on a plain modification means GitLab withheld the content (collapsed /
+ * over-limit file on a very large MR).
+ */
+function entryMissingContent(d: GitLabDiffEntry): boolean {
+  return d.diff.trim() === "" && !d.renamed_file && !d.new_file && !d.deleted_file;
+}
+
 export async function fetchGlMR(
   runtime: PRRuntime,
   ref: GlMRRef,
-): Promise<{ metadata: PRMetadata; rawPatch: string }> {
+): Promise<{ metadata: PRMetadata; rawPatch: string; patchIncomplete?: boolean }> {
   const encoded = encodeProject(ref.projectPath);
 
   // Primary: raw_diffs — preserves Git's binary-marker shape and includes
@@ -138,6 +148,7 @@ export async function fetchGlMR(
   // returns empty (very large MRs that exceed its safety limit). Reconstruct a
   // unified patch from the JSON entries — the long-standing pre-raw_diffs path.
   let rawPatch: string;
+  let patchIncomplete = false;
   if (diffResult.exitCode === 0 && diffResult.stdout.trim()) {
     rawPatch = diffResult.stdout;
   } else {
@@ -150,11 +161,19 @@ export async function fetchGlMR(
       const fbErr = fallback.stderr.trim() || `exit code ${fallback.exitCode}`;
       throw new Error(`Failed to fetch MR diff (raw_diffs: ${rawErr}; diffs: ${fbErr}).`);
     }
-    rawPatch = reconstructPatch(parsePaginatedArray<GitLabDiffEntry>(fallback.stdout));
+    const entries = parsePaginatedArray<GitLabDiffEntry>(fallback.stdout);
+    rawPatch = reconstructPatch(entries);
     if (!rawPatch.trim()) {
       throw new Error(
         "MR diff is empty — the diff may be too large to fetch via the GitLab API. Review it on the GitLab web UI.",
       );
+    }
+    const missingContent = entries.filter(entryMissingContent).length;
+    if (missingContent > 0) {
+      console.error(
+        `Warning: GitLab omitted diff content for ${missingContent} file(s) (MR too large). They appear in the review without hunks; the full diff can be recomputed locally once the checkout is ready.`,
+      );
+      patchIncomplete = true;
     }
   }
 
@@ -199,7 +218,7 @@ export async function fetchGlMR(
     url: raw.web_url,
   };
 
-  return { metadata, rawPatch };
+  return { metadata, rawPatch, ...(patchIncomplete && { patchIncomplete }) };
 }
 
 // --- MR Context ---

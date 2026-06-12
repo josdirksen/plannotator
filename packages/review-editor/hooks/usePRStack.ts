@@ -10,6 +10,7 @@ export interface PRSwitchResponse {
   prStackTree?: unknown;
   prDiffScope?: PRDiffScope;
   prDiffScopeOptions?: unknown[];
+  prPatchIncomplete?: boolean;
   repoInfo?: unknown;
   viewedFiles?: string[];
   error?: string;

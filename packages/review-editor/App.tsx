@@ -208,7 +208,7 @@ const ReviewApp: React.FC = () => {
     document.title = repoInfo ? `${repoInfo.display} · Code Review` : "Code Review";
   }, [repoInfo]);
 
-  const { prMetadata, prStackInfo, prStackTree, prDiffScope, prDiffScopeOptions, updatePRSession } = usePRSession();
+  const { prMetadata, prStackInfo, prStackTree, prDiffScope, prDiffScopeOptions, prPatchIncomplete, updatePRSession } = usePRSession();
   const { withPRContext } = useAnnotationFactory(prMetadata, prStackInfo ? prDiffScope : undefined);
 
   const prStackCallbacksRef = useRef<import('./hooks/usePRStack').PRStackCallbacks | null>(null);
@@ -921,6 +921,7 @@ const ReviewApp: React.FC = () => {
         prStackTree?: PRStackTree | null;
         prDiffScope?: PRDiffScope;
         prDiffScopeOptions?: PRDiffScopeOption[];
+        prPatchIncomplete?: boolean;
         platformUser?: string;
         viewedFiles?: string[];
         error?: string;
@@ -966,6 +967,7 @@ const ReviewApp: React.FC = () => {
           ...(data.prStackTree !== undefined && { prStackTree: data.prStackTree }),
           ...(data.prDiffScope && { prDiffScope: data.prDiffScope }),
           ...(data.prDiffScopeOptions && { prDiffScopeOptions: data.prDiffScopeOptions }),
+          ...(data.prMetadata && { prPatchIncomplete: data.prPatchIncomplete === true }),
         });
         if (data.platformUser) setPlatformUser(data.platformUser);
         // Initialize viewed files from GitHub's state (set before draft restore so draft takes precedence)
@@ -1275,6 +1277,9 @@ const ReviewApp: React.FC = () => {
       ...(data.prStackTree !== undefined && { prStackTree: data.prStackTree }),
       ...(data.prDiffScope && { prDiffScope: data.prDiffScope }),
       ...(data.prDiffScopeOptions && { prDiffScopeOptions: data.prDiffScopeOptions }),
+      // Scope/switch responses authoritatively report partiality; absence
+      // means the patch is complete (e.g. after the local recompute upgrade).
+      prPatchIncomplete: data.prPatchIncomplete === true,
     });
     if (data.repoInfo) setRepoInfo(data.repoInfo);
     if (data.prMetadata) {
@@ -2171,6 +2176,26 @@ const ReviewApp: React.FC = () => {
                     title={diffError}
                   >
                     {files.length > 0 ? 'Some workspace changes could not be loaded' : 'Workspace changes could not be loaded'}
+                  </div>
+                )}
+
+                {/* Partial PR diff notice — the platform withheld per-file
+                    content (PR too large). "Load full diff" re-requests the
+                    layer scope; the server recomputes the exact diff from the
+                    local checkout (waiting out the warmup if needed). */}
+                {prPatchIncomplete && prDiffScope === 'layer' && !isSwitchingPRScope && (
+                  <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300 px-2 py-1 bg-amber-500/10 rounded border border-amber-500/25">
+                    <span className="hidden md:inline" title={`${prMetadata?.platform === 'gitlab' ? 'GitLab' : 'GitHub'} omitted diff content for some files because this PR is too large`}>
+                      Partial diff
+                    </span>
+                    <span className="md:hidden">Partial</span>
+                    <button
+                      onClick={() => handlePRDiffScopeSelect('layer')}
+                      className="font-medium underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-100 transition-colors"
+                      title="Recompute the full diff from the local checkout (may wait for the background clone to finish)"
+                    >
+                      Load full diff
+                    </button>
                   </div>
                 )}
 

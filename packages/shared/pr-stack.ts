@@ -1,4 +1,5 @@
 import type { DiffResult, ReviewGitRuntime } from "./review-core";
+import { ensureObjectAvailable } from "./worktree";
 import type {
   PRDiffScopeOption,
   PRMetadata,
@@ -133,6 +134,79 @@ export async function runPRFullStackDiff(
     patch: diff.stdout,
     label: `Full stack diff vs ${baseRef}`,
   };
+}
+
+const FULL_SHA_RE = /^[0-9a-f]{40,64}$/i;
+
+/**
+ * Recompute the PR's LAYER diff locally — the same merge-base..head diff the
+ * platform renders, but with no API size limits. Used to upgrade a truncated
+ * files-API reconstruction (platforms withhold per-file patches on very large
+ * PRs) once a local checkout exists.
+ *
+ * Prefers the platform-reported merge-base SHA (the exact commit the platform
+ * diffed against); falls back to discovering the merge base locally via a
+ * three-dot diff against baseSha. Diffs explicit SHAs, not HEAD — agent jobs
+ * may move HEAD in the checkout.
+ */
+export async function runPRLayerLocalDiff(
+  runtime: ReviewGitRuntime,
+  metadata: PRMetadata,
+  cwd: string,
+): Promise<DiffResult> {
+  const unavailable = (error: string): DiffResult => ({
+    patch: "",
+    label: "PR diff unavailable",
+    error,
+  });
+
+  if (!FULL_SHA_RE.test(metadata.headSha)) {
+    return unavailable(`Invalid PR head SHA: ${metadata.headSha}`);
+  }
+
+  // Shallow warmup clones may lack an object; both GitHub and GitLab allow
+  // fetching reachable commits by SHA (the warmup already relies on this).
+  const ensureObject = (sha: string): Promise<boolean> =>
+    ensureObjectAvailable(runtime, sha, { cwd });
+
+  if (!(await ensureObject(metadata.headSha))) {
+    return unavailable(`PR head ${metadata.headSha} is not available in the local checkout.`);
+  }
+
+  const diffArgsFor = (range: string[]): string[] => [
+    "diff",
+    "--no-ext-diff",
+    // -l0 lifts diff.renameLimit: on the multi-thousand-file PRs this path
+    // exists for, the default limit silently downgrades rename detection and
+    // renamed+edited files would render as delete+add pairs.
+    "--find-renames",
+    "-l0",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+    "--end-of-options",
+    ...range,
+  ];
+
+  let range: string[] | null = null;
+  if (metadata.mergeBaseSha && FULL_SHA_RE.test(metadata.mergeBaseSha) && (await ensureObject(metadata.mergeBaseSha))) {
+    range = [metadata.mergeBaseSha, metadata.headSha];
+  } else if (FULL_SHA_RE.test(metadata.baseSha) && (await ensureObject(metadata.baseSha))) {
+    range = [`${metadata.baseSha}...${metadata.headSha}`];
+  }
+  if (!range) {
+    return unavailable("Could not resolve the PR base commit in the local checkout.");
+  }
+
+  const diff = await runtime.runGit(diffArgsFor(range), { cwd });
+  if (diff.exitCode !== 0) {
+    const message = diff.stderr.trim() || "git diff failed";
+    return unavailable(message.split("\n").find((line) => line.trim().length > 0) ?? message);
+  }
+  if (!diff.stdout.trim()) {
+    return unavailable("Local recompute produced an empty diff.");
+  }
+
+  return { patch: diff.stdout, label: "PR diff (recomputed locally)" };
 }
 
 /**

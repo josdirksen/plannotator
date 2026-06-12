@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { fetchGlMR, parsePaginatedArray } from "./pr-gitlab";
 import type { PRRuntime } from "./pr-types";
 
@@ -192,6 +192,48 @@ describe("fetchGlMR raw_diffs fallback", () => {
     const result = await fetchGlMR(runtime, REF);
     expect(result.rawPatch).toContain("diff --git a/src/a.ts b/src/a.ts");
     expect(calls.some((c) => c.includes("/diffs?per_page=100"))).toBe(true);
+  });
+
+  test("flags the patch incomplete when GitLab withholds content for a modified file", async () => {
+    const entries = JSON.stringify([
+      {
+        old_path: "src/big.ts",
+        new_path: "src/big.ts",
+        new_file: false,
+        deleted_file: false,
+        renamed_file: false,
+        diff: "", // modified file with no content = withheld
+      },
+      {
+        old_path: "src/old.ts",
+        new_path: "src/new.ts",
+        new_file: false,
+        deleted_file: false,
+        renamed_file: true,
+        diff: "", // pure rename — complete information, must not flag
+      },
+    ]);
+    const { runtime } = gitlabRuntime({
+      rawDiffs: { exitCode: 1, stderr: "404 Not Found" },
+      diffs: { exitCode: 0, stdout: entries },
+    });
+
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await fetchGlMR(runtime, REF);
+      expect(result.patchIncomplete).toBe(true);
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  test("does not flag a fallback where every entry carries content", async () => {
+    const { runtime } = gitlabRuntime({
+      rawDiffs: { exitCode: 1, stderr: "404 Not Found" },
+      diffs: { exitCode: 0, stdout: DIFF_ENTRIES_JSON },
+    });
+    const result = await fetchGlMR(runtime, REF);
+    expect(result.patchIncomplete).toBeFalsy();
   });
 
   test("throws a clear empty-diff error when both raw_diffs and diffs are empty", async () => {

@@ -8,6 +8,12 @@ export interface PRSessionState {
   prStackTree: PRStackTree | null;
   prDiffScope: PRDiffScope;
   prDiffScopeOptions: PRDiffScopeOption[];
+  /**
+   * The platform withheld per-file content for this PR (too large). A local
+   * recompute is offered via the partial-diff notice; cleared when a server
+   * response stops reporting the flag.
+   */
+  prPatchIncomplete: boolean;
 }
 
 export interface PRSessionUpdate {
@@ -16,6 +22,7 @@ export interface PRSessionUpdate {
   prStackTree?: PRStackTree | null;
   prDiffScope?: PRDiffScope;
   prDiffScopeOptions?: PRDiffScopeOption[];
+  prPatchIncomplete?: boolean;
 }
 
 export function usePRSession() {
@@ -25,6 +32,7 @@ export function usePRSession() {
     prStackTree: null,
     prDiffScope: 'layer',
     prDiffScopeOptions: [],
+    prPatchIncomplete: false,
   });
 
   const updatePRSession = useCallback((update: PRSessionUpdate) => {
@@ -35,6 +43,7 @@ export function usePRSession() {
       if (update.prStackTree !== undefined) next.prStackTree = update.prStackTree;
       if (update.prDiffScope !== undefined) next.prDiffScope = update.prDiffScope;
       if (update.prDiffScopeOptions !== undefined) next.prDiffScopeOptions = update.prDiffScopeOptions;
+      if (update.prPatchIncomplete !== undefined) next.prPatchIncomplete = update.prPatchIncomplete;
       return next;
     });
   }, []);

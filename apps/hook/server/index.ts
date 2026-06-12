@@ -505,6 +505,7 @@ if (args[0] === "sessions") {
   let diffError: string | undefined;
   let gitContext: Awaited<ReturnType<typeof prepareLocalReviewDiff>>["gitContext"] | undefined;
   let prMetadata: Awaited<ReturnType<typeof fetchPR>>["metadata"] | undefined;
+  let prPatchIncomplete = false;
   let initialDiffType: DiffType | WorkspaceDiffType | undefined;
   let agentCwd: string | undefined;
   let worktreePool: WorktreePool | undefined;
@@ -544,6 +545,7 @@ if (args[0] === "sessions") {
       rawPatch = pr.rawPatch;
       gitRef = `${getMRLabel(prRef)} ${getMRNumberLabel(prRef)}`;
       prMetadata = pr.metadata;
+      prPatchIncomplete = pr.patchIncomplete ?? false;
     } catch (err) {
       console.error(err instanceof Error ? err.message : "Failed to fetch PR");
       process.exit(1);
@@ -797,6 +799,7 @@ if (args[0] === "sessions") {
     diffType: workspace ? (initialDiffType ?? workspace.diffType) : gitContext ? (initialDiffType ?? "unstaged") : undefined,
     gitContext,
     prMetadata,
+    prPatchIncomplete,
     workspace,
     agentCwd,
     worktreePool,
@@ -1362,6 +1365,7 @@ if (args[0] === "sessions") {
   let userDiffType: DiffType | WorkspaceDiffType | undefined;
   let gitContext: Awaited<ReturnType<typeof prepareLocalReviewDiff>>["gitContext"] | undefined;
   let prMetadata: Awaited<ReturnType<typeof fetchPR>>["metadata"] | undefined;
+  let prPatchIncomplete = false;
   let workspace: Awaited<ReturnType<typeof buildLocalWorkspaceReview>> | undefined;
   let agentCwd: string | undefined;
 
@@ -1387,6 +1391,7 @@ if (args[0] === "sessions") {
       rawPatch = pr.rawPatch;
       gitRef = `${getMRLabel(prRef)} ${getMRNumberLabel(prRef)}`;
       prMetadata = pr.metadata;
+      prPatchIncomplete = pr.patchIncomplete ?? false;
     } catch (err) {
       console.error(err instanceof Error ? err.message : `Failed to fetch ${getMRLabel(prRef)} ${getMRNumberLabel(prRef)}`);
       process.exit(1);
@@ -1440,6 +1445,7 @@ if (args[0] === "sessions") {
     diffType: isPRMode ? undefined : userDiffType,
     gitContext,
     prMetadata,
+    prPatchIncomplete,
     workspace,
     agentCwd,
     sharingEnabled: bridgeSharingEnabled,

@@ -88,8 +88,56 @@ describe("fetchGhPR", () => {
     expect(result.rawPatch).toContain("+new");
     expect(result.rawPatch).toContain("diff --git a/src/b.ts b/src/b.ts");
     expect(result.rawPatch).toContain("new file mode 100644");
+    // Every entry carried a patch — nothing is missing, no upgrade needed.
+    expect(result.patchIncomplete).toBeFalsy();
     // Metadata path is unaffected by the fallback.
     expect(result.metadata).toMatchObject({ number: 123, mergeBaseSha: "c".repeat(40) });
+  });
+
+  test("flags the patch incomplete when GitHub omits content for non-rename entries", async () => {
+    // The real shape from oversized PRs: status added/modified with zeroed
+    // counts and no patch field at all.
+    const entries = JSON.stringify([
+      { filename: "src/big.rs", status: "added" },
+      { filename: "src/also.zig", status: "modified" },
+      { filename: "src/ok.ts", status: "modified", patch: "@@ -1 +1 @@\n-a\n+b" },
+    ]);
+    const { runtime } = githubRuntime({
+      prDiff: { exitCode: 1, stderr: "406" },
+      files: { exitCode: 0, stdout: entries },
+    });
+
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await fetchGhPR(runtime, REF);
+      expect(result.patchIncomplete).toBe(true);
+      const warned = errSpy.mock.calls.some((args) => String(args[0]).includes("omitted diff content for 2 file(s)"));
+      expect(warned).toBe(true);
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  test("pure renames without patches are complete information — not flagged", async () => {
+    const entries = JSON.stringify([
+      { filename: "src/new.ts", previous_filename: "src/old.ts", status: "renamed" },
+      { filename: "src/ok.ts", status: "modified", patch: "@@ -1 +1 @@\n-a\n+b" },
+    ]);
+    const { runtime } = githubRuntime({
+      prDiff: { exitCode: 1, stderr: "406" },
+      files: { exitCode: 0, stdout: entries },
+    });
+
+    const result = await fetchGhPR(runtime, REF);
+    expect(result.patchIncomplete).toBeFalsy();
+  });
+
+  test("never flags the verbatim gh pr diff path as incomplete", async () => {
+    const patch = "diff --git a/x.ts b/x.ts\n--- a/x.ts\n+++ b/x.ts\n@@ -1 +1 @@\n-a\n+b\n";
+    const { runtime } = githubRuntime({ prDiff: { exitCode: 0, stdout: patch } });
+
+    const result = await fetchGhPR(runtime, REF);
+    expect(result.patchIncomplete).toBeFalsy();
   });
 
   test("passes --hostname to the files API on GitHub Enterprise", async () => {
@@ -135,6 +183,7 @@ describe("fetchGhPR", () => {
     try {
       const result = await fetchGhPR(runtime, REF);
       expect(result.rawPatch).toContain("diff --git a/a.ts b/a.ts"); // partial diff still served
+      expect(result.patchIncomplete).toBe(true); // 3000-file cap → upgrade offered
       const warned = errSpy.mock.calls.some((args) => String(args[0]).includes("3500 changed files"));
       expect(warned).toBe(true);
     } finally {

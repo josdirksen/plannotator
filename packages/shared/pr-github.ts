@@ -135,10 +135,26 @@ export function reconstructGhPatch(files: GitHubFileEntry[]): string {
   return parts.join("");
 }
 
+/**
+ * True when a files-API entry should carry a patch but doesn't. Patch-less
+ * renames/copies are 100%-similarity moves (complete information); patch-less
+ * added/removed/modified entries mean GitHub gave up computing that file's
+ * diff (on very large PRs it omits the patch AND zeroes the counts).
+ *
+ * Known ambiguity: when GitHub withholds content it does so across all
+ * statuses, so a rename-WITH-edits whose patch was withheld is
+ * indistinguishable from a pure move and renders as one. In practice such PRs
+ * always have withheld non-rename entries too, so the flag (and the local
+ * recompute that fixes everything) still triggers.
+ */
+function entryMissingContent(f: GitHubFileEntry): boolean {
+  return !f.patch && f.status !== "renamed" && f.status !== "copied" && f.status !== "unchanged";
+}
+
 export async function fetchGhPR(
   runtime: PRRuntime,
   ref: GhPRRef,
-): Promise<{ metadata: PRMetadata; rawPatch: string }> {
+): Promise<{ metadata: PRMetadata; rawPatch: string; patchIncomplete?: boolean }> {
   const repo = repoFlag(ref);
 
   // Fetch diff, metadata, and repository defaults in parallel.
@@ -170,6 +186,7 @@ export async function fetchGhPR(
   // "diff exceeded the maximum number of lines"); in that case fetch the same
   // diff file-by-file from the paginated files API and stitch it back together.
   let rawPatch: string;
+  let patchIncomplete = false;
   if (diffResult.exitCode === 0) {
     rawPatch = diffResult.stdout;
   } else {
@@ -197,6 +214,14 @@ export async function fetchGhPR(
       console.error(
         `Warning: PR reports ${expectedFiles} changed files but the GitHub files API returned ${fileEntries.length} (the API caps at 3000). The review is missing the remainder.`,
       );
+      patchIncomplete = true;
+    }
+    const missingContent = fileEntries.filter(entryMissingContent).length;
+    if (missingContent > 0) {
+      console.error(
+        `Warning: GitHub omitted diff content for ${missingContent} file(s) (PR too large). They appear in the review without hunks; the full diff can be recomputed locally once the checkout is ready.`,
+      );
+      patchIncomplete = true;
     }
   }
 
@@ -246,7 +271,7 @@ export async function fetchGhPR(
     url: raw.url,
   };
 
-  return { metadata, rawPatch };
+  return { metadata, rawPatch, ...(patchIncomplete && { patchIncomplete }) };
 }
 
 // --- PR Context ---

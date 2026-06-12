@@ -63,16 +63,42 @@ export const BRIDGE_SCRIPT = `(function() {
   });
 
   // --- Resize ---
+  // Content height reports for parents that auto-fit their iframe (the
+  // canvas grows frames to natural content height). Posted on load, then on
+  // any content growth/shrink via a debounced ResizeObserver, so late-loading
+  // images/fonts/JS-rendered content re-report.
   var lastHeight = 0;
+  var resizeTimer = null;
   function postResize() {
     if (!document.body) return;
-    var h = document.body.scrollHeight;
+    // Document box height (includes body margins, can be shorter than the
+    // viewport) vs body scrollHeight (catches overflowing content) — the max
+    // is the natural content height. A 100vh page measures as its container.
+    var h = Math.ceil(Math.max(
+      document.documentElement.getBoundingClientRect().height,
+      document.body.scrollHeight,
+    ));
     if (h !== lastHeight) {
       lastHeight = h;
       parent.postMessage({ type: PREFIX + 'resize', height: h }, '*');
     }
   }
+  function schedulePostResize() {
+    if (resizeTimer !== null) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function() {
+      resizeTimer = null;
+      postResize();
+    }, 150);
+  }
   window.addEventListener('load', postResize);
+  function observeResize() {
+    if (typeof ResizeObserver === 'undefined' || !document.body) return;
+    var ro = new ResizeObserver(schedulePostResize);
+    ro.observe(document.documentElement);
+    ro.observe(document.body);
+  }
+  if (document.body) observeResize();
+  else document.addEventListener('DOMContentLoaded', observeResize);
 
   // --- Selection ---
   var pendingSelection = null;

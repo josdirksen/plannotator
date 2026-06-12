@@ -1,0 +1,111 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/geist-mono";
+@import "tailwindcss";
+
+@plugin "tailwindcss-animate";
+
+/* Tell Tailwind where to scan for classes. The shared UI components we reuse
+   (CommentPopover, the shadcn Dialog, etc.) live in ../ui/components — without
+   scanning them, Tailwind never emits their classes (z-[100], bg-popover, …)
+   and they render unstyled and behind the frames. */
+@source "./*.tsx";
+@source "./components/**/*.tsx";
+@source "../ui/components/**/*.tsx";
+@source "../ui/hooks/**/*.ts";
+
+@import "../ui/theme.css";
+
+/* =====================================================
+   Canvas Specific Styles
+   ===================================================== */
+
+/* Dot-grid backdrop for the infinite canvas. Uses theme tokens so it adapts
+   to light/dark; sits behind both layers and never receives pointer events. */
+.canvas-dot-grid {
+  pointer-events: none;
+  background-image: radial-gradient(
+    color-mix(in oklab, var(--muted-foreground) 22%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 24px 24px;
+}
+
+/* Frame labels live in the camera-transformed chrome layer but stay legible
+   at any zoom via a counter-scale (--inv-z is set by the camera loop). */
+.frame-label {
+  pointer-events: auto;
+  white-space: nowrap;
+}
+
+/* Never let iframe content paint outside its rounded wrapper. */
+[data-frame-content] {
+  contain: layout paint;
+}
+
+/* "Awaiting revision" indicator — a 6-row ASCII-style dot matrix shown above a
+   frame's top-right after feedback is sent, with a digital light-up wave that
+   sweeps left→right until the agent uploads a new revision. The element is
+   masked into a dot grid; a dim base color fills every dot, and a bright accent
+   band (a wide linear-gradient) sweeps across to light dots up in sequence. */
+.awaiting-dots {
+  --awaiting-cell: 5px;
+  --awaiting-rows: 6;
+  width: 168px;
+  height: calc(var(--awaiting-cell) * var(--awaiting-rows));
+  -webkit-mask-image: radial-gradient(circle at center, #000 0 1.1px, transparent 1.7px);
+  mask-image: radial-gradient(circle at center, #000 0 1.1px, transparent 1.7px);
+  -webkit-mask-size: var(--awaiting-cell) var(--awaiting-cell);
+  mask-size: var(--awaiting-cell) var(--awaiting-cell);
+  background-color: color-mix(in oklab, var(--muted-foreground) 38%, transparent);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in oklab, var(--accent) 55%, transparent) 10%,
+    var(--accent) 17%,
+    color-mix(in oklab, var(--accent) 92%, white) 20%,
+    var(--accent) 23%,
+    color-mix(in oklab, var(--accent) 55%, transparent) 30%,
+    transparent 40%
+  );
+  background-repeat: no-repeat;
+  background-size: 55% 100%;
+  animation: awaiting-sweep 1.8s linear infinite;
+}
+
+@keyframes awaiting-sweep {
+  0% {
+    background-position: -55% 0;
+  }
+  100% {
+    background-position: 165% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .awaiting-dots {
+    animation-duration: 3.2s;
+  }
+}
+
+/* "Waiting for a reply" pulse in a comment thread — deliberately a small dot,
+   not the document-level dot matrix (a reply is expected, not a revision). */
+.awaiting-reply-pulse {
+  animation: awaiting-reply-pulse 1.4s ease-in-out infinite;
+}
+@keyframes awaiting-reply-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .awaiting-reply-pulse {
+    animation: none;
+    opacity: 0.8;
+  }
+}

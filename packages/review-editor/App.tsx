@@ -214,7 +214,9 @@ const ReviewApp: React.FC = () => {
   const prStackCallbacksRef = useRef<import('./hooks/usePRStack').PRStackCallbacks | null>(null);
   const {
     isSwitchingPRScope,
+    isLoadingFullDiff,
     handleScopeSelect: handlePRDiffScopeSelect,
+    handleLoadFullDiff,
     handlePRSwitch,
   } = usePRStack(prStackCallbacksRef);
   const [reviewDestination, setReviewDestination] = useState<'agent' | 'platform'>(() => {
@@ -2182,20 +2184,30 @@ const ReviewApp: React.FC = () => {
                 {/* Partial PR diff notice — the platform withheld per-file
                     content (PR too large). "Load full diff" re-requests the
                     layer scope; the server recomputes the exact diff from the
-                    local checkout (waiting out the warmup if needed). */}
+                    local checkout (waiting out the warmup if needed). The
+                    request is non-blocking on purpose: it can park for
+                    minutes behind a cold clone, and the reviewer keeps
+                    working with the partial diff meanwhile. */}
                 {prPatchIncomplete && prDiffScope === 'layer' && !isSwitchingPRScope && (
                   <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300 px-2 py-1 bg-amber-500/10 rounded border border-amber-500/25">
                     <span className="hidden md:inline" title={`${prMetadata?.platform === 'gitlab' ? 'GitLab' : 'GitHub'} omitted diff content for some files because this PR is too large`}>
                       Partial diff
                     </span>
                     <span className="md:hidden">Partial</span>
-                    <button
-                      onClick={() => handlePRDiffScopeSelect('layer')}
-                      className="font-medium underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-100 transition-colors"
-                      title="Recompute the full diff from the local checkout (may wait for the background clone to finish)"
-                    >
-                      Load full diff
-                    </button>
+                    {isLoadingFullDiff ? (
+                      <span className="flex items-center gap-1.5 font-medium" title="Recomputing the full diff from the local checkout — waiting for the background clone if it's still running. You can keep reviewing.">
+                        <span className="inline-block w-3 h-3 border-[1.5px] border-current border-t-transparent rounded-full animate-spin" aria-hidden />
+                        Loading full diff…
+                      </span>
+                    ) : (
+                      <button
+                        onClick={handleLoadFullDiff}
+                        className="font-medium underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-100 transition-colors"
+                        title="Recompute the full diff from the local checkout (may wait for the background clone to finish — you can keep reviewing meanwhile)"
+                      >
+                        Load full diff
+                      </button>
+                    )}
                   </div>
                 )}
 

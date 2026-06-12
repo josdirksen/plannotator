@@ -176,11 +176,12 @@ export async function runPRLayerLocalDiff(
   const diffArgsFor = (range: string[]): string[] => [
     "diff",
     "--no-ext-diff",
-    // -l0 lifts diff.renameLimit: on the multi-thousand-file PRs this path
-    // exists for, the default limit silently downgrades rename detection and
-    // renamed+edited files would render as delete+add pairs.
+    // Lift diff.renameLimit: on the multi-thousand-file PRs this path exists
+    // for, the default limit (~1000) silently downgrades rename detection and
+    // renamed+edited files would render as delete+add pairs. A large literal
+    // instead of -l0 because "0 = unlimited" only holds on git >= 2.29.
     "--find-renames",
-    "-l0",
+    "-l100000",
     "--src-prefix=a/",
     "--dst-prefix=b/",
     "--end-of-options",

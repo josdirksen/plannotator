@@ -257,6 +257,33 @@ describe("fetchGlMR raw_diffs fallback", () => {
     }
   });
 
+  test("null too_large/collapsed are inconclusive — the legacy heuristic still decides", async () => {
+    const entries = JSON.stringify([
+      {
+        old_path: "src/big.ts",
+        new_path: "src/big.ts",
+        new_file: false,
+        deleted_file: false,
+        renamed_file: false,
+        too_large: null,
+        collapsed: null,
+        diff: "", // modified file, no content, flags unknown → withheld
+      },
+    ]);
+    const { runtime } = gitlabRuntime({
+      rawDiffs: { exitCode: 1, stderr: "404 Not Found" },
+      diffs: { exitCode: 0, stdout: entries },
+    });
+
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await fetchGlMR(runtime, REF);
+      expect(result.patchIncomplete).toBe(true);
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
   test("explicit too_large:false exonerates empty-diff entries (binary/empty files, modern GitLab)", async () => {
     const entries = JSON.stringify([
       {

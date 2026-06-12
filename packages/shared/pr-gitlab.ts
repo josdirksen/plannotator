@@ -133,7 +133,10 @@ export async function getGlUser(runtime: PRRuntime, host: string): Promise<strin
 function entryMissingContent(d: GitLabDiffEntry): boolean {
   if (d.diff.trim() !== "") return false;
   if (d.too_large || d.collapsed) return true;
-  if (d.too_large === undefined && d.collapsed === undefined) {
+  // == null catches both absent (old GitLab) and explicit null (GitLab emits
+  // null for unknown on sibling fields like generated_file) — either way the
+  // flags are inconclusive and the heuristic must decide.
+  if (d.too_large == null && d.collapsed == null) {
     return !d.renamed_file && !d.new_file && !d.deleted_file;
   }
   return false;

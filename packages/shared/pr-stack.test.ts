@@ -164,7 +164,7 @@ describe("runPRLayerLocalDiff", () => {
       "diff",
       "--no-ext-diff",
       "--find-renames",
-      "-l0",
+      "-l100000",
       "--src-prefix=a/",
       "--dst-prefix=b/",
       "--end-of-options",

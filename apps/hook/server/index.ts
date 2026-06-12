@@ -149,6 +149,10 @@ const planHtmlContent = planHtml as unknown as string;
 import reviewHtml from "../dist/review.html" with { type: "text" };
 const reviewHtmlContent = reviewHtml as unknown as string;
 
+// @ts-ignore - Bun import attribute for text
+import canvasHtml from "../dist/canvas.html" with { type: "text" };
+const canvasHtmlContent = canvasHtml as unknown as string;
+
 // Check for subcommand
 const args = process.argv.slice(2);
 
@@ -168,13 +172,16 @@ if (cliNoJina) args.splice(noJinaIdx, 1);
 // switches stdout to structured decision output, --hook emits hook-native
 // JSON that works directly with Claude Code and Codex PostToolUse/Stop
 // hook protocols.
-const gateIdx = args.indexOf("--gate");
+// Canvas subcommands parse their own flags (canvas-cli.ts) — `--json` etc.
+// must reach them unstripped.
+const isCanvasCommand = args[0] === "canvas";
+const gateIdx = isCanvasCommand ? -1 : args.indexOf("--gate");
 let gateFlag = gateIdx !== -1;
 if (gateFlag) args.splice(gateIdx, 1);
-const jsonIdx = args.indexOf("--json");
+const jsonIdx = isCanvasCommand ? -1 : args.indexOf("--json");
 const jsonFlag = jsonIdx !== -1;
 if (jsonFlag) args.splice(jsonIdx, 1);
-const hookIdx = args.indexOf("--hook");
+const hookIdx = isCanvasCommand ? -1 : args.indexOf("--hook");
 const hookFlag = hookIdx !== -1;
 if (hookFlag) args.splice(hookIdx, 1);
 if (hookFlag) gateFlag = true;
@@ -1198,6 +1205,18 @@ if (args[0] === "sessions") {
   await Bun.sleep(500);
   server.stop();
   process.exit(0);
+
+} else if (args[0] === "canvas") {
+  // ============================================
+  // CANVAS MODE (long-running agent HTML canvas)
+  // ============================================
+  //
+  // See docs/canvas-spec.md and apps/hook/server/canvas-cli.ts. Unlike the
+  // other modes, the canvas server is a machine-wide singleton that outlives
+  // any one invocation; these subcommands are HTTP clients of it.
+
+  const { runCanvasCommand } = await import("./canvas-cli");
+  await runCanvasCommand(args.slice(1), canvasHtmlContent);
 
 } else if (args[0] === "opencode-plan") {
   // ============================================

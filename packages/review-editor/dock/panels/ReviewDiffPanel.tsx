@@ -70,6 +70,7 @@ export const ReviewDiffPanel: React.FC<IDockviewPanelProps> = (props) => {
         patch={file.patch}
         filePath={file.path}
         oldPath={file.oldPath}
+        status={file.status}
         reviewBase={state.reviewBase}
         prUrl={state.prMetadata?.url}
         prDiffScope={state.prDiffScope}

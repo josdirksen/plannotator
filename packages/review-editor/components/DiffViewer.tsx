@@ -124,6 +124,8 @@ interface DiffViewerProps {
   patch: string;
   filePath: string;
   oldPath?: string;
+  /** Change type for the header icon + rename display. */
+  status?: import('../types').DiffFileStatus;
   /** Base branch override used for file-content lookups (branch / merge-base modes only). */
   reviewBase?: string;
   /** Current PR url + diff scope — used to namespace file-comment drafts so they don't leak across in-place PR switches. */
@@ -176,6 +178,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   patch,
   filePath,
   oldPath,
+  status,
   reviewBase,
   prUrl,
   prDiffScope,
@@ -627,6 +630,8 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       <FileHeader
         filePath={filePath}
         patch={patch}
+        status={status}
+        oldPath={oldPath}
         isViewed={isViewed}
         onToggleViewed={onToggleViewed}
         isStaged={isStaged}

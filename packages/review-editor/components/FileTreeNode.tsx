@@ -165,6 +165,23 @@ export const FileTreeNodeItem: React.FC<FileTreeNodeProps> = ({
             {node.file!.deletions > 0 && (
               <span className="deletions">-{node.file!.deletions}</span>
             )}
+            {/* Change-type marker — modified is deliberately undecorated so
+                added/deleted/renamed pop (diffshub treatment; renamed uses
+                its blue). */}
+            {node.file!.status === 'added' && (
+              <span className="text-success font-semibold" title="Added file">A</span>
+            )}
+            {node.file!.status === 'deleted' && (
+              <span className="text-destructive font-semibold" title="Deleted file">D</span>
+            )}
+            {node.file!.status === 'renamed' && (
+              <span
+                className="text-[#007aff] font-semibold"
+                title={node.file!.oldPath ? `Renamed from ${node.file!.oldPath}` : 'Renamed file'}
+              >
+                R
+              </span>
+            )}
           </div>
         </button>
       </ContextMenu.Trigger>

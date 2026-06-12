@@ -7,6 +7,7 @@ const diffFile = (path: string, overrides: Partial<DiffFile> = {}): DiffFile => 
   patch: "",
   additions: 0,
   deletions: 0,
+  status: "modified",
   ...overrides,
 });
 

@@ -1,9 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { SemanticFileBadge } from './SemanticFileBadge';
+import type { DiffFileStatus } from '../types';
 
 interface FileHeaderProps {
   filePath: string;
   patch: string;
+  /** Change type — added/deleted/renamed get an icon; modified is undecorated. */
+  status?: DiffFileStatus;
+  /** Previous path for renames — rendered as "old → new" (diffshub treatment). */
+  oldPath?: string;
   isViewed?: boolean;
   onToggleViewed?: () => void;
   isStaged?: boolean;
@@ -40,10 +45,48 @@ function frontEllipsize(text: string, visibleChars: number): string {
   return `...${text.slice(-visibleChars)}`;
 }
 
+/**
+ * Change-type icon (added/deleted/renamed). 'modified' deliberately renders
+ * nothing — most files are modifications, so only the others stand out
+ * (mirrors Pierre's diffshub). Renamed uses diffshub's blue (#007aff).
+ */
+const FileStatusIcon: React.FC<{ status: DiffFileStatus; oldPath?: string }> = ({ status, oldPath }) => {
+  if (status === 'modified') return null;
+  const meta =
+    status === 'added'
+      ? { className: 'text-success', title: 'Added file' }
+      : status === 'deleted'
+        ? { className: 'text-destructive', title: 'Deleted file' }
+        : { className: 'text-[#007aff]', title: oldPath ? `Renamed from ${oldPath}` : 'Renamed file' };
+  return (
+    <span className={`flex-none mr-1.5 ${meta.className}`} title={meta.title} aria-label={meta.title}>
+      {status === 'added' && (
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <rect x="3" y="3" width="18" height="18" rx="3" />
+          <path strokeLinecap="round" d="M12 8v8M8 12h8" />
+        </svg>
+      )}
+      {status === 'deleted' && (
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <rect x="3" y="3" width="18" height="18" rx="3" />
+          <path strokeLinecap="round" d="M8 12h8" />
+        </svg>
+      )}
+      {status === 'renamed' && (
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 12h16M14 6l6 6-6 6" />
+        </svg>
+      )}
+    </span>
+  );
+};
+
 /** Sticky file header with file path, Viewed toggle, Git Add, and Copy Diff button */
 export const FileHeader: React.FC<FileHeaderProps> = ({
   filePath,
   patch,
+  status,
+  oldPath,
   isViewed = false,
   onToggleViewed,
   isStaged = false,
@@ -97,7 +140,29 @@ export const FileHeader: React.FC<FileHeaderProps> = ({
     >
       <div className="min-w-0 flex flex-1 items-center" onClick={onCollapseToggle} style={onCollapseToggle ? { cursor: 'pointer' } : undefined}>
         {collapseToggle}
-        <span className="min-w-0 flex items-center text-xs font-semibold leading-none whitespace-nowrap" title={filePath}>
+        {status && <FileStatusIcon status={status} oldPath={oldPath} />}
+        <span
+          className="min-w-0 flex items-center text-xs font-semibold leading-none whitespace-nowrap"
+          title={status === 'renamed' && oldPath ? `${oldPath} → ${filePath}` : filePath}
+        >
+          {/* Rename: dimmed old path → new path (diffshub treatment). Dropped
+              under tight widths — the icon + tooltip still carry it. */}
+          {status === 'renamed' && oldPath && !showFilenameOnly && (
+            <>
+              <span className="min-w-0 overflow-hidden text-ellipsis text-muted-foreground/60">
+                {oldPath}
+              </span>
+              <svg
+                className="w-3 h-3 mx-1 flex-none text-muted-foreground/60"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M13 6l6 6-6 6" />
+              </svg>
+            </>
+          )}
           {!showFilenameOnly && directory && (
             <span className="min-w-0 overflow-hidden text-ellipsis text-muted-foreground/70">
               {directory}

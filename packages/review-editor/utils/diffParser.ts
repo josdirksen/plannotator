@@ -1,5 +1,5 @@
 import { parseDiffFilePathLines, parseDiffGitHeader } from '@plannotator/shared/diff-paths';
-import type { DiffFile } from '../types';
+import type { DiffFile, DiffFileStatus } from '../types';
 
 function splitDiffChunks(rawPatch: string): string[] {
   const matches = [...rawPatch.matchAll(/^diff --git /gm)];
@@ -10,6 +10,22 @@ function splitDiffChunks(rawPatch: string): string[] {
     const end = matches[index + 1]?.index ?? rawPatch.length;
     return rawPatch.slice(start, end);
   });
+}
+
+/**
+ * Change type from the chunk's git metadata lines. Scans only the extended
+ * header (everything before the first hunk/--- line) so file content that
+ * happens to contain "rename from" etc. can't misclassify.
+ */
+function deriveStatus(lines: string[], oldPath: string, newPath: string): DiffFileStatus {
+  for (const line of lines) {
+    if (line.startsWith('@@') || line.startsWith('--- ') || line.startsWith('+++ ')) break;
+    if (line.startsWith('new file mode')) return 'added';
+    if (line.startsWith('deleted file mode')) return 'deleted';
+    if (line.startsWith('rename from ') || line.startsWith('copy from ')) return 'renamed';
+  }
+  // Reconstructed/odd patches may carry distinct paths without rename lines.
+  return oldPath !== newPath ? 'renamed' : 'modified';
 }
 
 export function parseDiffToFiles(rawPatch: string): DiffFile[] {
@@ -37,6 +53,7 @@ export function parseDiffToFiles(rawPatch: string): DiffFile[] {
       patch: chunk,
       additions,
       deletions,
+      status: deriveStatus(lines, oldPath, newPath),
     });
   }
 

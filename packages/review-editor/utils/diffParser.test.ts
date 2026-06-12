@@ -63,3 +63,101 @@ describe("parseDiffToFiles", () => {
     expect(files[0].oldPath).toBeUndefined();
   });
 });
+
+describe("parseDiffToFiles — change-type status", () => {
+  const parse = (...lines: string[]) => parseDiffToFiles(lines.join("\n"));
+
+  it("classifies modified files", () => {
+    const [file] = parse(
+      "diff --git a/src/app.ts b/src/app.ts",
+      "index 1111111..2222222 100644",
+      "--- a/src/app.ts",
+      "+++ b/src/app.ts",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+    );
+    expect(file.status).toBe("modified");
+  });
+
+  it("classifies added files", () => {
+    const [file] = parse(
+      "diff --git a/src/new.ts b/src/new.ts",
+      "new file mode 100644",
+      "index 0000000..2222222",
+      "--- /dev/null",
+      "+++ b/src/new.ts",
+      "@@ -0,0 +1 @@",
+      "+hello",
+    );
+    expect(file.status).toBe("added");
+  });
+
+  it("classifies deleted files", () => {
+    const [file] = parse(
+      "diff --git a/src/gone.ts b/src/gone.ts",
+      "deleted file mode 100644",
+      "index 1111111..0000000",
+      "--- a/src/gone.ts",
+      "+++ /dev/null",
+      "@@ -1 +0,0 @@",
+      "-bye",
+    );
+    expect(file.status).toBe("deleted");
+  });
+
+  it("classifies renames with edits and keeps the old path", () => {
+    const [file] = parse(
+      "diff --git a/src/before.ts b/src/after.ts",
+      "similarity index 90%",
+      "rename from src/before.ts",
+      "rename to src/after.ts",
+      "--- a/src/before.ts",
+      "+++ b/src/after.ts",
+      "@@ -1 +1 @@",
+      "-a",
+      "+b",
+    );
+    expect(file.status).toBe("renamed");
+    expect(file.path).toBe("src/after.ts");
+    expect(file.oldPath).toBe("src/before.ts");
+  });
+
+  it("classifies header-only pure renames (no hunks at all)", () => {
+    const [file] = parse(
+      "diff --git a/src/old.ts b/src/new.ts",
+      "similarity index 100%",
+      "rename from src/old.ts",
+      "rename to src/new.ts",
+      "",
+    );
+    expect(file.status).toBe("renamed");
+    expect(file.oldPath).toBe("src/old.ts");
+  });
+
+  it("falls back to renamed when paths differ without rename metadata", () => {
+    const [file] = parse(
+      "diff --git a/src/old.ts b/src/new.ts",
+      "--- a/src/old.ts",
+      "+++ b/src/new.ts",
+      "@@ -1 +1 @@",
+      "-a",
+      "+b",
+    );
+    expect(file.status).toBe("renamed");
+  });
+
+  it("is not fooled by diff content containing metadata-looking lines", () => {
+    const [file] = parse(
+      "diff --git a/docs/git.md b/docs/git.md",
+      "index 1111111..2222222 100644",
+      "--- a/docs/git.md",
+      "+++ b/docs/git.md",
+      "@@ -1,2 +1,3 @@",
+      " how git renames work:",
+      "+rename from and rename to lines appear in headers",
+      " new file mode is another header",
+    );
+    expect(file.status).toBe("modified");
+  });
+});

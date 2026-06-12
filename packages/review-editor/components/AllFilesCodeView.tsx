@@ -1661,6 +1661,8 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
       <FileHeader
         filePath={filePath}
         patch={file.patch}
+        status={file.status}
+        oldPath={file.oldPath}
         isViewed={viewedFiles?.has(filePath)}
         onToggleViewed={onToggleViewed ? () => handleToggleViewedAndCollapse(filePath, item.id) : undefined}
         isStaged={stagedFiles?.has(filePath)}
@@ -1819,7 +1821,10 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
         // Containment mirrors Pierre's own production wrapper (diffshub
         // CodeViewWrapper): without it, every forced layout during scrolling
         // recomputes the whole document instead of the clipped subtree.
-        className="h-full overflow-auto overscroll-contain [contain:strict] [will-change:scroll-position] [&_diffs-container]:[contain:layout_paint_style]"
+        // overflow-anchor:none disables the BROWSER's scroll anchoring, which
+        // otherwise fights CodeView's own anchor resolution whenever item
+        // heights change (our augmentation applies).
+        className="h-full overflow-y-auto overflow-x-clip overscroll-contain [contain:strict] [overflow-anchor:none] [will-change:scroll-position] [&_diffs-container]:overflow-clip [&_diffs-container]:[contain:layout_paint_style]"
         initialItems={identity.items}
         options={options}
         selectedLines={selectedLines}

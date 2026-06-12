@@ -2201,12 +2201,14 @@ const ReviewApp: React.FC = () => {
                     <span className="md:hidden">Partial</span>
                     {!prPatchUpgradeAvailable ? (
                       // Partiality without a local checkout: informational
-                      // only — never offer a button that cannot work.
+                      // only — never offer a button that cannot work. The
+                      // visible text stays runtime-neutral (--local is a CLI
+                      // remedy that not every runtime supports).
                       <span
-                        className="text-amber-700/70 dark:text-amber-300/70"
-                        title="No local checkout in this session — re-run the review with --local to be able to load the full diff"
+                        className="hidden sm:inline text-amber-700/70 dark:text-amber-300/70"
+                        title="The platform omitted diff content for some files and this session has no local checkout to recompute from. CLI sessions can re-run the review with --local."
                       >
-                        (re-run with --local for the full diff)
+                        (no local checkout — full diff unavailable)
                       </span>
                     ) : isLoadingFullDiff ? (
                       <span className="flex items-center gap-1.5 font-medium" title="Recomputing the full diff from the local checkout — waiting for the background clone if it's still running. You can keep reviewing.">

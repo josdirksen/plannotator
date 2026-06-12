@@ -1,0 +1,5 @@
+interface:
+  display_name: "Plannotator Canvas"
+  short_description: "Publish live HTML previews to Plannotator's canvas and stream feedback."
+policy:
+  allow_implicit_invocation: false

@@ -797,7 +797,7 @@ fi
 # --reconfigure re-opens the wizard; --non-interactive forces silence; piped
 # CI runs without a terminal never prompt. CLI flags win over everything.
 PREFS_FILE="$_config_dir/install-prefs"
-CORE_SKILL_NAMES="plannotator-review plannotator-annotate plannotator-last"
+CORE_SKILL_NAMES="plannotator-review plannotator-annotate plannotator-last plannotator-canvas"
 EXTRA_SKILL_NAMES="plannotator-compound plannotator-setup-goal plannotator-visual-explainer"
 
 saved_extras=""
@@ -1083,6 +1083,7 @@ checkout_failed=0
         copy_skill_if_present apps/skills/claude/plannotator-review "$CLAUDE_SKILLS_DIR"
         copy_skill_if_present apps/skills/claude/plannotator-annotate "$CLAUDE_SKILLS_DIR"
         copy_skill_if_present apps/skills/claude/plannotator-last "$CLAUDE_SKILLS_DIR"
+        copy_skill_if_present apps/skills/claude/plannotator-canvas "$CLAUDE_SKILLS_DIR"
         echo "Installed Claude Code skills to ${CLAUDE_SKILLS_DIR}/"
     else
         echo "Tag ${latest_tag} predates the per-agent skill layout — skipping Claude Code skill install"
@@ -1092,6 +1093,7 @@ checkout_failed=0
         copy_skill_if_present apps/skills/core/plannotator-review "$AGENTS_SKILLS_DIR"
         copy_skill_if_present apps/skills/core/plannotator-annotate "$AGENTS_SKILLS_DIR"
         copy_skill_if_present apps/skills/core/plannotator-last "$AGENTS_SKILLS_DIR"
+        copy_skill_if_present apps/skills/core/plannotator-canvas "$AGENTS_SKILLS_DIR"
         echo "Installed shared agent skills to ${AGENTS_SKILLS_DIR}/"
     else
         echo "Tag ${latest_tag} predates the core/extra skill layout — skipping shared agent skill install"

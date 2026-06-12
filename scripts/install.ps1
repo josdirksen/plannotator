@@ -474,7 +474,7 @@ if (-not (Test-Path $extrasMigration)) {
 # re-runs. -Reconfigure re-opens the wizard; -NonInteractive forces silence;
 # redirected/CI runs never prompt. Flags win over everything.
 $prefsFile = Join-Path $configDir "install-prefs"
-$coreSkillNames = @("plannotator-review", "plannotator-annotate", "plannotator-last")
+$coreSkillNames = @("plannotator-review", "plannotator-annotate", "plannotator-last", "plannotator-canvas")
 $extraSkillNames = @("plannotator-compound", "plannotator-setup-goal", "plannotator-visual-explainer")
 
 $savedExtras = ""
@@ -722,7 +722,7 @@ try {
             # existing target dir) so re-runs replace rather than nest.
             if ((Test-Path "apps\skills\claude") -and (Get-ChildItem "apps\skills\claude" -ErrorAction SilentlyContinue)) {
                 New-Item -ItemType Directory -Force -Path $claudeSkillsDir | Out-Null
-                foreach ($skill in @("plannotator-review", "plannotator-annotate", "plannotator-last")) {
+                foreach ($skill in @("plannotator-review", "plannotator-annotate", "plannotator-last", "plannotator-canvas")) {
                     Copy-SkillIfPresent "apps\skills\claude\$skill" $claudeSkillsDir
                 }
                 Write-Host "Installed Claude Code skills to $claudeSkillsDir\"
@@ -731,7 +731,7 @@ try {
             }
             if ((Test-Path "apps\skills\core") -and (Get-ChildItem "apps\skills\core" -ErrorAction SilentlyContinue)) {
                 New-Item -ItemType Directory -Force -Path $agentsSkillsDir | Out-Null
-                foreach ($skill in @("plannotator-review", "plannotator-annotate", "plannotator-last")) {
+                foreach ($skill in @("plannotator-review", "plannotator-annotate", "plannotator-last", "plannotator-canvas")) {
                     Copy-SkillIfPresent "apps\skills\core\$skill" $agentsSkillsDir
                 }
                 Write-Host "Installed shared agent skills to $agentsSkillsDir\"

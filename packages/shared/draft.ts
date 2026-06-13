@@ -9,7 +9,7 @@
  */
 
 import { join } from "path";
-import { mkdirSync, writeFileSync, readFileSync, unlinkSync, existsSync } from "fs";
+import { mkdirSync, writeFileSync, readFileSync, renameSync, unlinkSync, existsSync } from "fs";
 import { createHash } from "crypto";
 import { getPlannotatorDataDir } from "./data-dir";
 
@@ -35,7 +35,13 @@ export function contentHash(content: string): string {
  */
 export function saveDraft(key: string, data: object): void {
   const dir = getDraftDir();
-  writeFileSync(join(dir, `${key}.json`), JSON.stringify(data), "utf-8");
+  // Write-then-rename so a crash mid-write can't leave a truncated draft —
+  // loadDraft would silently return null at exactly the recovery moment
+  // drafts exist for. rename() is atomic within a directory.
+  const finalPath = join(dir, `${key}.json`);
+  const tmpPath = `${finalPath}.tmp`;
+  writeFileSync(tmpPath, JSON.stringify(data), "utf-8");
+  renameSync(tmpPath, finalPath);
 }
 
 /**

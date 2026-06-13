@@ -205,6 +205,14 @@ const computeEditStats = (base: string, edited: string): { added: number; remove
   return { added, removed };
 };
 
+const draftBannerMessage = (banner: { count: number; timeAgo: string; hasEdits: boolean }): string => {
+  const parts = [
+    banner.count > 0 ? `${banner.count} annotation${banner.count !== 1 ? 's' : ''}` : '',
+    banner.hasEdits ? 'unsent direct edits' : '',
+  ].filter(Boolean);
+  return `Found ${parts.join(' and ')} from ${banner.timeAgo}. Would you like to restore them?`;
+};
+
 const App: React.FC = () => {
   const [markdown, setMarkdown] = useState(DEMO_PLAN_CONTENT);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
@@ -1052,28 +1060,32 @@ const App: React.FC = () => {
     return () => ro.disconnect();
   }, [isLoading, isSharedSession]);
 
+  // The user's current direct-edit text: the open editor buffer, else the
+  // last commit; null when there is none or it matches the baseline. Never
+  // the shared `markdown` state, which linked docs, message switching, and
+  // checkbox toggles legitimately mutate. Feeds both the draft auto-save and
+  // the Direct Edits feedback section.
+  const getEditedMarkdown = useCallback((): string | null => {
+    const base = originalMarkdownRef.current;
+    if (base === null) return null;
+    const live = isEditingMarkdown ? markdownEditorHandleRef.current?.getMarkdown() : null;
+    const current = live ?? editedMarkdownRef.current;
+    return current != null && current !== base ? current : null;
+  }, [isEditingMarkdown]);
+
   // Auto-save annotation drafts
-  const { draftBanner, restoreDraft, dismissDraft } = useAnnotationDraft({
+  const { draftBanner, restoreDraft, scheduleDraftSave, dismissDraft } = useAnnotationDraft({
     annotations: allAnnotations,
     codeAnnotations,
     globalAttachments,
+    getEditedMarkdown,
     isApiMode: isApiMode && !goalSetupMode,
     isSharedSession,
-    submitted: !!submitted,
+    // isSubmitting counts: a save firing while approve/deny is in flight can
+    // land after the server's draft delete and ghost a "Draft Recovered"
+    // banner into the next session for this plan. Saving resumes if it fails.
+    submitted: !!submitted || isSubmitting,
   });
-
-  const handleRestoreDraft = React.useCallback(() => {
-    const { annotations: restored, codeAnnotations: restoredCode, globalAttachments: restoredGlobal } = restoreDraft();
-    if (restored.length > 0 || restoredCode.length > 0 || restoredGlobal.length > 0) {
-      setAnnotations(restored);
-      setCodeAnnotations(restoredCode);
-      if (restoredGlobal.length > 0) setGlobalAttachments(restoredGlobal);
-      // Apply highlights to DOM after a tick
-      setTimeout(() => {
-        viewerRef.current?.applySharedAnnotations(restored.filter(a => !a.diffContext));
-      }, 100);
-    }
-  }, [restoreDraft]);
 
   // Fetch available agents for OpenCode (for validation on approve)
   const { agents: availableAgents, validateAgent, getAgentWarning } = useAgents(origin);
@@ -1118,9 +1130,11 @@ const App: React.FC = () => {
   // omits the line label instead of emitting a wrong one. Returns the remapped
   // objects so callers repaint THOSE, not the pre-remap ones (whose stale
   // startMeta/endMeta would let fromStore() silently highlight wrong content).
-  const applyEditedDocument = useCallback((next: string): Annotation[] => {
+  // `list` defaults to current state; draft restore passes the restored set,
+  // which isn't in state yet when the remap runs.
+  const applyEditedDocument = useCallback((next: string, list: Annotation[] = annotations): Annotation[] => {
     const newBlocks = parseMarkdownToBlocks(next);
-    const remapped = annotations.map((a) => {
+    const remapped = list.map((a) => {
       if (a.diffContext || a.type === AnnotationType.GLOBAL_COMMENT || a.id.startsWith('ann-checkbox-')) return a;
       const blk = newBlocks.find((b) => b.content.includes(a.originalText));
       if ((blk?.id ?? '') === a.blockId) return a;
@@ -1182,7 +1196,8 @@ const App: React.FC = () => {
 
     const remapped = edited != null && edited !== markdown ? applyEditedDocument(edited) : annotations;
     repaintHighlights(remapped);
-  }, [isEditingMarkdown, markdown, annotations, applyEditedDocument, repaintHighlights]);
+    scheduleDraftSave();
+  }, [isEditingMarkdown, markdown, annotations, applyEditedDocument, repaintHighlights, scheduleDraftSave]);
 
   // Discards all direct edits: restores the as-submitted baseline document.
   // Reachable from the Direct Edits card in the annotation sidebar.
@@ -1195,7 +1210,53 @@ const App: React.FC = () => {
     setEditStats(null);
     const remapped = markdown !== base ? applyEditedDocument(base) : annotations;
     repaintHighlights(remapped);
-  }, [markdown, annotations, applyEditedDocument, repaintHighlights]);
+    scheduleDraftSave();
+  }, [markdown, annotations, applyEditedDocument, repaintHighlights, scheduleDraftSave]);
+
+  // Restores a recovered draft: annotations always; direct edits when present
+  // and the baseline exists. Edits flow through the same helpers
+  // commitMarkdownEdits uses, with the RESTORED annotations remapped against
+  // the edited document (they aren't in state yet when the remap runs).
+  const handleRestoreDraft = React.useCallback(() => {
+    const { annotations: restored, codeAnnotations: restoredCode, globalAttachments: restoredGlobal, editedMarkdown } = restoreDraft();
+    if (restoredCode.length > 0) setCodeAnnotations(restoredCode);
+    if (restoredGlobal.length > 0) setGlobalAttachments(restoredGlobal);
+
+    // CRLF normalize is insurance against a hand-edited draft file — a \r
+    // here would fabricate a whole-document diff against the LF baseline.
+    const base = originalMarkdownRef.current;
+    const edited = editedMarkdown !== null ? editedMarkdown.replace(/\r\n?/g, '\n') : null;
+    // editStats/isEditingMarkdown guards are defensive: the restore dialog is
+    // modal on load, so live edits can't exist yet — but if they ever do,
+    // the user's current work wins over the draft.
+    if (edited !== null && base !== null && edited !== base && editStats === null && !isEditingMarkdown) {
+      editedMarkdownRef.current = edited;
+      setEditStats(computeEditStats(base, edited));
+      if (window.innerWidth >= 768) {
+        setRightSidebarTab('annotations');
+        setIsPanelOpen(true);
+      }
+      const remapped = applyEditedDocument(edited, restored);
+      repaintHighlights(remapped);
+      return;
+    }
+    if (edited !== null && (editStats !== null || isEditingMarkdown)) {
+      // Skipped, not silently dropped: the user started editing before the
+      // (late) draft banner was answered. Their live work wins.
+      toast('Draft edits were not restored', {
+        description: 'You already have edits in this session — those take precedence.',
+        duration: 5000,
+      });
+    }
+
+    if (restored.length > 0) {
+      setAnnotations(restored);
+      // Apply highlights to DOM after a tick
+      setTimeout(() => {
+        viewerRef.current?.applySharedAnnotations(restored.filter(a => !a.diffContext));
+      }, 100);
+    }
+  }, [restoreDraft, editStats, isEditingMarkdown, applyEditedDocument, repaintHighlights]);
 
   const handleEditToggle = useCallback(() => {
     if (isEditingMarkdown) {
@@ -1217,7 +1278,10 @@ const App: React.FC = () => {
   // keystroke is fine at plan sizes; setState bails out on unchanged values.
   const handleEditorChange = useCallback((md: string) => {
     setEditorDirty(md !== editSessionBaseRef.current);
-  }, []);
+    // Mid-edit keystrokes persist too — a crash loses at most the debounce
+    // window. The hook reads the live buffer via getDraftEditedMarkdown.
+    scheduleDraftSave();
+  }, [scheduleDraftSave]);
 
   // True when there is anything the Direct Edits diff would carry.
   const hasDirectEdits = editStats !== null || (isEditingMarkdown && editorDirty);
@@ -1238,15 +1302,11 @@ const App: React.FC = () => {
   }, [editStats]);
 
   // "Direct Edits" feedback section: unified diff of user edits vs the
-  // as-submitted baseline. Reads ONLY editor-produced text (live buffer or the
-  // last commit) — never the shared `markdown` state, which other features
-  // (linked docs, message switching, checkboxes) legitimately mutate.
+  // as-submitted baseline. getEditedMarkdown owns the read discipline.
   const buildEditsSection = useCallback((): string => {
     const base = originalMarkdownRef.current;
-    if (base === null) return '';
-    const live = isEditingMarkdown ? markdownEditorHandleRef.current?.getMarkdown() : null;
-    const current = live ?? editedMarkdownRef.current;
-    if (current == null || current === base) return '';
+    const current = getEditedMarkdown();
+    if (base === null || current === null) return '';
     const patch = createTwoFilesPatch(
       'plan.md (original)',
       'plan.md (edited)',
@@ -1260,7 +1320,7 @@ const App: React.FC = () => {
       ? 'The user edited a markdown conversion of the original source. This diff describes the desired content changes (it is not a literal patch to a file on disk):'
       : 'The user edited the document directly. Apply these exact changes — a unified diff against the version you submitted:';
     return ['# Direct Edits', '', preamble, '', '```diff', patch.trimEnd(), '```'].join('\n');
-  }, [isEditingMarkdown, sourceConverted]);
+  }, [getEditedMarkdown, sourceConverted]);
 
   // Prepends the Direct Edits section to annotation feedback. When edits exist
   // but there are no annotations, the "no feedback" sentinel is replaced rather
@@ -2711,7 +2771,7 @@ const App: React.FC = () => {
               onClose={dismissDraft}
               onConfirm={handleRestoreDraft}
               title="Draft Recovered"
-              message={draftBanner ? `Found ${draftBanner.count} annotation${draftBanner.count !== 1 ? 's' : ''} from ${draftBanner.timeAgo}. Would you like to restore them?` : ''}
+              message={draftBanner ? draftBannerMessage(draftBanner) : ''}
               confirmText="Restore"
               cancelText="Dismiss"
               showCancel

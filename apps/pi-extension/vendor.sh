@@ -7,19 +7,20 @@ cd "$(dirname "$0")"
 rm -rf generated
 mkdir -p generated generated/ai/providers
 
-for f in feedback-templates prompts review-core diff-paths cli-pagination jj-core vcs-core review-args storage draft project pr-types pr-provider pr-stack pr-github pr-gitlab checklist integrations-common repo reference-common favicon code-file resolve-file config external-annotation agent-jobs worktree worktree-pool html-to-markdown url-to-markdown tour annotate-args at-reference review-workspace-node review-workspace pfm-reminder improvement-hooks code-nav data-dir semantic-diff-types semantic-diff; do
+for f in feedback-templates prompts review-core diff-paths cli-pagination jj-core vcs-core review-args storage draft project pr-types pr-provider pr-stack pr-github pr-gitlab checklist integrations-common repo reference-common favicon code-file resolve-file config external-annotation agent-jobs worktree worktree-pool html-to-markdown url-to-markdown tour annotate-args at-reference review-workspace-node review-workspace pfm-reminder improvement-hooks code-nav data-dir semantic-diff-types semantic-diff review-profiles; do
   src="../../packages/shared/$f.ts"
   printf '// @generated — DO NOT EDIT. Source: packages/shared/%s.ts\n' "$f" | cat - "$src" > "generated/$f.ts"
 done
 
 # Vendor review agent modules from packages/server/ — rewrite imports for generated/ layout
-for f in agent-review-message codex-review claude-review path-utils; do
+for f in agent-review-message codex-review claude-review path-utils review-profile-loader; do
   src="../../packages/server/$f.ts"
   printf '// @generated — DO NOT EDIT. Source: packages/server/%s.ts\n' "$f" | cat - "$src" \
     | sed 's|from "./vcs"|from "./review-core.js"|' \
     | sed 's|from "./pr"|from "./pr-provider.js"|' \
     | sed 's|from "./path-utils"|from "./path-utils.js"|' \
     | sed 's|from "@plannotator/shared/review-workspace"|from "./review-workspace.js"|' \
+    | sed 's|from "@plannotator/shared/review-profiles"|from "./review-profiles.js"|' \
     | sed 's|from "@plannotator/shared/data-dir"|from "./data-dir"|' \
     > "generated/$f.ts"
 done

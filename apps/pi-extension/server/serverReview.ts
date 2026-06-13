@@ -72,7 +72,7 @@ import {
 } from "./pr.js";
 import { getRepoInfo } from "./project.js";
 import {
-	CODEX_REVIEW_SYSTEM_PROMPT,
+	composeCodexReviewPrompt,
 	buildCodexCommand,
 	generateOutputPath,
 	parseCodexOutput,
@@ -80,7 +80,7 @@ import {
 } from "../generated/codex-review.js";
 import { buildAgentReviewUserMessage, buildAgentReviewUserMessageForTarget, type WorkspaceReviewPromptContext } from "../generated/agent-review-message.js";
 import {
-	CLAUDE_REVIEW_PROMPT,
+	composeClaudeReviewPrompt,
 	buildClaudeCommand,
 	parseClaudeStreamOutput,
 	transformClaudeFindings,
@@ -107,6 +107,12 @@ import {
 	SemanticDiffResponseCache,
 } from "../generated/semantic-diff.js";
 import type { SemanticDiffAvailability, SemanticDiffResponse } from "../generated/semantic-diff-types.js";
+import { loadReviewProfiles } from "../generated/review-profile-loader.js";
+import {
+	BUILTIN_DEFAULT_PROFILE,
+	type ResolvedReviewProfile,
+	type ReviewProfilesResponse,
+} from "../generated/review-profiles.js";
 import {
 	canStageFiles,
 	detectRemoteDefaultCompareTarget,
@@ -150,6 +156,49 @@ const piCodeNavRuntime: CodeNavRuntime = {
 		});
 	},
 };
+
+// --- Review ingestion helpers (shared shape with packages/server/review.ts) ---
+
+// Calm, provider-neutral failure reasons. Never leak schema/CLI internals.
+const REVIEW_OUTPUT_FAILED = "Review finished but produced no usable findings.";
+const REVIEW_ALL_OUT_OF_DIFF = "Review findings were all outside the reviewed diff.";
+
+/**
+ * Drop findings whose file is not in the reviewed diff. Cheap guard, not a
+ * diff-anchoring module: a plain set-membership check against the launch
+ * patch's changed files. When the changed-file list is unavailable, keep
+ * everything rather than silently dropping.
+ */
+function filterToReviewedDiff<T extends { filePath: string }>(
+	annotations: T[],
+	changedFiles: string[] | undefined,
+): { kept: T[]; dropped: number } {
+	if (!changedFiles || changedFiles.length === 0) {
+		return { kept: annotations, dropped: 0 };
+	}
+	const allowed = new Set(changedFiles);
+	const kept = annotations.filter((a) => allowed.has(a.filePath));
+	return { kept, dropped: annotations.length - kept.length };
+}
+
+/** Flip a job to failed with a calm one-liner (Code Tour precedent). */
+function markJobReviewFailed(job: AgentJobInfo, error: string): void {
+	job.status = "failed";
+	job.error = error;
+}
+
+/**
+ * Reflect post-ingestion counts on the job summary so the detail panel can
+ * surface "N findings · M skipped (not in the reviewed diff)".
+ */
+function applyReviewFindingsSummary(job: AgentJobInfo, kept: number, dropped: number): void {
+	if (dropped <= 0 || !job.summary) return;
+	const note = `${kept} findings · ${dropped} skipped (not in the reviewed diff)`;
+	job.summary = {
+		...job.summary,
+		explanation: job.summary.explanation ? `${job.summary.explanation} — ${note}` : note,
+	};
+}
 
 /** Detect if running inside WSL (Windows Subsystem for Linux) */
 function detectWSL(): boolean {
@@ -474,6 +523,10 @@ export async function startReviewServer(options: {
 				);
 			}
 			const cwd = resolveAgentCwd();
+			// Files in the diff the agent will actually review. Threaded to
+			// onJobComplete so out-of-diff findings can be dropped against this
+			// snapshot, not whatever diff happens to be current at completion.
+			const launchChangedFiles = extractChangedFiles(currentPatch);
 			const workspacePrompt = getWorkspacePromptContext();
 			const hasAgentLocalAccess = !!workspacePrompt || !!options.worktreePool || !!options.agentCwd || !!options.gitContext;
 			const userMessageOptions = {
@@ -491,6 +544,23 @@ export async function startReviewServer(options: {
 				: null;
 			const launchPrUrl = prMeta?.url;
 			const launchDiffScope = isPRMode ? currentPRDiffScope : undefined;
+
+			// Resolve the requested review profile against the same target the
+			// agent will review. Repo profiles are scoped to a single unambiguous
+			// local repo (excluded in remote-only PR mode and ambiguous workspace
+			// mode), matching the discovery endpoint. Absent or unknown id →
+			// builtin:default, so today's "Run Review" stays byte-identical.
+			const requestedProfileId =
+				typeof config?.reviewProfileId === "string" ? config.reviewProfileId : undefined;
+			const profileRepoCwd =
+				!isPRMode && !isWorkspaceMode && options.gitContext
+					? options.gitContext.cwd
+					: undefined;
+			const reviewProfile: ResolvedReviewProfile = requestedProfileId
+				? loadReviewProfiles({ repoCwd: profileRepoCwd }).find((p) => p.id === requestedProfileId) ??
+					BUILTIN_DEFAULT_PROFILE
+				: BUILTIN_DEFAULT_PROFILE;
+
 			const diffContext: AgentJobInfo["diffContext"] | undefined = workspacePrompt
 				? { mode: String(currentDiffType), worktreePath: null }
 				: prMeta
@@ -510,7 +580,7 @@ export async function startReviewServer(options: {
 					prMetadata: prMeta,
 					config,
 				});
-				return built ? { ...built, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext } : built;
+				return built ? { ...built, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label } : built;
 			}
 
 			const userMessage = workspacePrompt
@@ -527,17 +597,17 @@ export async function startReviewServer(options: {
 				const reasoningEffort = typeof config?.reasoningEffort === "string" && config.reasoningEffort ? config.reasoningEffort : undefined;
 				const fastMode = config?.fastMode === true;
 				const outputPath = generateOutputPath();
-				const prompt = CODEX_REVIEW_SYSTEM_PROMPT + "\n\n---\n\n" + userMessage;
-				const command = await buildCodexCommand({ cwd, outputPath, prompt, model, reasoningEffort, fastMode });
-				return { command, outputPath, prompt, cwd, label: jobLabel, model, reasoningEffort, fastMode: fastMode || undefined, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext };
+				const prompt = composeCodexReviewPrompt(userMessage, reviewProfile);
+				const command = await buildCodexCommand({ cwd, outputPath, prompt, model, reasoningEffort, fastMode, reviewProfile });
+				return { command, outputPath, prompt, cwd, label: jobLabel, model, reasoningEffort, fastMode: fastMode || undefined, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label, reviewChangedFiles: launchChangedFiles };
 			}
 
 			if (provider === "claude") {
 				const model = typeof config?.model === "string" && config.model ? config.model : undefined;
 				const effort = typeof config?.effort === "string" && config.effort ? config.effort : undefined;
-				const prompt = CLAUDE_REVIEW_PROMPT + "\n\n---\n\n" + userMessage;
-				const { command, stdinPrompt } = buildClaudeCommand(prompt, model, effort);
-				return { command, stdinPrompt, prompt, cwd, label: jobLabel, captureStdout: true, model, effort, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext };
+				const prompt = composeClaudeReviewPrompt(userMessage, reviewProfile);
+				const { command, stdinPrompt } = buildClaudeCommand(prompt, model, effort, reviewProfile);
+				return { command, stdinPrompt, prompt, cwd, label: jobLabel, captureStdout: true, model, effort, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label, reviewChangedFiles: launchChangedFiles };
 			}
 
 			return null;
@@ -555,9 +625,15 @@ export async function startReviewServer(options: {
 				prRepo: getDisplayRepo(jobPrMeta),
 			} : jobPrUrl ? { prUrl: jobPrUrl } : {};
 
+			const profileLabel = job.reviewProfileLabel;
+
 			if (job.provider === "codex" && meta.outputPath) {
 				const output = await parseCodexOutput(meta.outputPath);
-				if (!output) return;
+				if (!output) {
+					// Process exited 0 but output is missing/unparseable — not a green run.
+					markJobReviewFailed(job, REVIEW_OUTPUT_FAILED);
+					return;
+				}
 
 				const hasBlockingFindings = output.findings.some(f => f.priority !== null && f.priority <= 1);
 				job.summary = {
@@ -567,16 +643,27 @@ export async function startReviewServer(options: {
 				};
 
 				if (output.findings.length > 0) {
-					const annotations = transformReviewFindings(
+					const transformed = transformReviewFindings(
 						output.findings,
 						job.source,
 						cwd,
 						"Codex",
 						workspace ? (filePath) => workspace.normalizeAnnotationPath(filePath) : undefined,
-					)
-						.map(a => ({ ...a, ...jobPrContext, ...(jobDiffScope && { diffScope: jobDiffScope }) }));
+					);
+					const { kept, dropped } = filterToReviewedDiff(transformed, meta.reviewChangedFiles);
+					if (kept.length === 0 && transformed.length > 0) {
+						markJobReviewFailed(job, REVIEW_ALL_OUT_OF_DIFF);
+						return;
+					}
+					const annotations = kept.map(a => ({
+						...a,
+						...jobPrContext,
+						...(jobDiffScope && { diffScope: jobDiffScope }),
+						...(profileLabel && { reviewProfileLabel: profileLabel }),
+					}));
 					const result = externalAnnotations.addAnnotations({ annotations });
 					if ("error" in result) console.error(`[codex-review] addAnnotations error:`, result.error);
+					else applyReviewFindingsSummary(job, kept.length, dropped);
 				}
 				return;
 			}
@@ -585,6 +672,7 @@ export async function startReviewServer(options: {
 				const output = parseClaudeStreamOutput(meta.stdout);
 				if (!output) {
 					console.error(`[claude-review] Failed to parse output (${meta.stdout.length} bytes, last 200: ${meta.stdout.slice(-200)})`);
+					markJobReviewFailed(job, REVIEW_OUTPUT_FAILED);
 					return;
 				}
 
@@ -596,15 +684,26 @@ export async function startReviewServer(options: {
 				};
 
 				if (output.findings.length > 0) {
-					const annotations = transformClaudeFindings(
+					const transformed = transformClaudeFindings(
 						output.findings,
 						job.source,
 						cwd,
 						workspace ? (filePath) => workspace.normalizeAnnotationPath(filePath) : undefined,
-					)
-						.map(a => ({ ...a, ...jobPrContext, ...(jobDiffScope && { diffScope: jobDiffScope }) }));
+					);
+					const { kept, dropped } = filterToReviewedDiff(transformed, meta.reviewChangedFiles);
+					if (kept.length === 0 && transformed.length > 0) {
+						markJobReviewFailed(job, REVIEW_ALL_OUT_OF_DIFF);
+						return;
+					}
+					const annotations = kept.map(a => ({
+						...a,
+						...jobPrContext,
+						...(jobDiffScope && { diffScope: jobDiffScope }),
+						...(profileLabel && { reviewProfileLabel: profileLabel }),
+					}));
 					const result = externalAnnotations.addAnnotations({ annotations });
 					if ("error" in result) console.error(`[claude-review] addAnnotations error:`, result.error);
+					else applyReviewFindingsSummary(job, kept.length, dropped);
 				}
 				return;
 			}
@@ -1299,6 +1398,30 @@ export async function startReviewServer(options: {
 			await handleUploadRequest(req, res);
 		} else if (url.pathname === "/api/agents" && req.method === "GET") {
 			json(res, { agents: [] });
+		} else if (
+			url.pathname === "/api/agents/review-profiles" &&
+			req.method === "GET"
+		) {
+			// Custom reviews discovery. Reloaded per request, no file watching.
+			// Repo profiles are scoped to a single unambiguous local repo:
+			// excluded in remote-only PR mode and ambiguous workspace mode.
+			const repoCwd =
+				!isPRMode && !isWorkspaceMode && options.gitContext
+					? options.gitContext.cwd
+					: undefined;
+			const profiles = loadReviewProfiles({ repoCwd });
+			const body: ReviewProfilesResponse = {
+				profiles: profiles.map((p) => ({
+					id: p.id,
+					label: p.label,
+					description: p.description,
+					engines: p.engines,
+					source: p.source,
+					sourcePath: p.sourcePath,
+					default: p.default,
+				})),
+			};
+			json(res, body);
 		} else if (url.pathname === "/api/git-add" && req.method === "POST") {
 			try {
 				const body = await parseBody(req);

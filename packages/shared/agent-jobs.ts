@@ -75,6 +75,10 @@ export interface AgentJobInfo {
   diffScope?: string;
   /** Diff context at launch time (see AgentJobDiffContext). */
   diffContext?: AgentJobDiffContext;
+  /** Resolved review profile id at launch time (e.g. "builtin:default", "user:security"). */
+  reviewProfileId?: string;
+  /** Resolved review profile label — rides on findings so the UI can show a profile tag. */
+  reviewProfileLabel?: string;
 }
 
 export interface AgentCapability {

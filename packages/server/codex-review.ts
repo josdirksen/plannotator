@@ -11,6 +11,10 @@ import { appendFile, mkdir, unlink, writeFile, readFile } from "node:fs/promises
 import { existsSync } from "node:fs";
 import { toRelativePath } from "./path-utils";
 import { getPlannotatorDataDir } from "@plannotator/shared/data-dir";
+import {
+  composeReviewPrompt,
+  type ResolvedReviewProfile,
+} from "@plannotator/shared/review-profiles";
 
 // ---------------------------------------------------------------------------
 // Debug log — only active when PLANNOTATOR_DEBUG is set
@@ -159,6 +163,24 @@ FORMATTING GUIDELINES:
 The finding description should be one paragraph.`;
 
 // ---------------------------------------------------------------------------
+// Prompt composition
+// ---------------------------------------------------------------------------
+
+/**
+ * Compose Codex's review prompt: the immutable system prompt, the resolved
+ * profile's Custom Review Profile section (omitted for builtin:default), then
+ * the user review message. For builtin:default / no profile the output is
+ * byte-identical to today's
+ * `CODEX_REVIEW_SYSTEM_PROMPT + "\n\n---\n\n" + userMessage`.
+ */
+export function composeCodexReviewPrompt(
+  userMessage: string,
+  reviewProfile?: ResolvedReviewProfile,
+): string {
+  return composeReviewPrompt(CODEX_REVIEW_SYSTEM_PROMPT, reviewProfile, userMessage);
+}
+
+// ---------------------------------------------------------------------------
 // Command builder
 // ---------------------------------------------------------------------------
 
@@ -169,6 +191,12 @@ export interface CodexCommandOptions {
   model?: string;
   reasoningEffort?: string;
   fastMode?: boolean;
+  /**
+   * Resolved review profile this command runs under. Accepted here so the
+   * launch path can thread it through to one place; prompt composition off it
+   * lands in a later phase. Unused today — output stays byte-identical.
+   */
+  reviewProfile?: ResolvedReviewProfile;
 }
 
 /** Build the `codex exec` argv array. Materializes the schema file on first call. */
@@ -272,6 +300,23 @@ export async function parseCodexOutput(outputPath: string): Promise<CodexReviewO
 }
 
 // ---------------------------------------------------------------------------
+// Severity normalization — Codex priority → shared scale
+// ---------------------------------------------------------------------------
+
+export type ReviewSeverity = "important" | "nit" | "pre_existing";
+
+/**
+ * Map Codex's 0–3 (or null) priority onto the shared severity scale Claude
+ * already emits, so the UI can show one set of badges regardless of engine.
+ * The single source of truth for this mapping — do not duplicate it.
+ */
+export function codexPriorityToSeverity(priority: number | null): ReviewSeverity {
+  if (priority === 0 || priority === 1) return "important";
+  if (priority === 2) return "nit";
+  return "pre_existing"; // 3 or null
+}
+
+// ---------------------------------------------------------------------------
 // Finding → external annotation transform
 // ---------------------------------------------------------------------------
 
@@ -285,6 +330,7 @@ export interface ReviewAnnotationInput {
   scope: string;
   text: string;
   author: string;
+  severity: ReviewSeverity;
 }
 
 /** Transform review findings (provider-agnostic) into the external annotation format. */
@@ -313,6 +359,7 @@ export function transformReviewFindings(
       scope: "line",
       text: `${f.title}\n\n${f.body}`.trim(),
       author: author ?? "Review Agent",
+      severity: codexPriorityToSeverity(f.priority),
     }));
 
   debugLog("TRANSFORM_FINDINGS", {

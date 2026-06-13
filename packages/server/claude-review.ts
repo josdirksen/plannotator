@@ -1,4 +1,8 @@
 import { toRelativePath } from "./path-utils";
+import {
+  composeReviewPrompt,
+  type ResolvedReviewProfile,
+} from "@plannotator/shared/review-profiles";
 
 /**
  * Claude Code Review Agent — prompt, command builder, and JSONL output parser.
@@ -176,6 +180,23 @@ Step 6: Return structured JSON output matching the schema.
 - Your only output is the structured JSON findings`;
 
 // ---------------------------------------------------------------------------
+// Prompt composition
+// ---------------------------------------------------------------------------
+
+/**
+ * Compose Claude's review prompt: the immutable system prompt, the resolved
+ * profile's Custom Review Profile section (omitted for builtin:default), then
+ * the user review message. For builtin:default / no profile the output is
+ * byte-identical to today's `CLAUDE_REVIEW_PROMPT + "\n\n---\n\n" + userMessage`.
+ */
+export function composeClaudeReviewPrompt(
+  userMessage: string,
+  reviewProfile?: ResolvedReviewProfile,
+): string {
+  return composeReviewPrompt(CLAUDE_REVIEW_PROMPT, reviewProfile, userMessage);
+}
+
+// ---------------------------------------------------------------------------
 // Command builder
 // ---------------------------------------------------------------------------
 
@@ -189,7 +210,15 @@ export interface ClaudeCommandResult {
  * Build the `claude -p` command. Prompt is passed via stdin, not as a
  * positional arg — avoids quoting issues, argv limits, and variadic flag conflicts.
  */
-export function buildClaudeCommand(prompt: string, model: string = "claude-opus-4-7", effort?: string): ClaudeCommandResult {
+export function buildClaudeCommand(
+  prompt: string,
+  model: string = "claude-opus-4-7",
+  effort?: string,
+  // Resolved review profile this command runs under. Accepted so the launch
+  // path threads it to one place; prompt composition off it lands in a later
+  // phase. Unused today — output stays byte-identical.
+  reviewProfile?: ResolvedReviewProfile,
+): ClaudeCommandResult {
   const allowedTools = [
     "Agent", "Read", "Glob", "Grep",
     // GitHub CLI

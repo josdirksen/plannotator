@@ -15,7 +15,6 @@ const security: ResolvedReviewProfile = {
   label: "Security",
   instructions: "Focus only on security-impacting issues.",
   source: "user",
-  engines: ["claude", "codex"],
 };
 
 // The exact prompt today, before this phase, for the default path.
@@ -81,14 +80,13 @@ describe("review prompt composition — custom section placement", () => {
   });
 
   test("section carries the profile's label and source verbatim", () => {
-    const repo: ResolvedReviewProfile = {
-      id: "repo:perf",
+    const profile: ResolvedReviewProfile = {
+      id: "user:perf",
       label: "Performance",
       instructions: "Flag N+1 queries.",
-      source: "repo",
-      engines: ["claude"],
+      source: "user",
     };
-    const prompt = composeClaudeReviewPrompt(userMessage, repo);
-    expect(prompt).toContain("Profile: Performance\nSource: repo\n\nFlag N+1 queries.");
+    const prompt = composeClaudeReviewPrompt(userMessage, profile);
+    expect(prompt).toContain("Profile: Performance\nSource: user\n\nFlag N+1 queries.");
   });
 });

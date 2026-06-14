@@ -1,14 +1,12 @@
 # Custom Reviews
 
-Status: design reference, not yet implemented.
-
 Custom reviews let a developer run a named review — "Security", "Performance",
 "API Contract" — through the existing Claude and Codex background review
 pipeline, instead of only the default review.
 
 This doc is the authoritative spec. It is deliberately small. The companion
-`agent-jobs-code-review-handoff.md` describes the current code this builds on;
-read it first if you are new to the review pipeline.
+`agent-jobs-code-review-handoff.md` describes the code this builds on; read it
+first if you are new to the review pipeline.
 
 ## What this is
 
@@ -29,7 +27,7 @@ Two rules keep this simple:
 1. **Zero-config by default.** A user who never makes a profile gets the full
    Default review, exactly as today. The picker adds one dropdown, nothing more.
 2. **Minimal input.** Authoring a profile means writing intent, not filling out
-   a schema. Anything we can infer (`id`, `label`, `engines`) we infer.
+   a schema. Anything we can infer (`id`, `label`) we infer.
 
 The user only ever thinks about three things: which engine, which review, and
 the review's intent. Schemas, provider output formats, job protocols, and
@@ -48,11 +46,10 @@ export interface ReviewProfile {
   label: string;         // inferred from id if omitted
   instructions: string;  // the only field a human must write
   description?: string;
-  engines?: Array<"claude" | "codex">; // defaults to all engines
 }
 
 export interface ResolvedReviewProfile extends ReviewProfile {
-  source: "builtin" | "user" | "repo";
+  source: "builtin" | "user";
   sourcePath?: string;
 }
 ```
@@ -66,25 +63,22 @@ and `source`; that is enough to answer "which review produced these findings?"
 
 ## Where profiles live
 
-Three sources, loaded in this order:
+Two sources, loaded in this order:
 
 | Source | Location | Notes |
 | --- | --- | --- |
 | `builtin` | in code | `builtin:default` is today's review, preserved. |
 | `user` | `${PLANNOTATOR_DATA_DIR}/reviews/*.json` | personal, available in every repo |
-| `repo` | `.plannotator/reviews/*.json` | checked in, shared with the team |
 
 Use the existing Plannotator data-dir abstraction for the user path. Do not
 hardcode `~/.plannotator` — the data dir is overridable.
 
 ### Inference
 
-For user and repo profiles, the loader fills in what the file omits:
+For user profiles, the loader fills in what the file omits:
 
-- `id` ← filename stem, namespaced by source: `security.json` → `user:security`
-  or `repo:security`.
+- `id` ← filename stem, namespaced by source: `security.json` → `user:security`.
 - `label` ← title-cased id: `api-contracts` → `API Contracts`.
-- `engines` ← all supported engines.
 
 Inference runs once at load time. The rest of the system only ever sees a
 fully-resolved profile.
@@ -94,19 +88,11 @@ fully-resolved profile.
 Kept trivial on purpose:
 
 - `builtin:default` is special-cased and always wins its name.
-- If a user and a repo profile resolve to the same bare name, the user one wins.
 - A malformed JSON file is skipped, with one log line. It does not break
   discovery.
 
-That is the whole collision story. No reserved-ID engine, no precedence
-framework — a sort and a `Map`.
-
-### Repo profiles
-
-A repo profile is just instructions handed to a CLI the developer already runs
-inside that repo. It escalates nothing the agent could not already do. The only
-thing worth surfacing is provenance: mark repo-sourced profiles with a small
-`repo` tag in the picker so the user knows where the option came from.
+That is the whole collision story. No reserved-ID machinery, no precedence
+framework — a `Map` with first-seen-wins.
 
 ## Discovery
 
@@ -122,8 +108,7 @@ export interface ReviewProfilesResponse {
     id: string;
     label: string;
     description?: string;
-    engines: Array<"claude" | "codex">;
-    source: "builtin" | "user" | "repo";
+    source: "builtin" | "user";
     sourcePath?: string;
     default?: boolean;
   }>;
@@ -151,11 +136,11 @@ export interface LaunchAgentJobRequest {
 }
 ```
 
-Today the Bun and Pi adapters forward only
-`{ engine?, model?, reasoningEffort?, effort?, fastMode? }` into `buildCommand`.
-Widen both to also parse and forward `reviewProfileId`, and reject unknown
-fields rather than ignoring them. Do **not** add an inline `reviewPrompt` — the
-launch API takes a profile id, never freeform prompt text.
+`reviewProfileId` selects which review's intent runs; engine and model are
+separate, independent runtime choices and are never carried on the profile. The
+Bun and Pi adapters both parse and forward `reviewProfileId` into `buildCommand`.
+There is no inline `reviewPrompt` — the launch API takes a profile id, never
+freeform prompt text.
 
 ### Job metadata
 
@@ -175,15 +160,9 @@ so the UI can show a small profile tag.
 
 Resolve the profile at the same boundary where `review.ts`'s `buildCommand`
 already snapshots launch state (patch, diff type, base, PR metadata, diff scope,
-workspace, cwd). Resolving there means a repo profile is read against the same
-target the agent will actually review.
+workspace, cwd).
 
-Repo-profile scoping, simplest safe version:
-
-- Built-in and user profiles: available everywhere.
-- Repo profiles: available only when there is one unambiguous local review repo.
-  In remote-only PR mode and ambiguous workspace mode, repo profiles are simply
-  absent from the picker.
+Built-in and user profiles are available everywhere.
 
 ## Prompt composition
 
@@ -198,7 +177,7 @@ instructions.
 ## Custom Review Profile
 
 Profile: <label>
-Source: <builtin|user|repo>
+Source: <builtin|user>
 
 <profile.instructions>
 
@@ -213,7 +192,10 @@ the default prompt is byte-for-byte today's prompt.
 ## Findings
 
 Both engines already parse into review findings and transform them into external
-annotations. Custom reviews change two things.
+annotations. **Every finding reaches the annotations panel** — nothing filters,
+drops, or hides findings based on diff overlap or anything else. Findings flow
+straight from transform to ingestion with only shape validation. Custom reviews
+change two things.
 
 ### One severity scale
 
@@ -235,24 +217,6 @@ small tag next to the byline — do not concatenate it into the author string.
 > `transformReviewFindings` (Codex) already takes an author argument. Carrying
 > the profile as metadata sidesteps a signature change on the Claude transform.
 
-### Keep findings honest to the diff
-
-Today findings flow straight from transform to `externalAnnotations.addAnnotations`
-with only shape validation. Add one cheap guard in `onJobComplete`, before
-ingestion: drop any finding whose file is not in the launch patch, and count how
-many were dropped.
-
-This is a ~15-line filter, not a module. No path-escape analysis, no rename
-normalization, no hunk-level validation. If every finding is dropped, fail the
-job (see below). Otherwise ingest the survivors and, if any were dropped,
-surface a calm one-liner:
-
-```txt
-8 findings · 2 skipped (not in the reviewed diff)
-```
-
-Never expose schema or provider internals in that message.
-
 ## Completion semantics
 
 Process success is not review success. Follow the Code Tour precedent already in
@@ -260,7 +224,6 @@ the codebase:
 
 - Process exits non-zero → job fails (today's behavior).
 - Output missing or unparseable → job fails.
-- Every finding dropped as out-of-diff → job fails.
 - Otherwise the job completes, and `job:completed` reflects the post-ingestion
   state.
 
@@ -288,7 +251,7 @@ packages/shared/review-profiles.ts
   Runtime-agnostic → vendored to Pi.
 
 packages/server/review-profile-loader.ts
-  Read built-in + user dir + repo dir, apply inference, return a flat list.
+  Read built-in + user dir, apply inference, return a flat list.
 ```
 
 Edits:
@@ -298,8 +261,8 @@ packages/shared/agent-jobs.ts          + reviewProfileId / reviewProfileLabel
 packages/server/agent-jobs.ts          parse + forward reviewProfileId
 apps/pi-extension/server/agent-jobs.ts mirror
 packages/server/review.ts              discovery route, launch-time resolution,
-                                       prompt composition, in-diff filter,
-                                       completion semantics, severity map
+                                       prompt composition, completion semantics,
+                                       severity map
 apps/pi-extension/server/serverReview.ts  mirror
 packages/server/claude-review.ts       prompt composition slot
 packages/server/codex-review.ts        prompt composition slot, priority→severity
@@ -318,43 +281,50 @@ The existing "Run Review" button keeps working throughout, because no
 4. Launch-time resolution in `review.ts`.
 5. Prompt composition.
 6. Severity normalization.
-7. In-diff filter + completion semantics.
+7. Completion semantics.
 
 Then, separately, the frontend (deferred): the engine/review picker in
-`AgentsTab.tsx`, sending `reviewProfileId` from `useAgentJobs.ts`, the repo tag,
-and the profile tag on annotations.
+`AgentsTab.tsx`, sending `reviewProfileId` from `useAgentJobs.ts`, and the
+profile tag on annotations.
 
 ## Tests
 
 Keep them proportional:
 
 - Inference: `security.json` → `user:security`, label title-casing.
-- Name clash: user beats repo; malformed file is skipped, not fatal.
+- Name clash: malformed file is skipped, not fatal.
 - Launch: `POST /api/agents/jobs` forwards `reviewProfileId`, rejects unknown
   fields, defaults to `builtin:default` when absent.
 - Prompt: custom section present for a profile, absent for default.
 - Severity: Codex priority maps to the shared scale.
-- Findings: out-of-diff finding is dropped; all-dropped fails the job.
 - Bun/Pi launch contracts stay compatible.
 
 One happy path and one failure path end to end:
 
 ```txt
-repo profile → launch Codex → parse → in-diff findings → annotations appear
-repo profile → provider exits 0 with junk → job fails → no annotations
+user profile → launch Codex → parse → findings → annotations appear
+user profile → provider exits 0 with junk → job fails → no annotations
 ```
 
 ## Deliberately not building
 
 Recorded so these stay cut, not silently reintroduced:
 
-- No precedence engine, reserved-ID system, or shadow-prevention rules. A sort
-  and a `Map`.
+- No precedence framework, reserved-ID system, or shadow-prevention rules. A
+  `Map` with first-seen-wins.
+- No per-repo profiles. Profiles are global-only
+  (`${PLANNOTATOR_DATA_DIR}/reviews/`); there is no repo source, repo trust, or
+  repo scoping.
+- No engine restriction on a profile. A profile is `id`/`label`/`instructions`
+  (`/description`); engine and model are independent runtime choices and are
+  never carried on the profile.
 - No content hashing / profile version tracking.
 - No structured discovery `diagnostics[]` channel. Skip-and-log.
 - No `ReviewEngineAdapter` interface or formal `NormalizedReviewResult` boundary.
   The two transforms returning a shared finding shape is enough.
-- No diff-anchoring module. A one-function in-diff filter.
+- No diff-anchoring or out-of-diff finding filter. Every finding reaches the
+  annotations panel; findings flow straight from transform to ingestion with
+  only shape validation.
 - No inline `reviewPrompt` in the launch API.
 - No temporary one-off profile workflow. If it's ever wanted, it's a thin layer
   that writes a user profile and launches by id — not part of this design.

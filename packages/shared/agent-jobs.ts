@@ -134,3 +134,16 @@ export function isTerminalStatus(status: AgentJobStatus): boolean {
 export function jobSource(id: string): string {
   return "agent-" + id.slice(0, 8);
 }
+
+// ---------------------------------------------------------------------------
+// Review ingestion completion semantics
+// ---------------------------------------------------------------------------
+
+/** Calm, provider-neutral failure reason. Never leak schema/CLI internals. */
+export const REVIEW_OUTPUT_FAILED = "Review finished but produced no usable findings.";
+
+/** Flip a job to failed with a calm one-liner (Code Tour precedent). */
+export function markJobReviewFailed(job: AgentJobInfo, error: string): void {
+  job.status = "failed";
+  job.error = error;
+}

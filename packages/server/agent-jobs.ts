@@ -91,18 +91,12 @@ export interface AgentJobHandlerOptions {
     reviewProfileId?: string;
     /** Resolved review profile label at launch time. Stored on AgentJobInfo. */
     reviewProfileLabel?: string;
-    /**
-     * Files changed in the patch snapshotted at launch. Surfaced back to
-     * onJobComplete as meta.reviewChangedFiles so it can drop out-of-diff
-     * findings against the diff the agent actually reviewed.
-     */
-    reviewChangedFiles?: string[];
   } | null>;
   /**
    * Called after a job process exits with exit code 0.
    * Use for result ingestion (e.g., reading an output file and pushing annotations).
    */
-  onJobComplete?: (job: AgentJobInfo, meta: { outputPath?: string; stdout?: string; cwd?: string; reviewChangedFiles?: string[] }) => void | Promise<void>;
+  onJobComplete?: (job: AgentJobInfo, meta: { outputPath?: string; stdout?: string; cwd?: string }) => void | Promise<void>;
 }
 
 export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJobHandler {
@@ -111,8 +105,6 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
   // --- State ---
   const jobs = new Map<string, { info: AgentJobInfo; proc: ReturnType<typeof Bun.spawn> | null }>();
   const jobOutputPaths = new Map<string, string>();
-  // Launch-time changed-file lists, keyed by job id — read once in onJobComplete.
-  const jobChangedFiles = new Map<string, string[]>();
   const subscribers = new Set<ReadableStreamDefaultController>();
   const encoder = new TextEncoder();
   let version = 0;
@@ -148,7 +140,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
     command: string[],
     label: string,
     outputPath?: string,
-    spawnOptions?: { captureStdout?: boolean; stdinPrompt?: string; cwd?: string; prompt?: string; engine?: string; model?: string; effort?: string; reasoningEffort?: string; fastMode?: boolean; prUrl?: string; diffScope?: string; diffContext?: AgentJobInfo["diffContext"]; reviewProfileId?: string; reviewProfileLabel?: string; reviewChangedFiles?: string[] },
+    spawnOptions?: { captureStdout?: boolean; stdinPrompt?: string; cwd?: string; prompt?: string; engine?: string; model?: string; effort?: string; reasoningEffort?: string; fastMode?: boolean; prUrl?: string; diffScope?: string; diffContext?: AgentJobInfo["diffContext"]; reviewProfileId?: string; reviewProfileLabel?: string },
   ): AgentJobInfo {
     const id = crypto.randomUUID();
     const source = jobSource(id);
@@ -207,7 +199,6 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
       jobs.set(id, { info, proc });
       if (outputPath) jobOutputPaths.set(id, outputPath);
       if (spawnOptions?.cwd) jobOutputPaths.set(`${id}:cwd`, spawnOptions.cwd);
-      if (spawnOptions?.reviewChangedFiles) jobChangedFiles.set(id, spawnOptions.reviewChangedFiles);
       broadcast({ type: "job:started", job: { ...info } });
 
       // Drain stderr: capture tail for error reporting + broadcast live log deltas
@@ -307,7 +298,6 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
               outputPath,
               stdout: captureStdout ? stdoutBuf : undefined,
               cwd: jobCwd,
-              reviewChangedFiles: jobChangedFiles.get(id),
             });
           } catch {
             // Result ingestion failure shouldn't prevent job completion broadcast
@@ -315,7 +305,6 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
         }
         jobOutputPaths.delete(id);
         jobOutputPaths.delete(`${id}:cwd`);
-        jobChangedFiles.delete(id);
 
         broadcast({ type: "job:completed", job: { ...entry.info } });
       }).catch(() => {
@@ -352,7 +341,6 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
     entry.info.endedAt = Date.now();
     jobOutputPaths.delete(id);
     jobOutputPaths.delete(`${id}:cwd`);
-    jobChangedFiles.delete(id);
     broadcast({ type: "job:completed", job: { ...entry.info } });
     return true;
   }
@@ -495,7 +483,6 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
           let jobDiffContext: AgentJobInfo["diffContext"] | undefined;
           let jobReviewProfileId: string | undefined;
           let jobReviewProfileLabel: string | undefined;
-          let jobReviewChangedFiles: string[] | undefined;
           if (options.buildCommand) {
             // Thread config from POST body to buildCommand
             const config: Record<string, unknown> = {};
@@ -524,7 +511,6 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
               jobDiffContext = built.diffContext;
               jobReviewProfileId = built.reviewProfileId;
               jobReviewProfileLabel = built.reviewProfileLabel;
-              jobReviewChangedFiles = built.reviewChangedFiles;
             }
           }
 
@@ -550,7 +536,6 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
             diffContext: jobDiffContext,
             reviewProfileId: jobReviewProfileId,
             reviewProfileLabel: jobReviewProfileLabel,
-            reviewChangedFiles: jobReviewChangedFiles,
           });
           return Response.json({ job }, { status: 201 });
         } catch (err) {

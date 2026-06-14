@@ -14,17 +14,11 @@ const userEntry = (path: string, json: unknown): RawReviewProfileEntry => ({
   path,
   json,
 });
-const repoEntry = (path: string, json: unknown): RawReviewProfileEntry => ({
-  source: "repo",
-  path,
-  json,
-});
 
 describe("inference", () => {
   test("id ← filename stem namespaced by source", () => {
     expect(filenameStem("/home/me/.plannotator/reviews/security.json")).toBe("security");
     expect(inferId("security", "user")).toBe("user:security");
-    expect(inferId("security", "repo")).toBe("repo:security");
   });
 
   test("label ← title-cased id", () => {
@@ -33,13 +27,12 @@ describe("inference", () => {
     expect(inferLabel("data_flow")).toBe("Data Flow");
   });
 
-  test("a bare instructions-only file resolves with inferred id/label/engines", () => {
+  test("a bare instructions-only file resolves with inferred id/label", () => {
     const [, profile] = resolveReviewProfiles([
       userEntry("/data/reviews/security.json", { instructions: "Focus on security." }),
     ]);
     expect(profile.id).toBe("user:security");
     expect(profile.label).toBe("Security");
-    expect(profile.engines).toEqual(["claude", "codex"]);
     expect(profile.source).toBe("user");
     expect(profile.sourcePath).toBe("/data/reviews/security.json");
   });
@@ -55,15 +48,6 @@ describe("validateProfileShape", () => {
     expect(validateProfileShape([{ instructions: "ok" }])).toBeNull();
   });
 
-  test("engines must be a non-empty subset of supported", () => {
-    expect(validateProfileShape({ instructions: "x", engines: ["claude"] })).toMatchObject({
-      engines: ["claude"],
-    });
-    expect(validateProfileShape({ instructions: "x", engines: [] })).toBeNull();
-    expect(validateProfileShape({ instructions: "x", engines: ["gemini"] })).toBeNull();
-    expect(validateProfileShape({ instructions: "x", engines: "claude" })).toBeNull();
-  });
-
   test("rejects oversized instructions", () => {
     expect(validateProfileShape({ instructions: "a".repeat(20_001) })).toBeNull();
   });
@@ -77,18 +61,16 @@ describe("resolution + name clashes", () => {
     expect(resolved[0].default).toBe(true);
   });
 
-  test("user beats repo on a bare-name clash", () => {
+  test("first-seen user profile wins on a bare-name clash", () => {
     const resolved = resolveReviewProfiles([
-      repoEntry("/repo/.plannotator/reviews/security.json", {
-        instructions: "repo version",
-      }),
-      userEntry("/data/reviews/security.json", { instructions: "user version" }),
+      userEntry("/data/reviews/security.json", { instructions: "first version" }),
+      userEntry("/data/reviews/security.json", { instructions: "second version" }),
     ]);
     const security = resolved.filter((p) => p.label === "Security");
     expect(security).toHaveLength(1);
     expect(security[0].source).toBe("user");
     expect(security[0].id).toBe("user:security");
-    expect(security[0].instructions).toBe("user version");
+    expect(security[0].instructions).toBe("first version");
   });
 
   test("malformed entries are dropped, valid siblings survive", () => {

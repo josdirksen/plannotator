@@ -309,6 +309,7 @@ During normal plan review, an Archive sidebar tab provides the same browsing via
 | `/api/external-annotations` | PATCH | Update fields on a single annotation (`?id=`) |
 | `/api/external-annotations` | DELETE | Remove by `?id=`, `?source=`, or clear all |
 | `/api/agents/capabilities` | GET | Check available agent providers (claude, codex, tour) |
+| `/api/agents/review-profiles` | GET | List launchable review profiles (user dir + builtins) |
 | `/api/agents/jobs/stream` | GET | SSE stream for real-time agent job status updates |
 | `/api/agents/jobs` | GET | Snapshot of agent jobs (polling fallback, `?since=N` for version gating) |
 | `/api/agents/jobs` | POST | Launch an agent job (body: `{ provider, command, label }`) |

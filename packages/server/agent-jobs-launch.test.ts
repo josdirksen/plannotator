@@ -111,17 +111,17 @@ describe("POST /api/agents/jobs — reviewProfileId launch plumbing", () => {
       async buildCommand() {
         return {
           command: ["true"],
-          reviewProfileId: "repo:api-contracts",
+          reviewProfileId: "user:api-contracts",
           reviewProfileLabel: "API Contracts",
         };
       },
     });
 
-    const res = await handler.handle(post({ provider: "claude", reviewProfileId: "repo:api-contracts" }), JOBS_URL);
+    const res = await handler.handle(post({ provider: "claude", reviewProfileId: "user:api-contracts" }), JOBS_URL);
 
     expect(res?.status).toBe(201);
     const { job } = await res!.json();
-    expect(job.reviewProfileId).toBe("repo:api-contracts");
+    expect(job.reviewProfileId).toBe("user:api-contracts");
     expect(job.reviewProfileLabel).toBe("API Contracts");
     handler.killAll();
   });

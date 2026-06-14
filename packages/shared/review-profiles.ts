@@ -6,19 +6,16 @@
  * calls into this module. Vendored to Pi.
  *
  * A review profile is a named bundle of review intent. The only field a human
- * must write is `instructions`; everything else (`id`, `label`, `engines`) is
- * inferred. See docs/custom-reviews.md for the authoritative spec.
+ * must write is `instructions`; everything else (`id`, `label`) is inferred.
+ * See docs/custom-reviews.md for the authoritative spec.
  */
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-/** Engines a profile can target. */
-export type ReviewEngine = "claude" | "codex";
-
 /** Where a resolved profile came from. */
-export type ReviewProfileSource = "builtin" | "user" | "repo";
+export type ReviewProfileSource = "builtin" | "user";
 
 export interface ReviewProfile {
   /** Inferred from filename if omitted. */
@@ -28,8 +25,6 @@ export interface ReviewProfile {
   /** The only field a human must write. */
   instructions: string;
   description?: string;
-  /** Defaults to all supported engines. */
-  engines?: ReviewEngine[];
 }
 
 export interface ResolvedReviewProfile extends ReviewProfile {
@@ -37,8 +32,6 @@ export interface ResolvedReviewProfile extends ReviewProfile {
   sourcePath?: string;
   /** True for builtin:default — surfaced to the picker as the pre-selected option. */
   default?: boolean;
-  /** Always resolved to a concrete list (never undefined after resolution). */
-  engines: ReviewEngine[];
 }
 
 /** Response shape for `GET /api/agents/review-profiles`. */
@@ -47,15 +40,11 @@ export interface ReviewProfilesResponse {
     id: string;
     label: string;
     description?: string;
-    engines: ReviewEngine[];
     source: ReviewProfileSource;
     sourcePath?: string;
     default?: boolean;
   }>;
 }
-
-/** All engines a profile may target. Inference default. */
-export const SUPPORTED_ENGINES: ReadonlyArray<ReviewEngine> = ["claude", "codex"];
 
 /** Reserved id for the built-in default review. */
 export const BUILTIN_DEFAULT_ID = "builtin:default";
@@ -84,7 +73,6 @@ export const BUILTIN_DEFAULT_PROFILE: ResolvedReviewProfile = {
   label: "Default",
   instructions: "",
   source: "builtin",
-  engines: [...SUPPORTED_ENGINES],
   default: true,
 };
 
@@ -98,7 +86,7 @@ export const BUILTIN_PROFILES: ReadonlyArray<ResolvedReviewProfile> = [
 
 /** A raw profile entry as discovered on disk, before validation/inference. */
 export interface RawReviewProfileEntry {
-  source: "user" | "repo";
+  source: "user";
   /** Absolute path to the JSON file. */
   path: string;
   /** Parsed JSON contents (already JSON.parse'd by the loader). */
@@ -110,15 +98,10 @@ export interface ParsedReviewProfileShape {
   id?: string;
   label?: string;
   description?: string;
-  engines?: ReviewEngine[];
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isEngine(value: unknown): value is ReviewEngine {
-  return value === "claude" || value === "codex";
 }
 
 /**
@@ -128,14 +111,12 @@ function isEngine(value: unknown): value is ReviewEngine {
  * Rules:
  *  - `instructions` is required and must be a non-empty (after trim) string.
  *  - `id`, `label`, `description` if present must be strings within bounds.
- *  - `engines` if present must be a non-empty array that is a subset of the
- *    supported engines.
  *  - Bounded sizes guard against obviously abusive input.
  */
 export function validateProfileShape(json: unknown): ParsedReviewProfileShape | null {
   if (!isPlainObject(json)) return null;
 
-  const { instructions, id, label, description, engines } = json;
+  const { instructions, id, label, description } = json;
 
   if (typeof instructions !== "string") return null;
   if (instructions.trim().length === 0) return null;
@@ -166,13 +147,6 @@ export function validateProfileShape(json: unknown): ParsedReviewProfileShape | 
     out.description = description;
   }
 
-  if (engines !== undefined) {
-    if (!Array.isArray(engines) || engines.length === 0) return null;
-    if (!engines.every(isEngine)) return null;
-    // Dedupe while preserving order.
-    out.engines = [...new Set(engines as ReviewEngine[])];
-  }
-
   return out;
 }
 
@@ -190,7 +164,7 @@ export function filenameStem(filename: string): string {
  * Infer the namespaced id from a source + bare id (e.g. a filename stem).
  * `security` + `user` → `user:security`.
  */
-export function inferId(bareId: string, source: "user" | "repo"): string {
+export function inferId(bareId: string, source: "user"): string {
   return `${source}:${bareId}`;
 }
 
@@ -220,9 +194,9 @@ export function inferLabel(bareId: string): string {
  * list of launchable profiles.
  *
  * Name-clash story (deliberately trivial — see spec):
- *  - `builtin:default` is special-cased and always wins its name; no user/repo
+ *  - `builtin:default` is special-cased and always wins its name; no user
  *    entry can shadow it.
- *  - On a bare-name clash between a user and a repo profile, the user wins.
+ *  - On a bare-name clash between two user profiles, the first-seen wins.
  *  - Malformed entries are dropped. The caller logs them — resolution stays
  *    pure and silent.
  */
@@ -230,7 +204,7 @@ export function resolveReviewProfiles(
   entries: RawReviewProfileEntry[],
   builtins: ReadonlyArray<ResolvedReviewProfile> = BUILTIN_PROFILES,
 ): ResolvedReviewProfile[] {
-  // Bare name → resolved profile. user wins over repo.
+  // Bare name → resolved profile. First-seen wins.
   const byBareName = new Map<string, ResolvedReviewProfile>();
 
   for (const entry of entries) {
@@ -246,29 +220,20 @@ export function resolveReviewProfiles(
     const label = shape.label ?? inferLabel(bareId);
     if (label.length === 0) continue;
 
-    // builtin:default is reserved; a custom file cannot claim it.
+    // The namespace prefix (e.g. "user:") reserves builtin:default — an
+    // inferred user id can never collide with it, so no explicit guard needed.
     const namespacedId = inferId(bareId, entry.source);
-    if (namespacedId === BUILTIN_DEFAULT_ID) continue;
 
-    const resolved: ResolvedReviewProfile = {
+    if (byBareName.has(bareId)) continue; // first-seen wins on a bare-name clash
+
+    byBareName.set(bareId, {
       id: namespacedId,
       label,
       instructions: shape.instructions,
       description: shape.description,
-      engines: shape.engines ?? [...SUPPORTED_ENGINES],
       source: entry.source,
       sourcePath: entry.path,
-    };
-
-    const existing = byBareName.get(bareId);
-    if (!existing) {
-      byBareName.set(bareId, resolved);
-      continue;
-    }
-    // user beats repo on a bare-name clash. Otherwise keep first-seen.
-    if (existing.source === "repo" && resolved.source === "user") {
-      byBareName.set(bareId, resolved);
-    }
+    });
   }
 
   return [...builtins, ...byBareName.values()];

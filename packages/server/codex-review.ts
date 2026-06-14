@@ -191,12 +191,6 @@ export interface CodexCommandOptions {
   model?: string;
   reasoningEffort?: string;
   fastMode?: boolean;
-  /**
-   * Resolved review profile this command runs under. Accepted here so the
-   * launch path can thread it through to one place; prompt composition off it
-   * lands in a later phase. Unused today — output stays byte-identical.
-   */
-  reviewProfile?: ResolvedReviewProfile;
 }
 
 /** Build the `codex exec` argv array. Materializes the schema file on first call. */
@@ -362,7 +356,7 @@ export function transformReviewFindings(
       severity: codexPriorityToSeverity(f.priority),
     }));
 
-  debugLog("TRANSFORM_FINDINGS", {
+  void debugLog("TRANSFORM_FINDINGS", {
     inputCount: findings.length,
     outputCount: annotations.length,
     annotations: annotations.map((a) => ({

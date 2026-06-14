@@ -214,10 +214,6 @@ export function buildClaudeCommand(
   prompt: string,
   model: string = "claude-opus-4-7",
   effort?: string,
-  // Resolved review profile this command runs under. Accepted so the launch
-  // path threads it to one place; prompt composition off it lands in a later
-  // phase. Unused today — output stays byte-identical.
-  reviewProfile?: ResolvedReviewProfile,
 ): ClaudeCommandResult {
   const allowedTools = [
     "Agent", "Read", "Glob", "Grep",

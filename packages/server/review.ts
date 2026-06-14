@@ -561,11 +561,29 @@ export async function startReviewServer(
         prRepo: getDisplayRepo(jobPrMeta),
       } : jobPrUrl ? { prUrl: jobPrUrl } : {};
 
-      const profileLabel = job.reviewProfileLabel;
+      // Only tag annotations with a *custom* profile — the default review needs no tag.
+      const profileLabel =
+        job.reviewProfileId && job.reviewProfileId !== BUILTIN_DEFAULT_PROFILE.id
+          ? job.reviewProfileLabel
+          : undefined;
+
+      // Map findings onto annotations and ingest. Shared by both engine branches;
+      // no-ops on an empty set so a clean (zero-finding) review stays "done".
+      const ingest = <T extends object>(transformed: readonly T[], logTag: string) => {
+        if (transformed.length === 0) return;
+        const annotations = transformed.map((a) => ({
+          ...a,
+          ...jobPrContext,
+          ...(jobDiffScope && { diffScope: jobDiffScope }),
+          ...(profileLabel && { reviewProfileLabel: profileLabel }),
+        }));
+        const result = externalAnnotations.addAnnotations({ annotations });
+        if ("error" in result) console.error(`[${logTag}] addAnnotations error:`, result.error);
+      };
 
       // --- Codex path ---
-      if (job.provider === "codex" && meta.outputPath) {
-        const output = await parseCodexOutput(meta.outputPath);
+      if (job.provider === "codex") {
+        const output = meta.outputPath ? await parseCodexOutput(meta.outputPath) : null;
         if (!output) {
           // Process exited 0 but output is missing/unparseable — not a green run.
           markJobReviewFailed(job, REVIEW_OUTPUT_FAILED);
@@ -581,23 +599,16 @@ export async function startReviewServer(
           confidence: output.overall_confidence_score,
         };
 
-        if (output.findings.length > 0) {
-          const transformed = transformReviewFindings(
+        ingest(
+          transformReviewFindings(
             output.findings,
             job.source,
             cwd,
             "Codex",
             workspace ? (filePath) => workspace.normalizeAnnotationPath(filePath) : undefined,
-          );
-          const annotations = transformed.map(a => ({
-            ...a,
-            ...jobPrContext,
-            ...(jobDiffScope && { diffScope: jobDiffScope }),
-            ...(profileLabel && { reviewProfileLabel: profileLabel }),
-          }));
-          const result = externalAnnotations.addAnnotations({ annotations });
-          if ("error" in result) console.error(`[codex-review] addAnnotations error:`, result.error);
-        }
+          ),
+          "codex-review",
+        );
         return;
       }
 
@@ -618,22 +629,15 @@ export async function startReviewServer(
           confidence: total === 0 ? 1.0 : Math.max(0, 1.0 - (output.summary.important * 0.2)),
         };
 
-        if (output.findings.length > 0) {
-          const transformed = transformClaudeFindings(
+        ingest(
+          transformClaudeFindings(
             output.findings,
             job.source,
             cwd,
             workspace ? (filePath) => workspace.normalizeAnnotationPath(filePath) : undefined,
-          );
-          const annotations = transformed.map(a => ({
-            ...a,
-            ...jobPrContext,
-            ...(jobDiffScope && { diffScope: jobDiffScope }),
-            ...(profileLabel && { reviewProfileLabel: profileLabel }),
-          }));
-          const result = externalAnnotations.addAnnotations({ annotations });
-          if ("error" in result) console.error(`[claude-review] addAnnotations error:`, result.error);
-        }
+          ),
+          "claude-review",
+        );
         return;
       }
 

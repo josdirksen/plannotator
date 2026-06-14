@@ -38,7 +38,9 @@ function readReviewDir(dir: string): RawReviewProfileEntry[] {
   }
 
   const entries: RawReviewProfileEntry[] = [];
-  for (const filename of filenames) {
+  // Sort so a bare-name clash resolves deterministically (first-seen wins) rather
+  // than by filesystem readdir order, which varies across machines.
+  for (const filename of filenames.sort()) {
     if (!filename.toLowerCase().endsWith(".json")) continue;
     const path = join(dir, filename);
     try {

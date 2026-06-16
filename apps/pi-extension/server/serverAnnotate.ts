@@ -291,6 +291,17 @@ export async function startAnnotateServer(options: {
 		}
 	};
 
+	const getReferenceRootPaths = () => {
+		const mode = options.mode || "annotate";
+		if (mode === "annotate-folder" && options.folderPath) {
+			return [options.folderPath];
+		}
+		if (/^https?:\/\//i.test(options.filePath)) {
+			return [process.cwd()];
+		}
+		return [process.cwd(), dirname(resolvePath(options.filePath))];
+	};
+
 	const server = createServer(async (req, res) => {
 		const url = requestUrl(req);
 
@@ -356,6 +367,7 @@ export async function startAnnotateServer(options: {
 			await handleDocRequest(res, url, {
 				rewriteHtml: htmlAssets.rewriteHtml,
 				sourceSaveFolderPath: options.mode === "annotate-folder" ? options.folderPath : undefined,
+				rootPaths: getReferenceRootPaths(),
 			});
 		} else if (url.pathname === "/api/source/save" && req.method === "POST") {
 			let body: SourceSaveRequest;
@@ -396,12 +408,7 @@ export async function startAnnotateServer(options: {
 							: 500;
 			json(res, result, status);
 		} else if (url.pathname === "/api/doc/exists" && req.method === "POST") {
-			const rootPath = options.mode === "annotate-folder" && options.folderPath
-				? options.folderPath
-				: /^https?:\/\//i.test(options.filePath)
-					? process.cwd()
-					: dirname(resolvePath(options.filePath));
-			await handleDocExistsRequest(res, req, { rootPath });
+			await handleDocExistsRequest(res, req, { rootPaths: getReferenceRootPaths() });
 		} else if (url.pathname === "/api/obsidian/vaults") {
 			handleObsidianVaultsRequest(res);
 		} else if (url.pathname === "/api/reference/obsidian/files" && req.method === "GET") {

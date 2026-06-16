@@ -43,10 +43,105 @@ type Res = ServerResponse;
 export interface HandleDocOptions {
 	rewriteHtml?: (html: string, filepath: string) => string;
 	sourceSaveFolderPath?: string;
+	rootPaths?: string[];
 }
 
 interface HandleDocExistsOptions {
 	rootPath?: string;
+	rootPaths?: string[];
+}
+
+type RouteResolveResult =
+	| { kind: "found"; path: string }
+	| { kind: "not_found"; input: string }
+	| { kind: "ambiguous"; input: string; matches: string[] }
+	| { kind: "unavailable"; input: string };
+
+function getAllowedRootPaths(options?: { rootPath?: string; rootPaths?: string[] }): string[] {
+	const rawRoots = options?.rootPaths?.length
+		? options.rootPaths
+		: [options?.rootPath ?? process.cwd()];
+	const roots: string[] = [];
+	for (const root of rawRoots) {
+		if (typeof root !== "string" || root.length === 0) continue;
+		const resolved = resolveUserPath(root);
+		if (!roots.includes(resolved)) roots.push(resolved);
+	}
+	return roots.length > 0 ? roots : [resolveUserPath(process.cwd())];
+}
+
+function isWithinAllowedRoots(candidate: string, roots: string[]): boolean {
+	return roots.some((root) => isWithinProjectRoot(candidate, root));
+}
+
+function getTrustedBaseDir(base: string | null, roots: string[]): string | null {
+	if (!base) return null;
+	const resolvedBase = resolveUserPath(base);
+	return isWithinAllowedRoots(resolvedBase, roots) ? resolvedBase : null;
+}
+
+function relativizeToAllowedRoots(path: string, roots: string[]): string {
+	for (const root of roots) {
+		const prefix = `${root}/`;
+		if (path.startsWith(prefix)) return path.slice(prefix.length);
+		if (path === root) return ".";
+	}
+	return path;
+}
+
+async function resolveCodeFileFromAllowedRoots(
+	input: string,
+	roots: string[],
+	baseDir: string | null,
+): Promise<RouteResolveResult> {
+	const found = new Set<string>();
+	const ambiguous = new Set<string>();
+	let unavailable = false;
+
+	for (const root of roots) {
+		const rootBase = baseDir && isWithinProjectRoot(baseDir, root) ? baseDir : undefined;
+		const result = await resolveCodeFile(input, root, rootBase);
+		if (result.kind === "found") {
+			if (isWithinProjectRoot(result.path, root)) found.add(result.path);
+		} else if (result.kind === "ambiguous") {
+			for (const match of result.matches) {
+				ambiguous.add(match);
+			}
+		} else if (result.kind === "unavailable") {
+			unavailable = true;
+		}
+	}
+
+	if (found.size === 1) return { kind: "found", path: [...found][0] };
+	if (found.size > 1) return { kind: "ambiguous", input, matches: [...found] };
+	if (ambiguous.size > 0) return { kind: "ambiguous", input, matches: [...ambiguous] };
+	if (unavailable) return { kind: "unavailable", input };
+	return { kind: "not_found", input };
+}
+
+function resolveMarkdownFileFromAllowedRoots(input: string, roots: string[]): RouteResolveResult {
+	const found = new Set<string>();
+	const ambiguous = new Set<string>();
+	let unavailable = false;
+
+	for (const root of roots) {
+		const result = resolveMarkdownFile(input, root);
+		if (result.kind === "found") {
+			if (isWithinProjectRoot(result.path, root)) found.add(result.path);
+		} else if (result.kind === "ambiguous") {
+			for (const match of result.matches) {
+				ambiguous.add(match);
+			}
+		} else if (result.kind === "unavailable") {
+			unavailable = true;
+		}
+	}
+
+	if (found.size === 1) return { kind: "found", path: [...found][0] };
+	if (found.size > 1) return { kind: "ambiguous", input, matches: [...found] };
+	if (ambiguous.size > 0) return { kind: "ambiguous", input, matches: [...ambiguous] };
+	if (unavailable) return { kind: "unavailable", input };
+	return { kind: "not_found", input };
 }
 
 function applyDocOptions<T extends Record<string, unknown>>(
@@ -110,16 +205,15 @@ export async function handleDocRequest(res: Res, url: URL, options: HandleDocOpt
 		return;
 	}
 
+	const allowedRoots = getAllowedRootPaths(options);
 	// Side-channel: warm the code-file walk so /api/doc/exists POSTs land warm.
-	void warmFileListCache(process.cwd(), "code");
+	for (const root of allowedRoots) {
+		void warmFileListCache(root, "code");
+	}
 
 	// Try resolving relative to base directory first (used by annotate mode).
-	// No isWithinProjectRoot check here — intentional, matches pre-existing
-	// markdown behavior. The base param is set server-side by the annotate
-	// server (see serverAnnotate.ts /api/doc route). The standalone HTML
-	// block below (no base) retains its cwd-based containment check.
 	const base = url.searchParams.get("base");
-	const resolvedBase = base ? resolveUserPath(base) : null;
+	const resolvedBase = getTrustedBaseDir(base, allowedRoots);
 	const convert = url.searchParams.get("convert") === "1";
 	if (
 		resolvedBase &&
@@ -127,6 +221,10 @@ export async function handleDocRequest(res: Res, url: URL, options: HandleDocOpt
 		/\.(mdx?|txt|html?)$/i.test(requestedPath)
 	) {
 		const fromBase = resolveUserPath(requestedPath, resolvedBase);
+		if (!isWithinAllowedRoots(fromBase, allowedRoots)) {
+			json(res, { error: "Access denied: path is outside project root" }, 403);
+			return;
+		}
 		try {
 			if (existsSync(fromBase)) {
 				const raw = readFileSync(fromBase, "utf-8");
@@ -145,10 +243,10 @@ export async function handleDocRequest(res: Res, url: URL, options: HandleDocOpt
 	}
 
 	// HTML files: resolve directly (not via resolveMarkdownFile which only handles .md/.mdx)
-	const projectRoot = process.cwd();
+	const projectRoot = allowedRoots[0];
 	if (/\.html?$/i.test(requestedPath)) {
 		const resolvedHtml = resolveUserPath(requestedPath, resolvedBase || projectRoot);
-		if (!isWithinProjectRoot(resolvedHtml, projectRoot)) {
+		if (!isWithinAllowedRoots(resolvedHtml, allowedRoots)) {
 			json(res, { error: "Access denied: path is outside project root" }, 403);
 			return;
 		}
@@ -172,7 +270,7 @@ export async function handleDocRequest(res: Res, url: URL, options: HandleDocOpt
 		const parsed = parseCodePath(requestedPath);
 		const cleanPath = parsed.filePath;
 		const literalPath = resolveUserPath(cleanPath, resolvedBase || projectRoot);
-		const literalAllowed = resolvedBase || isWithinProjectRoot(literalPath, projectRoot);
+		const literalAllowed = isWithinAllowedRoots(literalPath, allowedRoots);
 
 		let resolvedCode: string | null = null;
 		if (literalAllowed && existsSync(literalPath)) {
@@ -180,21 +278,22 @@ export async function handleDocRequest(res: Res, url: URL, options: HandleDocOpt
 		}
 
 		if (!resolvedCode) {
-			const result = await resolveCodeFile(cleanPath, projectRoot);
+			if (isAbsoluteUserPath(cleanPath) && !isWithinAllowedRoots(resolveUserPath(cleanPath), allowedRoots)) {
+				json(res, { error: "Access denied: path is outside project root" }, 403);
+				return;
+			}
+			const result = await resolveCodeFileFromAllowedRoots(cleanPath, allowedRoots, resolvedBase);
 			if (result.kind === "found") {
 				resolvedCode = result.path;
 			} else if (result.kind === "ambiguous") {
-				const prefix = `${projectRoot}/`;
-				const relative = result.matches.map((m: string) =>
-					m.startsWith(prefix) ? m.slice(prefix.length) : m,
-				);
+				const relative = result.matches.map((m: string) => relativizeToAllowedRoots(m, allowedRoots));
 				json(res, { error: `Ambiguous path '${requestedPath}'`, matches: relative }, 400);
 				return;
 			} else {
 				json(res, { error: `File not found: ${requestedPath}` }, 404);
 				return;
 			}
-			if (!isWithinProjectRoot(resolvedCode, projectRoot)) {
+			if (!isWithinAllowedRoots(resolvedCode, allowedRoots)) {
 				json(res, { error: "Access denied: path is outside project root" }, 403);
 				return;
 			}
@@ -226,14 +325,18 @@ export async function handleDocRequest(res: Res, url: URL, options: HandleDocOpt
 		}
 	}
 
-	const result = resolveMarkdownFile(requestedPath, projectRoot);
+	if (isAbsoluteUserPath(requestedPath) && !isWithinAllowedRoots(resolveUserPath(requestedPath), allowedRoots)) {
+		json(res, { error: "Access denied: path is outside project root" }, 403);
+		return;
+	}
+	const result = resolveMarkdownFileFromAllowedRoots(requestedPath, allowedRoots);
 
 	if (result.kind === "ambiguous") {
 		json(
 			res,
 			{
 				error: `Ambiguous filename '${result.input}': found ${result.matches.length} matches`,
-				matches: result.matches,
+				matches: result.matches.map((m: string) => relativizeToAllowedRoots(m, allowedRoots)),
 			},
 			400,
 		);
@@ -268,14 +371,11 @@ export async function handleDocExistsRequest(res: Res, req: IncomingMessage, opt
 		json(res, { error: "Too many paths (max 500)" }, 400);
 		return;
 	}
-	const projectRoot = resolveUserPath(options?.rootPath ?? process.cwd());
+	const allowedRoots = getAllowedRootPaths(options);
 	const baseRaw = (body as { base?: unknown }).base;
-	const requestedBaseDir = typeof baseRaw === "string" && baseRaw.length > 0
-		? resolveUserPath(baseRaw)
-		: undefined;
-	const baseDir = requestedBaseDir && isWithinProjectRoot(requestedBaseDir, projectRoot)
-		? requestedBaseDir
-		: undefined;
+	const baseDir = typeof baseRaw === "string" && baseRaw.length > 0
+		? getTrustedBaseDir(baseRaw, allowedRoots)
+		: null;
 	const results: Record<
 		string,
 		| { status: "found"; resolved: string }
@@ -287,20 +387,19 @@ export async function handleDocExistsRequest(res: Res, req: IncomingMessage, opt
 	await Promise.all(
 		(paths as string[]).map(async (p) => {
 			const cleanP = parseCodePath(p).filePath;
-			if (isAbsoluteUserPath(cleanP) && !isWithinProjectRoot(resolveUserPath(cleanP), projectRoot)) {
+			if (isAbsoluteUserPath(cleanP) && !isWithinAllowedRoots(resolveUserPath(cleanP), allowedRoots)) {
 				results[p] = { status: "missing" };
 				return;
 			}
-			const r = await resolveCodeFile(cleanP, projectRoot, baseDir);
+			const r = await resolveCodeFileFromAllowedRoots(cleanP, allowedRoots, baseDir);
 			if (r.kind === "found") {
-				results[p] = isWithinProjectRoot(r.path, projectRoot)
+				results[p] = isWithinAllowedRoots(r.path, allowedRoots)
 					? { status: "found", resolved: r.path }
 					: { status: "missing" };
 			} else if (r.kind === "ambiguous") {
-				const prefix = `${projectRoot}/`;
 				results[p] = {
 					status: "ambiguous",
-					matches: r.matches.map((m: string) => (m.startsWith(prefix) ? m.slice(prefix.length) : m)),
+					matches: r.matches.map((m: string) => relativizeToAllowedRoots(m, allowedRoots)),
 				};
 			} else if (r.kind === "unavailable") {
 				results[p] = { status: "unavailable" };

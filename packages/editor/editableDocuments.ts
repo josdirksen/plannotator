@@ -193,7 +193,7 @@ export function useEditableDocuments() {
     const previousStatus = record.saveStatus;
     const previousText = record.currentText;
     record.currentText = normalized;
-    record.saveStatus = cleanOrDirty(record);
+    record.saveStatus = previousStatus === 'saving' ? 'saving' : cleanOrDirty(record);
     if (previousStatus !== record.saveStatus || (options?.forceNotify && previousText !== normalized)) bump();
   }, [bump, getActiveDocumentLive]);
 

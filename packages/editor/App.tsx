@@ -2758,12 +2758,13 @@ const App: React.FC = () => {
 
       if (submitted || !isApiMode) return;
 
-      e.preventDefault();
-
-      if (isEditingMarkdown) {
+      if (isEditingMarkdown && editableDocuments.getActiveDocumentLive()?.sourceSave?.enabled) {
+        e.preventDefault();
         void handleSaveEditedSourceFile();
         return;
       }
+
+      e.preventDefault();
 
       const defaultApp = getDefaultNotesApp();
       const obsOk = isObsidianConfigured();

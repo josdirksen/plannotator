@@ -241,7 +241,7 @@ export function useAnnotationDraft({
     fetch('/api/draft', { method: 'POST', headers, body, keepalive }).catch(() => {
       // Chromium caps keepalive bodies (~64KB); retry without it. Completes
       // fine when the page was only backgrounded, best-effort on close.
-      if (keepalive) fetch('/api/draft', { method: 'POST', headers, body }).catch(() => {});
+      if (keepalive && canPersistRef.current) fetch('/api/draft', { method: 'POST', headers, body }).catch(() => {});
       // Otherwise silent failure — draft is best-effort.
     });
   }, []);

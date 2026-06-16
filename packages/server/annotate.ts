@@ -229,6 +229,16 @@ export async function startAnnotateServer(
     }
   };
 
+  const getReferenceRootPaths = () => {
+    if (mode === "annotate-folder" && folderPath) {
+      return [folderPath];
+    }
+    if (/^https?:\/\//i.test(filePath)) {
+      return [process.cwd()];
+    }
+    return [process.cwd(), dirname(filePath)];
+  };
+
   // Detect repo info (cached for this session)
   const repoInfo = await getRepoInfo();
 
@@ -341,6 +351,7 @@ export async function startAnnotateServer(
             return handleDoc(docReq, {
               rewriteHtml: htmlAssets.rewriteHtml,
               sourceSaveFolderPath: mode === "annotate-folder" ? folderPath : undefined,
+              rootPaths: getReferenceRootPaths(),
             });
           }
 
@@ -392,12 +403,7 @@ export async function startAnnotateServer(
 
           // API: Batch existence check for code-file paths the renderer detected
           if (url.pathname === "/api/doc/exists" && req.method === "POST") {
-            const rootPath = mode === "annotate-folder" && folderPath
-              ? folderPath
-              : /^https?:\/\//i.test(filePath)
-                ? process.cwd()
-                : dirname(filePath);
-            return handleDocExists(req, { rootPath });
+            return handleDocExists(req, { rootPaths: getReferenceRootPaths() });
           }
 
           // API: Detect Obsidian vaults

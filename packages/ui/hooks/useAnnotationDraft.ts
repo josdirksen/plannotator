@@ -15,11 +15,22 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import type { SourceSaveCapability } from '@plannotator/shared/source-save';
 import type { Annotation, CodeAnnotation, ImageAttachment } from '../types';
 import { fromShareable, parseShareableImages } from '../utils/sharing';
 import type { ShareableAnnotation } from '../utils/sharing';
 
 const DEBOUNCE_MS = 500;
+
+type DraftSourceSaveCapability = Extract<SourceSaveCapability, { enabled: true }>;
+
+export interface DraftEditedDocument {
+  key: string;
+  sourceSave: DraftSourceSaveCapability;
+  sessionOpenText: string;
+  diskBaseline: string;
+  currentText: string;
+}
 
 /** New format: full objects. */
 interface DraftData {
@@ -29,6 +40,8 @@ interface DraftData {
   /** Direct-edit document text. Present only when it differs from the
       as-submitted baseline ('' is a real value: a committed emptied doc). */
   editedMarkdown?: string;
+  /** Source-backed direct edits for folder/single-file annotate sessions. */
+  editedDocuments?: DraftEditedDocument[];
   ts: number;
 }
 
@@ -42,6 +55,26 @@ interface LegacyDraftData {
 
 function isLegacyDraft(data: unknown): data is LegacyDraftData {
   return !!data && typeof data === 'object' && 'a' in data && Array.isArray((data as LegacyDraftData).a);
+}
+
+function isDraftEditedDocument(value: unknown): value is DraftEditedDocument {
+  if (!value || typeof value !== 'object') return false;
+  const doc = value as Partial<DraftEditedDocument>;
+  const sourceSave = doc.sourceSave as Partial<DraftSourceSaveCapability> | undefined;
+  return (
+    typeof doc.key === 'string' &&
+    typeof doc.sessionOpenText === 'string' &&
+    typeof doc.diskBaseline === 'string' &&
+    typeof doc.currentText === 'string' &&
+    !!sourceSave &&
+    sourceSave.enabled === true &&
+    typeof sourceSave.path === 'string' &&
+    typeof sourceSave.basename === 'string' &&
+    typeof sourceSave.hash === 'string' &&
+    typeof sourceSave.mtimeMs === 'number' &&
+    typeof sourceSave.size === 'number' &&
+    typeof sourceSave.eol === 'string'
+  );
 }
 
 function formatTimeAgo(ts: number): string {
@@ -62,6 +95,8 @@ interface UseAnnotationDraftOptions {
   /** Current direct-edit text (live buffer or last commit), or null when the
       document matches the as-submitted baseline. Read at save time. */
   getEditedMarkdown?: () => string | null;
+  /** Current dirty source-backed documents. Read at save time. */
+  getEditedDocuments?: () => DraftEditedDocument[];
   isApiMode: boolean;
   isSharedSession: boolean;
   submitted: boolean;
@@ -72,6 +107,7 @@ interface RestoredDraft {
   codeAnnotations: CodeAnnotation[];
   globalAttachments: ImageAttachment[];
   editedMarkdown: string | null;
+  editedDocuments: DraftEditedDocument[];
 }
 
 interface UseAnnotationDraftResult {
@@ -88,6 +124,7 @@ export function useAnnotationDraft({
   codeAnnotations = [],
   globalAttachments,
   getEditedMarkdown,
+  getEditedDocuments,
   isApiMode,
   isSharedSession,
   submitted,
@@ -99,8 +136,8 @@ export function useAnnotationDraft({
 
   // Latest-values ref so the stable scheduleDraftSave reads current data when
   // the debounce fires, without re-creating callbacks per keystroke.
-  const latestRef = useRef({ annotations, codeAnnotations, globalAttachments, getEditedMarkdown });
-  latestRef.current = { annotations, codeAnnotations, globalAttachments, getEditedMarkdown };
+  const latestRef = useRef({ annotations, codeAnnotations, globalAttachments, getEditedMarkdown, getEditedDocuments });
+  latestRef.current = { annotations, codeAnnotations, globalAttachments, getEditedMarkdown, getEditedDocuments };
   const canPersist = isApiMode && !isSharedSession && !submitted;
   const canPersistRef = useRef(canPersist);
   canPersistRef.current = canPersist;
@@ -146,19 +183,24 @@ export function useAnnotationDraft({
           !isLegacyDraft(data) && typeof (data as DraftData).editedMarkdown === 'string'
             ? (data as DraftData).editedMarkdown!
             : null;
+        const restoredEditedDocuments =
+          !isLegacyDraft(data) && Array.isArray((data as DraftData).editedDocuments)
+            ? (data as DraftData).editedDocuments!.filter(isDraftEditedDocument)
+            : [];
 
         const totalCount = restoredAnnotations.length + restoredCodeAnnotations.length + restoredGlobal.length;
-        if (totalCount > 0 || restoredEdited !== null) {
+        if (totalCount > 0 || restoredEdited !== null || restoredEditedDocuments.length > 0) {
           draftDataRef.current = {
             annotations: restoredAnnotations,
             codeAnnotations: restoredCodeAnnotations,
             globalAttachments: restoredGlobal,
             editedMarkdown: restoredEdited,
+            editedDocuments: restoredEditedDocuments,
           };
           setDraftBanner({
             count: totalCount,
             timeAgo: formatTimeAgo(data.ts || 0),
-            hasEdits: restoredEdited !== null,
+            hasEdits: restoredEdited !== null || restoredEditedDocuments.length > 0,
           });
         }
         hasMountedRef.current = true;
@@ -173,10 +215,11 @@ export function useAnnotationDraft({
     // pending — a save landing after submit would resurrect a draft the
     // server just deleted, ghosting it into the next session for this plan.
     if (!canPersistRef.current) return;
-    const { annotations, codeAnnotations, globalAttachments, getEditedMarkdown } = latestRef.current;
+    const { annotations, codeAnnotations, globalAttachments, getEditedMarkdown, getEditedDocuments } = latestRef.current;
     const editedMarkdown = getEditedMarkdown?.() ?? null;
+    const editedDocuments = getEditedDocuments?.() ?? [];
 
-    if (annotations.length === 0 && codeAnnotations.length === 0 && globalAttachments.length === 0 && editedMarkdown === null) {
+    if (annotations.length === 0 && codeAnnotations.length === 0 && globalAttachments.length === 0 && editedMarkdown === null && editedDocuments.length === 0) {
       // Everything was cleared (last annotation removed, edits discarded).
       // A stale draft left on disk would offer back content the user
       // explicitly threw away.
@@ -189,6 +232,7 @@ export function useAnnotationDraft({
       codeAnnotations,
       globalAttachments,
       ...(editedMarkdown !== null ? { editedMarkdown } : {}),
+      ...(editedDocuments.length > 0 ? { editedDocuments } : {}),
       ts: Date.now(),
     };
 
@@ -253,7 +297,7 @@ export function useAnnotationDraft({
     setDraftBanner(null);
     draftDataRef.current = null;
 
-    if (!data) return { annotations: [], codeAnnotations: [], globalAttachments: [], editedMarkdown: null };
+    if (!data) return { annotations: [], codeAnnotations: [], globalAttachments: [], editedMarkdown: null, editedDocuments: [] };
 
     return data;
   }, []);

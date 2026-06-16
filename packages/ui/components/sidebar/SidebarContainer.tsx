@@ -12,7 +12,7 @@ import type { VersionInfo, VersionEntry } from "../../hooks/usePlanDiff";
 import type { UseFileBrowserReturn } from "../../hooks/useFileBrowser";
 import { TableOfContents } from "../TableOfContents";
 import { VersionBrowser } from "./VersionBrowser";
-import { FileBrowser } from "./FileBrowser";
+import { FileBrowser, type FileEditStatus } from "./FileBrowser";
 import { ArchiveBrowser, type ArchivedPlan } from "./ArchiveBrowser";
 import { MessagesBrowser, type PickerMessage } from "./MessagesBrowser";
 import { MessagesIcon } from "../icons/MessagesIcon";
@@ -35,6 +35,7 @@ interface SidebarContainerProps {
   showFilesTab?: boolean;
   fileAnnotationCounts?: Map<string, number>;
   highlightedFiles?: Set<string>;
+  fileEditStatuses?: Map<string, FileEditStatus>;
   fileBrowser?: UseFileBrowserReturn;
   onFilesSelectFile?: (absolutePath: string, dirPath: string) => void;
   onFilesFetchAll?: () => void;
@@ -82,6 +83,7 @@ export const SidebarContainer: React.FC<SidebarContainerProps> = ({
   showFilesTab,
   fileAnnotationCounts,
   highlightedFiles,
+  fileEditStatuses,
   fileBrowser,
   onFilesSelectFile,
   onFilesFetchAll,
@@ -259,6 +261,7 @@ export const SidebarContainer: React.FC<SidebarContainerProps> = ({
             onRetryVaultDir={onFilesRetryVaultDir}
             annotationCounts={fileAnnotationCounts}
             highlightedFiles={highlightedFiles}
+            editStatuses={fileEditStatuses}
           />
         )}
         {activeTab === "archive" && showArchiveTab && (

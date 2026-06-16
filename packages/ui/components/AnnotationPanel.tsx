@@ -324,6 +324,8 @@ const DirectEditsCard: React.FC<{
   // Show from the first hunk header; the ---/+++ preamble is noise here.
   const diffLines = React.useMemo(() => {
     const lines = diffText.split('\n');
+    const fileSeparators = lines.filter((l) => l.startsWith('===')).length;
+    if (fileSeparators > 1) return lines;
     const firstHunk = lines.findIndex((l) => l.startsWith('@@'));
     return firstHunk === -1 ? lines : lines.slice(firstHunk);
   }, [diffText]);

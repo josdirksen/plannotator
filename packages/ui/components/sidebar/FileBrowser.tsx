@@ -1,7 +1,7 @@
 /**
- * FileBrowser — Markdown file tree for the sidebar
+ * FileBrowser — markdown/text file tree for the sidebar
  *
- * Displays collapsible trees of markdown files from user-configured directories.
+ * Displays collapsible trees of markdown/text files from user-configured directories.
  * Clicking a file opens it in the main viewer for annotation.
  */
 
@@ -23,6 +23,12 @@ interface FileBrowserProps {
   onRetryVaultDir?: (vaultPath: string) => void;
   annotationCounts?: Map<string, number>;
   highlightedFiles?: Set<string>;
+  editStatuses?: Map<string, FileEditStatus>;
+}
+
+export interface FileEditStatus {
+  status: "clean" | "dirty" | "saving" | "saved" | "conflict" | "error";
+  dirty: boolean;
 }
 
 /** Recursively sum annotation counts for all descendant files of a folder node */
@@ -51,7 +57,8 @@ const TreeNode: React.FC<{
   activeFile: string | null;
   annotationCounts?: Map<string, number>;
   highlightedFiles?: Set<string>;
-}> = ({ node, depth, dirPath, expandedFolders, onToggleFolder, onSelectFile, activeFile, annotationCounts, highlightedFiles }) => {
+  editStatuses?: Map<string, FileEditStatus>;
+}> = ({ node, depth, dirPath, expandedFolders, onToggleFolder, onSelectFile, activeFile, annotationCounts, highlightedFiles, editStatuses }) => {
   const folderKey = `${dirPath}:${node.path}`;
   const absolutePath = `${dirPath}/${node.path}`;
   const isExpanded = expandedFolders.has(folderKey);
@@ -94,15 +101,27 @@ const TreeNode: React.FC<{
             activeFile={activeFile}
             annotationCounts={annotationCounts}
             highlightedFiles={highlightedFiles}
+            editStatuses={editStatuses}
           />
         ))}
       </>
     );
   }
 
-  const displayName = node.name.replace(/\.mdx?$/i, "");
+  const displayName = node.name.replace(/\.(mdx?|txt)$/i, "");
   const fileCount = annotationCounts?.get(absolutePath) ?? 0;
   const isHighlighted = highlightedFiles?.has(absolutePath);
+  const editStatus = editStatuses?.get(absolutePath);
+  const editMarker =
+    editStatus?.status === "conflict" || editStatus?.status === "error"
+      ? { label: "!", className: "bg-destructive/15 text-destructive", title: editStatus.status === "conflict" ? "Save conflict" : "Save failed" }
+      : editStatus?.status === "saving"
+        ? { label: "...", className: "bg-primary/10 text-primary", title: "Saving" }
+        : editStatus?.dirty
+          ? { label: "•", className: "bg-primary/10 text-primary", title: "Unsaved edits" }
+          : editStatus?.status === "saved"
+            ? { label: "✓", className: "bg-success/15 text-success", title: "Saved" }
+            : null;
   return (
     <button
       onClick={() => onSelectFile(absolutePath, dirPath)}
@@ -118,7 +137,15 @@ const TreeNode: React.FC<{
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
       </svg>
       <span className="truncate">{displayName}</span>
-      {fileCount > 0 && <CountBadge count={fileCount} active={isActive} className="ml-auto" />}
+      {editMarker && (
+        <span
+          className={`ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-semibold leading-none ${editMarker.className}`}
+          title={editMarker.title}
+        >
+          {editMarker.label}
+        </span>
+      )}
+      {fileCount > 0 && <CountBadge count={fileCount} active={isActive} className={editMarker ? "" : "ml-auto"} />}
     </button>
   );
 };
@@ -132,7 +159,8 @@ const DirSection: React.FC<{
   onRetry: () => void;
   annotationCounts?: Map<string, number>;
   highlightedFiles?: Set<string>;
-}> = ({ dir, expandedFolders, onToggleFolder, onSelectFile, activeFile, onRetry, annotationCounts, highlightedFiles }) => {
+  editStatuses?: Map<string, FileEditStatus>;
+}> = ({ dir, expandedFolders, onToggleFolder, onSelectFile, activeFile, onRetry, annotationCounts, highlightedFiles, editStatuses }) => {
   if (dir.isLoading) {
     return (
       <div className="p-3 text-[11px] text-muted-foreground">
@@ -158,7 +186,7 @@ const DirSection: React.FC<{
   if (dir.tree.length === 0) {
     return (
       <div className="px-3 py-2 text-[11px] text-muted-foreground">
-        No markdown files found
+        No markdown or text files found
       </div>
     );
   }
@@ -177,6 +205,7 @@ const DirSection: React.FC<{
           activeFile={activeFile}
           annotationCounts={annotationCounts}
           highlightedFiles={highlightedFiles}
+          editStatuses={editStatuses}
         />
       ))}
     </div>
@@ -195,6 +224,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
   onRetryVaultDir,
   annotationCounts,
   highlightedFiles,
+  editStatuses,
 }) => {
   if (dirs.length === 0) {
     return (
@@ -248,6 +278,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                 onRetry={dir.isVault && onRetryVaultDir ? () => onRetryVaultDir(dir.path) : onFetchAll}
                 annotationCounts={annotationCounts}
                 highlightedFiles={highlightedFiles}
+                editStatuses={editStatuses}
               />
             )}
           </div>

@@ -48,7 +48,9 @@
     "./code-nav": "./code-nav.ts",
     "./goal-setup": "./goal-setup.ts",
     "./semantic-diff": "./semantic-diff.ts",
-    "./semantic-diff-types": "./semantic-diff-types.ts"
+    "./semantic-diff-types": "./semantic-diff-types.ts",
+    "./source-save": "./source-save.ts",
+    "./source-save-node": "./source-save-node.ts"
   },
   "dependencies": {
     "@joplin/turndown-plugin-gfm": "^1.0.64",

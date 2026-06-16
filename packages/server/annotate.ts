@@ -18,6 +18,13 @@ import { handleImage, handleUpload, handleServerReady, handleDraftSave, handleDr
 import { handleDoc, handleDocExists, handleFileBrowserFiles, handleObsidianVaults, handleObsidianFiles, handleObsidianDoc } from "./reference-handlers";
 import { warmFileListCache } from "@plannotator/shared/resolve-file";
 import { contentHash, deleteDraft } from "./draft";
+import { disabledSourceSave, type SourceSaveRequest } from "@plannotator/shared/source-save";
+import {
+	createSourceSaveCapability,
+	readSourceFileSnapshot,
+	resolveFolderSourceFile,
+	saveSourceFileAtomic,
+} from "@plannotator/shared/source-save-node";
 import { createExternalAnnotationHandler } from "./external-annotations";
 import { saveConfig, detectGitUser, getServerConfig } from "./config";
 import { dirname, isAbsolute, relative, resolve as resolvePath } from "path";
@@ -25,7 +32,6 @@ import { isWSL } from "./browser";
 import { AI_QUERY_ENDPOINT, createAIRuntime } from "./ai-runtime";
 import type { AIEndpoints } from "@plannotator/ai";
 import { createHtmlAssetRegistry } from "./html-assets";
-import { applyAnnotateDocSessionParams } from "./annotate-doc-url";
 
 // Re-export utilities
 export { isRemoteSession, getServerPort } from "./remote";
@@ -184,6 +190,45 @@ export async function startAnnotateServer(
     return false;
   }
 
+  const getPrimarySource = () => {
+    if (mode === "annotate-last") {
+      return { plan: markdown, sourceSave: disabledSourceSave("message-mode") };
+    }
+    if (mode === "annotate-folder") {
+      return { plan: markdown, sourceSave: disabledSourceSave("folder-mode") };
+    }
+    if (renderHtml && rawHtml) {
+      return { plan: markdown, sourceSave: disabledSourceSave("html-render") };
+    }
+    if (sourceConverted) {
+      return { plan: markdown, sourceSave: disabledSourceSave("converted-source") };
+    }
+    if (/^https?:\/\//i.test(filePath)) {
+      return { plan: markdown, sourceSave: disabledSourceSave("not-local-file") };
+    }
+
+    const sourceSave = createSourceSaveCapability("single-file", filePath);
+    if (!sourceSave.enabled) {
+      return { plan: markdown, sourceSave };
+    }
+
+    try {
+      const snapshot = readSourceFileSnapshot(sourceSave.path);
+      return {
+        plan: snapshot.text,
+        sourceSave: {
+          ...sourceSave,
+          hash: snapshot.hash,
+          mtimeMs: snapshot.mtimeMs,
+          size: snapshot.size,
+          eol: snapshot.eol,
+        },
+      };
+    } catch {
+      return { plan: markdown, sourceSave: disabledSourceSave("unreadable-file") };
+    }
+  };
+
   // Detect repo info (cached for this session)
   const repoInfo = await getRepoInfo();
 
@@ -225,13 +270,15 @@ export async function startAnnotateServer(
           // API: Get plan content (reuse /api/plan so the plan editor UI works)
           if (url.pathname === "/api/plan" && req.method === "GET") {
             const displayRawHtml = renderHtml && rawHtml ? htmlAssets.rewriteHtml(rawHtml, filePath) : undefined;
+            const primarySource = getPrimarySource();
             return Response.json({
-              plan: markdown,
+              plan: primarySource.plan,
               origin,
               mode,
               filePath,
               sourceInfo,
               sourceConverted: sourceConverted ?? false,
+              sourceSave: primarySource.sourceSave,
               gate,
               renderAs: displayRawHtml ? 'html' as const : 'markdown' as const,
               ...(displayRawHtml ? { rawHtml: displayRawHtml } : {}),
@@ -280,11 +327,67 @@ export async function startAnnotateServer(
           // API: Serve a linked markdown document. The annotate session owns the
           // source-file base and --markdown preference, so enforce both here.
           if (url.pathname === "/api/doc" && req.method === "GET") {
-            const docUrl = applyAnnotateDocSessionParams(req.url, filePath, convertHtml);
-            const docReq = docUrl.changed ? new Request(docUrl.url) : req;
+            const docUrl = new URL(req.url);
+            let changed = false;
+            if (!docUrl.searchParams.has("base") && !/^https?:\/\//i.test(filePath)) {
+              docUrl.searchParams.set("base", mode === "annotate-folder" && folderPath ? folderPath : dirname(filePath));
+              changed = true;
+            }
+            if (convertHtml && !docUrl.searchParams.has("convert")) {
+              docUrl.searchParams.set("convert", "1");
+              changed = true;
+            }
+            const docReq = changed ? new Request(docUrl.toString()) : req;
             return handleDoc(docReq, {
               rewriteHtml: htmlAssets.rewriteHtml,
+              sourceSaveFolderPath: mode === "annotate-folder" ? folderPath : undefined,
             });
+          }
+
+          if (url.pathname === "/api/source/save" && req.method === "POST") {
+            let body: SourceSaveRequest;
+            try {
+              body = (await req.json()) as SourceSaveRequest;
+            } catch {
+              return Response.json(
+                { ok: false, code: "invalid-request", message: "Invalid JSON body." },
+                { status: 400 },
+              );
+            }
+
+            if (typeof body.text !== "string" || typeof body.baseHash !== "string") {
+              return Response.json(
+                { ok: false, code: "invalid-request", message: "Expected text and baseHash." },
+                { status: 400 },
+              );
+            }
+
+            let targetPath: string | null = null;
+            if (mode === "annotate" && !sourceConverted && !(renderHtml && rawHtml)) {
+              const capability = createSourceSaveCapability("single-file", filePath);
+              targetPath = capability.enabled ? capability.path : null;
+            } else if (mode === "annotate-folder" && folderPath && typeof body.path === "string") {
+              targetPath = resolveFolderSourceFile(body.path, folderPath);
+            }
+
+            if (!targetPath) {
+              return Response.json(
+                { ok: false, code: "not-writable", message: "This document cannot be saved to a file." },
+                { status: 403 },
+              );
+            }
+
+            const result = saveSourceFileAtomic(targetPath, body.text, body.baseHash);
+            const status = result.ok
+              ? 200
+              : result.code === "conflict"
+                ? 409
+                : result.code === "invalid-request"
+                  ? 400
+                  : result.code === "not-writable"
+                    ? 403
+                    : 500;
+            return Response.json(result, { status });
           }
 
           // API: Batch existence check for code-file paths the renderer detected

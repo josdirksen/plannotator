@@ -20,12 +20,47 @@ import {
 	warmFileListCache,
 } from "@plannotator/shared/resolve-file";
 import { htmlToMarkdown } from "@plannotator/shared/html-to-markdown";
+import { disabledSourceSave, type SourceSaveCapability } from "@plannotator/shared/source-save";
+import { createSourceSaveCapability } from "@plannotator/shared/source-save-node";
 import { preloadFile } from "@pierre/diffs/ssr";
 
 // --- Route handlers ---
 
 export interface HandleDocOptions {
 	rewriteHtml?: (html: string, filepath: string) => string;
+	sourceSaveFolderPath?: string;
+}
+
+function applyDocOptions<T extends Record<string, unknown>>(
+	data: T,
+	options: HandleDocOptions = {},
+): T & { sourceSave?: SourceSaveCapability } {
+	const next: Record<string, unknown> = { ...data };
+	if (
+		typeof next.rawHtml === "string" &&
+		typeof next.filepath === "string" &&
+		options.rewriteHtml
+	) {
+		next.rawHtml = options.rewriteHtml(next.rawHtml, next.filepath);
+	}
+	if (!options.sourceSaveFolderPath) return next as T & { sourceSave?: SourceSaveCapability };
+	if (typeof data.filepath !== "string") {
+		return { ...next, sourceSave: disabledSourceSave("not-local-file") } as T & { sourceSave?: SourceSaveCapability };
+	}
+	if (data.renderAs === "html") {
+		return { ...next, sourceSave: disabledSourceSave("html-render") } as T & { sourceSave?: SourceSaveCapability };
+	}
+	if (data.isConverted === true) {
+		return { ...next, sourceSave: disabledSourceSave("converted-source") } as T & { sourceSave?: SourceSaveCapability };
+	}
+	return {
+		...next,
+		sourceSave: createSourceSaveCapability("folder-file", data.filepath, options.sourceSaveFolderPath),
+	} as T & { sourceSave?: SourceSaveCapability };
+}
+
+function docJson(data: Record<string, unknown>, options?: HandleDocOptions): Response {
+	return Response.json(applyDocOptions(data, options));
 }
 
 /** Serve a linked markdown document. Resolves absolute, relative, or bare filename paths. */
@@ -54,7 +89,7 @@ export async function handleDoc(req: Request, options: HandleDocOptions = {}): P
 	if (
 		resolvedBase &&
 		!isAbsoluteUserPath(requestedPath) &&
-		/\.(mdx?|html?)$/i.test(requestedPath)
+		/\.(mdx?|txt|html?)$/i.test(requestedPath)
 	) {
 		const fromBase = resolveUserPath(requestedPath, resolvedBase);
 		try {
@@ -63,11 +98,10 @@ export async function handleDoc(req: Request, options: HandleDocOptions = {}): P
 				const raw = await file.text();
 				const isHtml = /\.html?$/i.test(requestedPath);
 				if (isHtml && !convert) {
-					const rawHtml = options.rewriteHtml ? options.rewriteHtml(raw, fromBase) : raw;
-					return Response.json({ rawHtml, renderAs: "html", filepath: fromBase });
+					return docJson({ rawHtml: raw, renderAs: "html", filepath: fromBase }, options);
 				}
 				const markdown = isHtml ? htmlToMarkdown(raw) : raw;
-				return Response.json({ markdown, filepath: fromBase, isConverted: isHtml, renderAs: "markdown" });
+				return docJson({ markdown, filepath: fromBase, isConverted: isHtml, renderAs: "markdown" }, options);
 			}
 		} catch {
 			/* fall through to standard resolution */
@@ -86,11 +120,10 @@ export async function handleDoc(req: Request, options: HandleDocOptions = {}): P
 			if (await file.exists()) {
 				const html = await file.text();
 				if (!convert) {
-					const rawHtml = options.rewriteHtml ? options.rewriteHtml(html, resolvedHtml) : html;
-					return Response.json({ rawHtml, renderAs: "html", filepath: resolvedHtml });
+					return docJson({ rawHtml: html, renderAs: "html", filepath: resolvedHtml }, options);
 				}
 				const markdown = htmlToMarkdown(html);
-				return Response.json({ markdown, filepath: resolvedHtml, isConverted: true, renderAs: "markdown" });
+				return docJson({ markdown, filepath: resolvedHtml, isConverted: true, renderAs: "markdown" }, options);
 			}
 		} catch { /* fall through */ }
 		return Response.json({ error: `File not found: ${requestedPath}` }, { status: 404 });
@@ -179,7 +212,7 @@ export async function handleDoc(req: Request, options: HandleDocOptions = {}): P
 
 	try {
 		const markdown = await Bun.file(result.path).text();
-		return Response.json({ markdown, filepath: result.path });
+		return docJson({ markdown, filepath: result.path, renderAs: "markdown" }, options);
 	} catch {
 		return Response.json({ error: "Failed to read file" }, { status: 500 });
 	}
@@ -388,7 +421,7 @@ export async function handleFileBrowserFiles(req: Request): Promise<Response> {
 	}
 
 	try {
-		const glob = new Bun.Glob("**/*.{md,mdx,html,htm}");
+		const glob = new Bun.Glob("**/*.{md,mdx,txt,html,htm}");
 		const files: string[] = [];
 		for await (const match of glob.scan({
 			cwd: resolvedDir,

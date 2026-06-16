@@ -1326,25 +1326,32 @@ const App: React.FC = () => {
     scheduleDraftSave();
   }, [activeEditableDocument, displayedMarkdown, editableDocuments, isEditingMarkdown, annotations, markdown, applyEditedDocument, repaintHighlights, scheduleDraftSave]);
 
-  // Discards all direct edits: restores the as-submitted baseline document.
-  // Reachable from the Direct Edits card in the annotation sidebar.
-  const handleDiscardEdits = useCallback(() => {
-    if (activeEditableDocument?.sourceSave?.enabled) {
+  // Discards direct edits for one document. Source-backed folder edits are
+  // file-scoped; normal plan-review edits still have a single document.
+  const handleDiscardEdits = useCallback((sourceKey?: string) => {
+    const targetKey = sourceKey ?? activeEditableDocument?.key;
+    const targetIsActive = !!targetKey && editableDocuments.getActiveKey() === targetKey;
+    const targetRecord = targetKey ? editableDocuments.getDocument(targetKey) : null;
+    if (sourceKey && !targetRecord?.sourceSave?.enabled) return;
+
+    if (targetKey && targetRecord?.sourceSave?.enabled) {
+      const discarded = editableDocuments.discardDocument(targetKey);
+      if (!discarded) return;
+      if (!targetIsActive) {
+        scheduleDraftSave();
+        return;
+      }
+
       setIsEditingMarkdown(false);
       setEditorDirty(false);
       setEditorDiffersFromBaseline(false);
-      const activeKey = activeEditableDocument.key;
-      editableDocuments.discardUnsavedDocuments();
       editedMarkdownRef.current = null;
       setEditStats(null);
-      const remapped = displayedMarkdown !== activeEditableDocument.diskBaseline
-        ? applyEditedDocument(activeEditableDocument.diskBaseline)
+      const remapped = displayedMarkdown !== discarded.diskBaseline
+        ? applyEditedDocument(discarded.diskBaseline)
         : annotations;
       repaintHighlights(remapped);
       scheduleDraftSave();
-      if (editableDocuments.getActiveKey() !== activeKey) {
-        editableDocuments.setActiveKey(activeKey);
-      }
       return;
     }
 
@@ -1505,33 +1512,40 @@ const App: React.FC = () => {
   const hasSavedFileChanges = savedFileChanges.length > 0;
   const hasFeedbackToSend = hasAnyAnnotations || hasDirectEdits || hasSavedFileChanges;
   const feedbackLoss = feedbackLossDescription(feedbackAnnotationCount, hasDirectEdits);
+  const hasUnsentFeedback = feedbackAnnotationCount > 0 || hasDirectEdits;
+  const hasOnlySavedFileChanges = hasSavedFileChanges && !hasUnsentFeedback;
+  const savedFileChangesLabel = savedFileChanges.length === 1 ? 'saved file change' : 'saved file changes';
+  const savedFileChangesVerb = savedFileChanges.length === 1 ? 'is' : 'are';
+  const savedFileChangesPronoun = savedFileChanges.length === 1 ? 'it' : 'them';
+  const savedFileChangesOnDiskMessage = <>Your {savedFileChangesLabel} {savedFileChangesVerb} already on disk.</>;
+  const savedFileAwarenessOnlyMessage = <>{savedFileChangesOnDiskMessage} The agent won't be told about {savedFileChangesPronoun}.</>;
+  const savedFileAwarenessMixedMessage = hasSavedFileChanges
+    ? <> Your {savedFileChangesLabel} will stay on disk, but the agent won't be told about {savedFileChangesPronoun}.</>
+    : null;
 
-  // Pinned "Direct edits" card data for the annotation sidebar. Memoized per
-  // commit (editStats changes identity on every commit) — the diff is computed
-  // once, not per render.
+  // Pinned "Direct edits" card data for the annotation sidebar. Source-backed
+  // folder edits render one card per dirty file so discard is file-scoped.
   const directEditsPanelInfo = useMemo(() => {
     if (unsavedEditableDocuments.length > 0) {
-      let added = 0;
-      let removed = 0;
-      const patches = unsavedEditableDocuments.map((record) => {
+      return unsavedEditableDocuments.map((record) => {
         const stats = computeEditStats(record.diskBaseline, record.currentText);
-        added += stats.added;
-        removed += stats.removed;
-        return createTwoFilesPatch(
-          `${record.path ?? record.basename} (saved)`,
-          `${record.path ?? record.basename} (edited)`,
-          record.diskBaseline,
-          record.currentText,
-          undefined,
-          undefined,
-          { context: 3 },
-        ).trimEnd();
+        return {
+          id: record.key,
+          sourceKey: record.key,
+          label: record.path ?? record.basename,
+          added: stats.added,
+          removed: stats.removed,
+          diffText: createTwoFilesPatch(
+            `${record.path ?? record.basename} (saved)`,
+            `${record.path ?? record.basename} (edited)`,
+            record.diskBaseline,
+            record.currentText,
+            undefined,
+            undefined,
+            { context: 3 },
+          ).trimEnd(),
+        };
       });
-      return {
-        added,
-        removed,
-        diffText: patches.join('\n'),
-      };
     }
 
     if (!editStats) return null;
@@ -1539,7 +1553,10 @@ const App: React.FC = () => {
       const edited = activeEditableDocument.currentText;
       const base = activeEditableDocument.diskBaseline;
       if (edited === base) return null;
-      return {
+      return [{
+        id: activeEditableDocument.key,
+        sourceKey: activeEditableDocument.key,
+        label: activeEditableDocument.path ?? activeEditableDocument.basename,
         added: editStats.added,
         removed: editStats.removed,
         diffText: createTwoFilesPatch(
@@ -1551,16 +1568,17 @@ const App: React.FC = () => {
           undefined,
           { context: 3 },
         ),
-      };
+      }];
     }
     const base = originalMarkdownRef.current;
     const edited = editedMarkdownRef.current;
     if (base === null || edited === null) return null;
-    return {
+    return [{
+      id: 'plan',
       added: editStats.added,
       removed: editStats.removed,
       diffText: createTwoFilesPatch('plan.md (original)', 'plan.md (edited)', base, edited, undefined, undefined, { context: 3 }),
-    };
+    }];
   }, [activeEditableDocument, editStats, unsavedEditableDocuments]);
 
   // "Direct Edits" feedback section: unified diff of user edits vs the
@@ -2046,6 +2064,7 @@ const App: React.FC = () => {
   const handleAnnotateFeedback = async () => {
     setIsSubmitting(true);
     try {
+      snapshotActiveEditableDocument();
       const feedback = composeFeedback(messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput);
       const scopedSelectedMessageId = messageMultiSelectMode
         ? annotatedMessageIds.length === 1 ? annotatedMessageIds[0] : undefined
@@ -2134,8 +2153,13 @@ const App: React.FC = () => {
       // Don't intercept in demo/share mode (no API)
       if (!isApiMode) return;
 
-      // Don't submit while viewing a linked doc
-      if (linkedDocHook.isActive) return;
+      // While the markdown editor is open, submit shortcuts belong to editing,
+      // not the review session.
+      if (isEditingMarkdown) return;
+
+      // Folder files are the active review target; normal linked docs are side
+      // references and should not submit the root plan.
+      if (linkedDocHook.isActive && annotateSource !== 'folder') return;
 
       if (goalSetupMode) {
         if (document.querySelector('[data-comment-popover="true"]')) return;
@@ -2185,9 +2209,9 @@ const App: React.FC = () => {
   }, [
     showExport, showImport, showFeedbackPrompt, showClaudeCodeWarning, showExitWarning, showAgentWarning,
     showPermissionModeSetup, pendingPasteImage,
-    submitted, isSubmitting, isExiting, goalSetupAction.isSubmitting, isApiMode, linkedDocHook.isActive, annotations.length, codeAnnotations.length, externalAnnotations.length, annotateMode,
+    submitted, isSubmitting, isExiting, goalSetupAction.isSubmitting, isApiMode, isEditingMarkdown, linkedDocHook.isActive, annotations.length, codeAnnotations.length, externalAnnotations.length, annotateMode,
     gate, hasFeedbackToSend, goalSetupMode, goalSetupAction.canSubmit,
-    origin, getAgentWarning,
+    annotateSource, origin, getAgentWarning,
   ]);
 
   const handleAddAnnotation = (ann: Annotation) => {
@@ -3426,7 +3450,10 @@ const App: React.FC = () => {
             }}
             onShare={canShareCurrentSession ? () => { setIsPanelOpen(false); setInitialExportTab('share'); setShowExport(true); } : undefined}
             otherFileAnnotations={otherFileAnnotations}
-            directEdits={directEditsPanelInfo ? { ...directEditsPanelInfo, onDiscard: handleDiscardEdits } : null}
+            directEdits={directEditsPanelInfo?.map((item) => ({
+              ...item,
+              onDiscard: () => handleDiscardEdits(item.sourceKey),
+            })) ?? null}
             onOtherFileAnnotationsClick={handleFlashAnnotatedFiles}
           />
           {isPanelOpen && rightSidebarTab === 'ai' && wideModeType === null && !goalSetupMode && canUseAI && (
@@ -3552,7 +3579,11 @@ const App: React.FC = () => {
             handleApprove();
           }}
           title="Feedback Won't Be Sent"
-          message={<>{agentName} doesn't yet support feedback on approval. Your {feedbackLoss} will be lost.</>}
+          message={
+            hasOnlySavedFileChanges
+              ? <>{agentName} doesn't yet support feedback on approval. {savedFileAwarenessOnlyMessage}</>
+              : <>{agentName} doesn't yet support feedback on approval. Your {feedbackLoss} will be lost.{savedFileAwarenessMixedMessage}</>
+          }
           subMessage={
             <>
               To send feedback, use <strong>Send Feedback</strong> instead.
@@ -3580,8 +3611,12 @@ const App: React.FC = () => {
             else handleAnnotateExit();
           }}
           title="Feedback Won't Be Sent"
-          message={<>You have {feedbackLoss} that will be lost if you {exitWarningAction === 'approve' ? 'approve' : 'close'}.</>}
-          subMessage="To send this feedback, use Send Feedback instead."
+          message={
+            hasOnlySavedFileChanges
+              ? <>{savedFileChangesOnDiskMessage} The agent will not get that context if you {exitWarningAction === 'approve' ? 'approve' : 'close'}.</>
+              : <>You have {feedbackLoss} that will be lost if you {exitWarningAction === 'approve' ? 'approve' : 'close'}.{savedFileAwarenessMixedMessage}</>
+          }
+          subMessage={hasOnlySavedFileChanges ? 'To tell the agent what changed, use Send Feedback instead.' : 'To send this feedback, use Send Feedback instead.'}
           confirmText={exitWarningAction === 'approve' ? 'Approve Anyway' : 'Close Anyway'}
           cancelText="Cancel"
           variant="warning"

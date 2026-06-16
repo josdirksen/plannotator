@@ -258,17 +258,15 @@ export function useEditableDocuments() {
     bump();
   }, [bump]);
 
-  const discardUnsavedDocuments = useCallback((): EditableDocumentRecord[] => {
-    const discarded: EditableDocumentRecord[] = [];
-    for (const record of docsRef.current.values()) {
-      if (!recordIsDirty(record)) continue;
-      record.currentText = record.diskBaseline;
-      record.editMountText = record.diskBaseline;
-      record.saveStatus = record.savedChange ? 'saved' : 'clean';
-      record.error = undefined;
-      discarded.push(cloneRecord(record));
-    }
-    if (discarded.length > 0) bump();
+  const discardDocument = useCallback((key: string): EditableDocumentRecord | null => {
+    const record = docsRef.current.get(key);
+    if (!record || !recordIsDirty(record)) return null;
+    record.currentText = record.diskBaseline;
+    record.editMountText = record.diskBaseline;
+    record.saveStatus = record.savedChange ? 'saved' : 'clean';
+    record.error = undefined;
+    const discarded = cloneRecord(record);
+    bump();
     return discarded;
   }, [bump]);
 
@@ -359,7 +357,7 @@ export function useEditableDocuments() {
     markConflict,
     markError,
     clearDocument,
-    discardUnsavedDocuments,
+    discardDocument,
     restoreDraftDocuments,
     getUnsavedDocuments,
     getSavedFileChanges,

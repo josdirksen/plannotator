@@ -38,6 +38,15 @@ const TrashCardIcon = () => (
   </svg>
 );
 
+interface DirectEditsPanelItem {
+  id: string;
+  label?: string;
+  added: number;
+  removed: number;
+  diffText: string;
+  onDiscard?: () => void;
+}
+
 interface PanelProps {
   isOpen: boolean;
   annotations: Annotation[];
@@ -59,14 +68,9 @@ interface PanelProps {
   onShare?: () => void;
   otherFileAnnotations?: { count: number; files: number };
   onOtherFileAnnotationsClick?: () => void;
-  /** Committed direct edits to the document (edit mode). Rendered as a pinned
-   *  card above the annotation timeline with an expandable unified diff. */
-  directEdits?: {
-    added: number;
-    removed: number;
-    diffText: string;
-    onDiscard?: () => void;
-  } | null;
+  /** Committed direct edits to one or more documents. Rendered as pinned cards
+    *  above the annotation timeline with expandable unified diffs. */
+  directEdits?: DirectEditsPanelItem[] | null;
 }
 
 export const AnnotationPanel: React.FC<PanelProps> = ({
@@ -163,9 +167,11 @@ export const AnnotationPanel: React.FC<PanelProps> = ({
       {/* List */}
       <OverlayScrollArea className="flex-1 min-h-0">
         <div ref={listRef} className="p-2 flex flex-col gap-1.5">
-        {directEdits && <DirectEditsCard {...directEdits} />}
+        {directEdits?.map((item) => (
+          <DirectEditsCard key={item.id} {...item} />
+        ))}
         {totalCount === 0 ? (
-          !directEdits && (
+          (!directEdits || directEdits.length === 0) && (
             <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
               <p className="text-xs text-muted-foreground/60">
                 No annotations yet
@@ -306,11 +312,12 @@ function formatTimestamp(ts: number): string {
  *  diff, and a two-step discard. Not part of the annotation timeline — edits
  *  are document state, not a selection-anchored note. */
 const DirectEditsCard: React.FC<{
+  label?: string;
   added: number;
   removed: number;
   diffText: string;
   onDiscard?: () => void;
-}> = ({ added, removed, diffText, onDiscard }) => {
+}> = ({ label, added, removed, diffText, onDiscard }) => {
   const [expanded, setExpanded] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
@@ -335,6 +342,11 @@ const DirectEditsCard: React.FC<{
       <div className="flex items-center gap-1.5">
         <PencilIcon />
         <span className="text-[11px] font-medium text-primary">Direct edits</span>
+        {label && (
+          <span className="min-w-0 truncate text-[10px] text-muted-foreground" title={label}>
+            {label}
+          </span>
+        )}
         <span className="font-mono text-[10px] tabular-nums">
           <span className="text-success">+{added}</span>
           <span className="text-muted-foreground/40">/</span>

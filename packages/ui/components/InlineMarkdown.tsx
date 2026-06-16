@@ -728,7 +728,7 @@ export const InlineMarkdown: React.FC<{
     if (match) {
       const target = match[1].trim();
       const display = match[2]?.trim() || target;
-      const targetPath = /\.(mdx?|html?)$/i.test(target)
+      const targetPath = /\.(mdx?|txt|html?)$/i.test(target)
         ? target
         : `${target}.md`;
 
@@ -844,11 +844,11 @@ export const InlineMarkdown: React.FC<{
         continue;
       }
 
-      // Local doc: .md / .mdx / .html / .htm, optionally with #fragment.
+      // Local doc: .md / .mdx / .txt / .html / .htm, optionally with #fragment.
       // Fragment is stripped before handing to onOpenLinkedDoc (overlay has
       // no anchor-scroll support today).
       const isLocalDoc =
-        /\.(mdx?|html?)(#.*)?$/i.test(linkUrl) &&
+        /\.(mdx?|txt|html?)(#.*)?$/i.test(linkUrl) &&
         !linkUrl.startsWith("http://") &&
         !linkUrl.startsWith("https://");
       const isCodeFile = !isLocalDoc && isCodeFilePath(linkUrl);

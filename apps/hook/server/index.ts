@@ -13,7 +13,7 @@
  *    - Runs git diff, opens review UI
  *    - Outputs feedback to stdout (captured by slash command)
  *
- * 3. Annotate (`plannotator annotate <file.md>`):
+ * 3. Annotate (`plannotator annotate <file.md | file.txt>`):
  *    - Triggered by /plannotator-annotate slash command
  *    - Opens any markdown file in the annotation UI
  *    - Outputs structured feedback to stdout
@@ -870,7 +870,7 @@ if (args[0] === "sessions") {
 
   const rawFilePath = args[1];
   if (!rawFilePath) {
-    console.error("Usage: plannotator annotate <file.md | file.html | https://... | folder/>  [--markdown] [--no-jina] [--gate] [--json] [--hook]");
+    console.error("Usage: plannotator annotate <file.md | file.txt | file.html | https://... | folder/>  [--markdown] [--no-jina] [--gate] [--json] [--hook]");
     process.exit(1);
   }
 
@@ -923,9 +923,9 @@ if (args[0] === "sessions") {
 
     if (folderCandidate !== null) {
       const resolvedArg = resolveUserPath(folderCandidate, projectRoot);
-      // Folder annotation mode (markdown + HTML files)
-      if (!hasMarkdownFiles(resolvedArg, FILE_BROWSER_EXCLUDED, /\.(mdx?|html?)$/i)) {
-        console.error(`No markdown or HTML files found in ${resolvedArg}`);
+      // Folder annotation mode (markdown/plain text + HTML files)
+      if (!hasMarkdownFiles(resolvedArg, FILE_BROWSER_EXCLUDED, /\.(mdx?|txt|html?)$/i)) {
+        console.error(`No markdown, text, or HTML files found in ${resolvedArg}`);
         process.exit(1);
       }
       folderPath = resolvedArg;
@@ -956,7 +956,7 @@ if (args[0] === "sessions") {
         sourceInfo = path.basename(resolvedArg);
         console.error(`${renderHtmlForFile ? "Raw HTML" : "Converted"}: ${absolutePath}`);
       } else {
-        // Single markdown file annotation mode
+        // Single markdown/plain-text file annotation mode
         // Strip-first with literal-@ fallback (scoped-package-style names).
         let resolved = resolveMarkdownFile(filePath, projectRoot);
         if (resolved.kind === "not_found" && rawFilePath !== filePath) {
@@ -979,7 +979,7 @@ if (args[0] === "sessions") {
             const ext = path.extname(resolvedPath).toLowerCase();
             console.error(
               `File type not supported: ${ext}\n` +
-              `Only .md, .mdx, .html, .htm files are supported.\n` +
+              `Only .md, .mdx, .txt, .html, .htm files are supported.\n` +
               `For code review, use: plannotator review [file]`
             );
           } else {

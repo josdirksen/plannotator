@@ -393,10 +393,15 @@ export async function startAnnotateServer(options: {
 						? 400
 						: result.code === "not-writable"
 							? 403
-					: 500;
+							: 500;
 			json(res, result, status);
 		} else if (url.pathname === "/api/doc/exists" && req.method === "POST") {
-			await handleDocExistsRequest(res, req);
+			const rootPath = options.mode === "annotate-folder" && options.folderPath
+				? options.folderPath
+				: /^https?:\/\//i.test(options.filePath)
+					? process.cwd()
+					: dirname(resolvePath(options.filePath));
+			await handleDocExistsRequest(res, req, { rootPath });
 		} else if (url.pathname === "/api/obsidian/vaults") {
 			handleObsidianVaultsRequest(res);
 		} else if (url.pathname === "/api/reference/obsidian/files" && req.method === "GET") {

@@ -61,7 +61,7 @@ describe('direct edit feedback helpers', () => {
     expect(section).not.toContain('/repo/docs/b.txt');
   });
 
-  test('includes saved file changes only when feedback is otherwise sent', () => {
+  test('includes saved file changes even when they are the only feedback', () => {
     const saved = buildSavedFileChangesSection([
       {
         path: '/repo/docs/a.md',
@@ -73,7 +73,7 @@ describe('direct edit feedback helpers', () => {
 
     expect(saved).toContain('already applied');
     expect(composeFeedbackWithEditSections('User reviewed the document and has no feedback.', '', saved))
-      .toBe('User reviewed the document and has no feedback.');
+      .toBe(saved);
     expect(composeFeedbackWithEditSections('Please adjust the intro.', '', saved))
       .toBe(`${saved}\n\n---\n\nPlease adjust the intro.`);
   });

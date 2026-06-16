@@ -31,6 +31,10 @@ export interface HandleDocOptions {
 	sourceSaveFolderPath?: string;
 }
 
+interface HandleDocExistsOptions {
+	rootPath?: string;
+}
+
 function applyDocOptions<T extends Record<string, unknown>>(
 	data: T,
 	options: HandleDocOptions = {},
@@ -222,21 +226,8 @@ export async function handleDoc(req: Request, options: HandleDocOptions = {}): P
  * Batch existence check for code-file paths the renderer wants to linkify.
  * POST /api/doc/exists with { paths: string[] } returns { results: { [path]: ValidationEntry } }.
  * Reads from the warm file-list cache populated at plan/annotate load.
- *
- * TODO(security): two related leaks of arbitrary file existence:
- *   1. Absolute paths in `paths[]` are probed verbatim — `resolveCodeFile`
- *      returns `{ kind: 'found', path: abs }` for any existing absolute file
- *      with no project-root containment check. A malicious shared plan with
- *      backtick-wrapped absolute paths (e.g. `/Users/x/.aws/…`) leaks file
- *      existence + canonical path back to the caller.
- *   2. The `base` field is honored verbatim — a hostile sender can supply
- *      `base=/Users/x/.aws` + `paths=["credentials.json"]` and the resolver
- *      will check `<base>/<path>` existence with no containment check.
- * Mitigation: reject absolute inputs and `isWithinProjectRoot`-filter the
- * resolved base before passing it to `resolveCodeFile` (or filter `r.path`
- * before recording a found result). Mirror in apps/pi-extension/server/reference.ts.
  */
-export async function handleDocExists(req: Request): Promise<Response> {
+export async function handleDocExists(req: Request, options?: HandleDocExistsOptions): Promise<Response> {
 	let body: unknown;
 	try {
 		body = await req.json();
@@ -250,12 +241,14 @@ export async function handleDocExists(req: Request): Promise<Response> {
 	if (paths.length > 500) {
 		return Response.json({ error: "Too many paths (max 500)" }, { status: 400 });
 	}
+	const projectRoot = resolveUserPath(options?.rootPath ?? process.cwd());
 	const baseRaw = (body as { base?: unknown })?.base;
-	const baseDir = typeof baseRaw === "string" && baseRaw.length > 0
+	const requestedBaseDir = typeof baseRaw === "string" && baseRaw.length > 0
 		? resolveUserPath(baseRaw)
 		: undefined;
-
-	const projectRoot = process.cwd();
+	const baseDir = requestedBaseDir && isWithinProjectRoot(requestedBaseDir, projectRoot)
+		? requestedBaseDir
+		: undefined;
 	const results: Record<
 		string,
 		| { status: "found"; resolved: string }
@@ -267,9 +260,15 @@ export async function handleDocExists(req: Request): Promise<Response> {
 	await Promise.all(
 		(paths as string[]).map(async (p) => {
 			const cleanP = parseCodePath(p).filePath;
+			if (isAbsoluteUserPath(cleanP) && !isWithinProjectRoot(resolveUserPath(cleanP), projectRoot)) {
+				results[p] = { status: "missing" };
+				return;
+			}
 			const r = await resolveCodeFile(cleanP, projectRoot, baseDir);
 			if (r.kind === "found") {
-				results[p] = { status: "found", resolved: r.path };
+				results[p] = isWithinProjectRoot(r.path, projectRoot)
+					? { status: "found", resolved: r.path }
+					: { status: "missing" };
 			} else if (r.kind === "ambiguous") {
 				const prefix = `${projectRoot}/`;
 				results[p] = {

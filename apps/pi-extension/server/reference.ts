@@ -45,6 +45,10 @@ export interface HandleDocOptions {
 	sourceSaveFolderPath?: string;
 }
 
+interface HandleDocExistsOptions {
+	rootPath?: string;
+}
+
 function applyDocOptions<T extends Record<string, unknown>>(
 	data: T,
 	options: HandleDocOptions = {},
@@ -252,13 +256,8 @@ export async function handleDocRequest(res: Res, url: URL, options: HandleDocOpt
 /**
  * Batch existence check for code-file paths the renderer wants to linkify.
  * POST /api/doc/exists with { paths: string[] }.
- *
- * TODO(security): see packages/server/reference-handlers.ts handleDocExists —
- * both absolute paths in `paths[]` AND the `base` field are honored verbatim
- * with no project-root containment check, leaking file existence back to the
- * caller. Fix in lockstep with the Bun handler.
  */
-export async function handleDocExistsRequest(res: Res, req: IncomingMessage): Promise<void> {
+export async function handleDocExistsRequest(res: Res, req: IncomingMessage, options?: HandleDocExistsOptions): Promise<void> {
 	const body = await parseBody(req);
 	const paths = (body as { paths?: unknown }).paths;
 	if (!Array.isArray(paths) || !paths.every((p) => typeof p === "string")) {
@@ -269,12 +268,14 @@ export async function handleDocExistsRequest(res: Res, req: IncomingMessage): Pr
 		json(res, { error: "Too many paths (max 500)" }, 400);
 		return;
 	}
+	const projectRoot = resolveUserPath(options?.rootPath ?? process.cwd());
 	const baseRaw = (body as { base?: unknown }).base;
-	const baseDir = typeof baseRaw === "string" && baseRaw.length > 0
+	const requestedBaseDir = typeof baseRaw === "string" && baseRaw.length > 0
 		? resolveUserPath(baseRaw)
 		: undefined;
-
-	const projectRoot = process.cwd();
+	const baseDir = requestedBaseDir && isWithinProjectRoot(requestedBaseDir, projectRoot)
+		? requestedBaseDir
+		: undefined;
 	const results: Record<
 		string,
 		| { status: "found"; resolved: string }
@@ -286,9 +287,15 @@ export async function handleDocExistsRequest(res: Res, req: IncomingMessage): Pr
 	await Promise.all(
 		(paths as string[]).map(async (p) => {
 			const cleanP = parseCodePath(p).filePath;
+			if (isAbsoluteUserPath(cleanP) && !isWithinProjectRoot(resolveUserPath(cleanP), projectRoot)) {
+				results[p] = { status: "missing" };
+				return;
+			}
 			const r = await resolveCodeFile(cleanP, projectRoot, baseDir);
 			if (r.kind === "found") {
-				results[p] = { status: "found", resolved: r.path };
+				results[p] = isWithinProjectRoot(r.path, projectRoot)
+					? { status: "found", resolved: r.path }
+					: { status: "missing" };
 			} else if (r.kind === "ambiguous") {
 				const prefix = `${projectRoot}/`;
 				results[p] = {

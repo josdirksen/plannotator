@@ -392,7 +392,12 @@ export async function startAnnotateServer(
 
           // API: Batch existence check for code-file paths the renderer detected
           if (url.pathname === "/api/doc/exists" && req.method === "POST") {
-            return handleDocExists(req);
+            const rootPath = mode === "annotate-folder" && folderPath
+              ? folderPath
+              : /^https?:\/\//i.test(filePath)
+                ? process.cwd()
+                : dirname(filePath);
+            return handleDocExists(req, { rootPath });
           }
 
           // API: Detect Obsidian vaults

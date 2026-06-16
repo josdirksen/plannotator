@@ -59,6 +59,10 @@ interface MarkSavedInput {
   sourceSave: EnabledSourceSaveCapability;
 }
 
+interface UpdateActiveTextOptions {
+  forceNotify?: boolean;
+}
+
 function normalizeDocumentText(text: string): string {
   return text.replace(/\r\n?/g, '\n');
 }
@@ -146,6 +150,8 @@ export function useEditableDocuments() {
     bump();
   }, [bump]);
 
+  const getActiveKey = useCallback((): string | null => activeKeyRef.current, []);
+
   const getDocument = useCallback((key: string): EditableDocumentRecord | null => {
     const record = docsRef.current.get(key);
     return record ? cloneRecord(record) : null;
@@ -180,14 +186,15 @@ export function useEditableDocuments() {
     }
   }, [bump, getActiveDocumentLive]);
 
-  const updateActiveText = useCallback((text: string) => {
+  const updateActiveText = useCallback((text: string, options?: UpdateActiveTextOptions) => {
     const record = getActiveDocumentLive();
     if (!record) return;
     const normalized = normalizeDocumentText(text);
     const previousStatus = record.saveStatus;
+    const previousText = record.currentText;
     record.currentText = normalized;
     record.saveStatus = cleanOrDirty(record);
-    if (previousStatus !== record.saveStatus) bump();
+    if (previousStatus !== record.saveStatus || (options?.forceNotify && previousText !== normalized)) bump();
   }, [bump, getActiveDocumentLive]);
 
   const markSaving = useCallback((key: string) => {
@@ -202,15 +209,18 @@ export function useEditableDocuments() {
     const record = docsRef.current.get(key);
     if (!record) return;
     const normalized = normalizeDocumentText(text);
-    record.currentText = normalized;
     record.diskBaseline = normalized;
-    record.editMountText = normalized;
     record.sourceSave = sourceSave;
     record.path = sourceSave.path;
     record.basename = sourceSave.basename;
     record.lastKnownHash = sourceSave.hash;
     record.lastKnownMtimeMs = sourceSave.mtimeMs;
-    record.saveStatus = 'saved';
+    if (record.currentText === normalized) {
+      record.editMountText = normalized;
+      record.saveStatus = 'saved';
+    } else {
+      record.saveStatus = cleanOrDirty(record);
+    }
     record.error = undefined;
     record.savedChange = normalized === record.sessionOpenText
       ? undefined
@@ -246,6 +256,20 @@ export function useEditableDocuments() {
     docsRef.current.delete(key);
     if (activeKeyRef.current === key) activeKeyRef.current = null;
     bump();
+  }, [bump]);
+
+  const discardUnsavedDocuments = useCallback((): EditableDocumentRecord[] => {
+    const discarded: EditableDocumentRecord[] = [];
+    for (const record of docsRef.current.values()) {
+      if (!recordIsDirty(record)) continue;
+      record.currentText = record.diskBaseline;
+      record.editMountText = record.diskBaseline;
+      record.saveStatus = record.savedChange ? 'saved' : 'clean';
+      record.error = undefined;
+      discarded.push(cloneRecord(record));
+    }
+    if (discarded.length > 0) bump();
+    return discarded;
   }, [bump]);
 
   const restoreDraftDocuments = useCallback((documents: EditableDocumentDraftData[]) => {
@@ -323,6 +347,7 @@ export function useEditableDocuments() {
     fileEditStatuses,
     openDocument,
     setActiveKey,
+    getActiveKey,
     getDocument,
     getActiveDocument,
     getActiveDocumentLive,
@@ -334,6 +359,7 @@ export function useEditableDocuments() {
     markConflict,
     markError,
     clearDocument,
+    discardUnsavedDocuments,
     restoreDraftDocuments,
     getUnsavedDocuments,
     getSavedFileChanges,

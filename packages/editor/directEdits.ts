@@ -106,7 +106,7 @@ export function buildSavedFileChangesSection(changes: SavedFileChangeInput[]): s
   return [
     '# Saved File Changes',
     '',
-    'The user saved these direct edits to disk during review. These changes are already applied; do not apply these patches again. Use them as context for the remaining feedback.',
+    'The user saved these direct edits to disk during review. These changes are already applied; do not apply these patches again. Use them as context for this review.',
     '',
     ...sections,
   ].join('\n\n');
@@ -119,6 +119,6 @@ export function composeFeedbackWithEditSections(
 ): string {
   const feedback = composeFeedbackWithDirectEdits(annotationsText, editsSection);
   if (!savedChangesSection) return feedback;
-  if (!editsSection && isEmptyFeedbackSentinel(annotationsText)) return feedback;
+  if (!editsSection && isEmptyFeedbackSentinel(annotationsText)) return savedChangesSection;
   return `${savedChangesSection}\n\n---\n\n${feedback}`;
 }

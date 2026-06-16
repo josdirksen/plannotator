@@ -314,6 +314,7 @@ const App: React.FC = () => {
   // What the current edit session mounted with, for live dirty tracking.
   const editSessionBaseRef = useRef<string>('');
   const markdownEditorHandleRef = useRef<MarkdownEditorHandle | null>(null);
+  const suspendedRootEditableKeyRef = useRef<string | null>(null);
   const [globalAttachments, setGlobalAttachments] = useState<ImageAttachment[]>([]);
   const [annotateMode, setAnnotateMode] = useState(false);
   const [gate, setGate] = useState(false);
@@ -592,18 +593,33 @@ const App: React.FC = () => {
     if (!activeEditableDocument) return;
     if (isEditingMarkdown) {
       const live = markdownEditorHandleRef.current?.getMarkdown();
-      if (live != null) editableDocuments.updateActiveText(live);
+      if (live != null) editableDocuments.updateActiveText(live, { forceNotify: true });
       return;
     }
-    editableDocuments.updateActiveText(displayedMarkdown);
+    editableDocuments.updateActiveText(displayedMarkdown, { forceNotify: true });
   }, [activeEditableDocument, displayedMarkdown, editableDocuments, isEditingMarkdown]);
 
   const getLinkedDocumentMarkdown = useCallback((filepath: string, fallback?: string) => {
     return editableDocuments.getCurrentText(`file:${filepath}`) ?? fallback;
   }, [editableDocuments]);
 
+  const restoreLinkedDocumentEditableKey = useCallback(() => {
+    const restoreKey = suspendedRootEditableKeyRef.current;
+    suspendedRootEditableKeyRef.current = null;
+    editableDocuments.setActiveKey(restoreKey);
+  }, [editableDocuments]);
+
   const handleLinkedDocumentLoaded = useCallback((doc: { markdown?: string; filepath?: string; renderAs?: 'markdown' | 'html'; sourceSave?: SourceSaveCapability }) => {
-    if (annotateSource !== 'folder' || doc.renderAs === 'html' || !doc.filepath || doc.markdown == null) {
+    if (annotateSource !== 'folder') {
+      if (activeEditableDocument?.sourceSave?.enabled) {
+        suspendedRootEditableKeyRef.current = activeEditableDocument.key;
+        editableDocuments.setActiveKey(null);
+      }
+      return undefined;
+    }
+
+    if (doc.renderAs === 'html' || !doc.filepath || doc.markdown == null) {
+      editableDocuments.setActiveKey(null);
       return undefined;
     }
 
@@ -620,7 +636,7 @@ const App: React.FC = () => {
     }
 
     return currentText;
-  }, [annotateSource, editableDocuments, isEditingMarkdown]);
+  }, [activeEditableDocument, annotateSource, editableDocuments, isEditingMarkdown]);
 
   // Linked document navigation
   const linkedDocHook = useLinkedDoc({
@@ -631,6 +647,7 @@ const App: React.FC = () => {
     onBeforeNavigate: snapshotActiveEditableDocument,
     onDocumentLoaded: handleLinkedDocumentLoaded,
     getDocumentMarkdown: getLinkedDocumentMarkdown,
+    onAfterBack: restoreLinkedDocumentEditableKey,
   });
 
   // Active document's directory — feeds both click-time popout fetches and
@@ -887,9 +904,8 @@ const App: React.FC = () => {
       setEditorDiffersFromBaseline(false);
     }
     fileBrowser.setActiveFile(null);
-    editableDocuments.setActiveKey(null);
     archive.clearSelection();
-  }, [linkedDocHook, isEditingMarkdown, fileBrowser, editableDocuments, archive]);
+  }, [linkedDocHook, isEditingMarkdown, fileBrowser, archive]);
 
   // Derive annotation counts per file from linked doc cache (includes active doc's live state)
   const allAnnotationCounts = useMemo(() => {
@@ -1284,7 +1300,7 @@ const App: React.FC = () => {
     const base = originalMarkdownRef.current;
     if (edited != null) {
       if (activeEditableDocument?.sourceSave?.enabled) {
-        editableDocuments.updateActiveText(edited);
+        editableDocuments.updateActiveText(edited, { forceNotify: true });
         const sourceEdited = normalizeEditedMarkdown(activeEditableDocument.diskBaseline, edited);
         editedMarkdownRef.current = null;
         setEditStats(sourceEdited !== null ? computeEditStats(activeEditableDocument.diskBaseline, sourceEdited) : null);
@@ -1317,7 +1333,8 @@ const App: React.FC = () => {
       setIsEditingMarkdown(false);
       setEditorDirty(false);
       setEditorDiffersFromBaseline(false);
-      editableDocuments.updateActiveText(activeEditableDocument.diskBaseline);
+      const activeKey = activeEditableDocument.key;
+      editableDocuments.discardUnsavedDocuments();
       editedMarkdownRef.current = null;
       setEditStats(null);
       const remapped = displayedMarkdown !== activeEditableDocument.diskBaseline
@@ -1325,6 +1342,9 @@ const App: React.FC = () => {
         : annotations;
       repaintHighlights(remapped);
       scheduleDraftSave();
+      if (editableDocuments.getActiveKey() !== activeKey) {
+        editableDocuments.setActiveKey(activeKey);
+      }
       return;
     }
 
@@ -1428,7 +1448,7 @@ const App: React.FC = () => {
     const normalized = displayedMarkdown.includes('\r') ? displayedMarkdown.replace(/\r\n?/g, '\n') : displayedMarkdown;
     if (normalized !== displayedMarkdown) {
       if (activeEditableDocument?.sourceSave?.enabled) {
-        editableDocuments.updateActiveText(normalized);
+        editableDocuments.updateActiveText(normalized, { forceNotify: true });
       } else {
         setMarkdown(normalized);
       }
@@ -1469,6 +1489,10 @@ const App: React.FC = () => {
     () => editableDocuments.getUnsavedDocuments(),
     [editableDocuments, editableDocuments.version],
   );
+  const savedFileChanges = useMemo(
+    () => editableDocuments.getSavedFileChanges(),
+    [editableDocuments, editableDocuments.version],
+  );
   const activeSourceSave = activeEditableDocument?.sourceSave?.enabled
     ? activeEditableDocument.sourceSave
     : null;
@@ -1478,7 +1502,8 @@ const App: React.FC = () => {
   const hasDirectEdits = hasSourceBackedDirectEdits
     ? true
     : isEditingMarkdown ? editorDiffersFromBaseline : editedMarkdownRef.current !== null;
-  const hasFeedbackToSend = hasAnyAnnotations || hasDirectEdits;
+  const hasSavedFileChanges = savedFileChanges.length > 0;
+  const hasFeedbackToSend = hasAnyAnnotations || hasDirectEdits || hasSavedFileChanges;
   const feedbackLoss = feedbackLossDescription(feedbackAnnotationCount, hasDirectEdits);
 
   // Pinned "Direct edits" card data for the annotation sidebar. Memoized per
@@ -1559,14 +1584,14 @@ const App: React.FC = () => {
 
   const buildSavedChangesSection = useCallback((): string => {
     return buildSavedFileChangesSection(
-      editableDocuments.getSavedFileChanges().map((change) => ({
+      savedFileChanges.map((change) => ({
         path: change.path,
         basename: change.basename,
         beforeText: change.beforeText,
         afterText: change.afterText,
       })),
     );
-  }, [editableDocuments]);
+  }, [savedFileChanges]);
 
   // Prepends the Direct Edits section to annotation feedback. When edits exist
   // but there are no annotations, the "no feedback" sentinel is replaced rather
@@ -1916,7 +1941,7 @@ const App: React.FC = () => {
       // mid-edit submits read the live editor buffer, not stale markdown state.
       const currentMarkdown = isEditingMarkdown
         ? markdownEditorHandleRef.current?.getMarkdown() ?? displayedMarkdown
-        : markdown;
+        : displayedMarkdown;
       const obsidianSettings = getObsidianSettings();
       const bearSettings = getBearSettings();
       const octarineSettings = getOctarineSettings();
@@ -1980,7 +2005,8 @@ const App: React.FC = () => {
         (d) => d.annotations.length > 0 || d.globalAttachments.length > 0
       );
       const editsSection = buildEditsSection();
-      if (allAnnotations.length > 0 || codeAnnotations.length > 0 || globalAttachments.length > 0 || hasDocAnnotations || editorAnnotations.length > 0 || editsSection) {
+      const savedChangesSection = buildSavedChangesSection();
+      if (allAnnotations.length > 0 || codeAnnotations.length > 0 || globalAttachments.length > 0 || hasDocAnnotations || editorAnnotations.length > 0 || editsSection || savedChangesSection) {
         body.feedback = composeFeedback(messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput);
       }
 
@@ -2552,7 +2578,7 @@ const App: React.FC = () => {
     // Mid-edit saves describe the live buffer, matching handleApprove.
     const quickSaveMarkdown = isEditingMarkdown
       ? markdownEditorHandleRef.current?.getMarkdown() ?? displayedMarkdown
-      : markdown;
+      : displayedMarkdown;
 
     if (target === 'obsidian') {
       const s = getObsidianSettings();
@@ -2619,6 +2645,7 @@ const App: React.FC = () => {
       return true;
     }
 
+    editableDocuments.updateActiveText(edited);
     editableDocuments.markSaving(activeDocument.key);
     try {
       const res = await fetch('/api/source/save', {
@@ -2660,11 +2687,23 @@ const App: React.FC = () => {
         sourceSave: nextSourceSave,
       });
       const normalizedEdited = edited.replace(/\r\n?/g, '\n');
-      editSessionBaseRef.current = normalizedEdited;
       editedMarkdownRef.current = null;
-      setEditorDirty(false);
-      setEditorDiffersFromBaseline(false);
-      setEditStats(null);
+      if (editableDocuments.getActiveKey() === activeDocument.key) {
+        const live = markdownEditorHandleRef.current?.getMarkdown();
+        const normalizedLive = live?.replace(/\r\n?/g, '\n');
+        editSessionBaseRef.current = normalizedEdited;
+        const currentText = normalizedLive ?? editableDocuments.getDocument(activeDocument.key)?.currentText ?? normalizedEdited;
+        if (currentText === normalizedEdited) {
+          setEditorDirty(false);
+          setEditorDiffersFromBaseline(false);
+          setEditStats(null);
+        } else {
+          editableDocuments.updateActiveText(currentText, { forceNotify: true });
+          setEditorDirty(true);
+          setEditorDiffersFromBaseline(true);
+          setEditStats(computeEditStats(normalizedEdited, currentText));
+        }
+      }
       scheduleDraftSave();
       toast.success(`Saved ${activeSourceSave.basename}`);
       return true;
@@ -2750,7 +2789,7 @@ const App: React.FC = () => {
   }, [
     showExport, showFeedbackPrompt, showClaudeCodeWarning, showExitWarning, showAgentWarning,
     showPermissionModeSetup, pendingPasteImage,
-    submitted, isApiMode, isEditingMarkdown, handleSaveEditedSourceFile, markdown, annotationsOutput,
+    submitted, isApiMode, isEditingMarkdown, handleSaveEditedSourceFile, displayedMarkdown, annotationsOutput,
   ]);
 
   // Cmd/Ctrl+P keyboard shortcut — print plan

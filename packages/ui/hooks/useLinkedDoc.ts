@@ -54,6 +54,8 @@ export interface UseLinkedDocOptions {
   onDocumentLoaded?: (doc: LinkedDocLoadData) => string | undefined;
   /** Read current host-owned text when caching a linked doc. */
   getDocumentMarkdown?: (filepath: string, fallback?: string) => string | undefined;
+  /** Let the host restore any state that was suspended while a linked doc was active. */
+  onAfterBack?: () => void;
 }
 
 interface SavedPlanState {
@@ -128,6 +130,7 @@ export function useLinkedDoc(options: UseLinkedDocOptions): UseLinkedDocReturn {
     onBeforeNavigate,
     onDocumentLoaded,
     getDocumentMarkdown,
+    onAfterBack,
   } = options;
 
   const [linkedDoc, setLinkedDoc] = useState<{ filepath: string; isConverted?: boolean; markdown?: string } | null>(null);
@@ -311,6 +314,7 @@ export function useLinkedDoc(options: UseLinkedDocOptions): UseLinkedDocReturn {
     setLinkedDoc(null);
     setError(null);
     savedPlanState.current = null;
+    onAfterBack?.();
 
     // Re-apply plan annotation highlights after DOM settles
     if (saved.annotations.length) {
@@ -333,6 +337,7 @@ export function useLinkedDoc(options: UseLinkedDocOptions): UseLinkedDocReturn {
     viewerRef,
     onBeforeNavigate,
     getDocumentMarkdown,
+    onAfterBack,
   ]);
 
   const dismissError = useCallback(() => setError(null), []);

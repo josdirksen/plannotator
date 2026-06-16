@@ -249,8 +249,8 @@ export const AppHeader = React.memo<AppHeaderProps>(({
                     onClick={onAnnotateFeedback}
                     disabled={isSubmitting || isExiting}
                     isLoading={isSubmitting}
-                    label="Send Annotations"
-                    title="Send Annotations"
+                    label="Send Feedback"
+                    title="Send Feedback"
                   />
                 )}
               </>
@@ -285,7 +285,7 @@ export const AppHeader = React.memo<AppHeaderProps>(({
                     <div className="absolute top-full right-0 mt-2 px-3 py-2 bg-popover border border-border rounded-lg shadow-xl text-xs text-foreground w-56 text-center opacity-0 invisible group-hover/approve:opacity-100 group-hover/approve:visible transition-all pointer-events-none z-50">
                       <div className="absolute bottom-full right-4 border-4 border-transparent border-b-border" />
                       <div className="absolute bottom-full right-4 mt-px border-4 border-transparent border-b-popover" />
-                      {agentName} doesn't support feedback on approval. Your annotations won't be seen.
+                      {agentName} doesn't support feedback on approval. Your feedback won't be seen.
                     </div>
                   )}
                 </div>

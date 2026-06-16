@@ -107,6 +107,7 @@ const DEMO_PLAN_CONTENT = USE_DIFF_DEMO
   : DEFAULT_DEMO_PLAN_CONTENT;
 import { useCheckboxOverrides } from './hooks/useCheckboxOverrides';
 import { AppHeader } from './components/AppHeader';
+import { buildDirectEditsSection, composeFeedbackWithDirectEdits, normalizeEditedMarkdown } from './directEdits';
 
 type NoteAutoSaveResults = {
   obsidian?: boolean;
@@ -213,6 +214,14 @@ const draftBannerMessage = (banner: { count: number; timeAgo: string; hasEdits: 
   return `Found ${parts.join(' and ')} from ${banner.timeAgo}. Would you like to restore them?`;
 };
 
+const feedbackLossDescription = (annotationCount: number, hasDirectEdits: boolean): string => {
+  const parts = [
+    annotationCount > 0 ? `${annotationCount} annotation${annotationCount !== 1 ? 's' : ''}` : '',
+    hasDirectEdits ? 'direct edits' : '',
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(' and ') : 'feedback';
+};
+
 const App: React.FC = () => {
   const [markdown, setMarkdown] = useState(DEMO_PLAN_CONTENT);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
@@ -284,6 +293,8 @@ const App: React.FC = () => {
   const [editGeneration, setEditGeneration] = useState(0);
   // True while the open editor buffer differs from what it mounted with.
   const [editorDirty, setEditorDirty] = useState(false);
+  // True while the open editor buffer differs from the as-submitted baseline.
+  const [editorDiffersFromBaseline, setEditorDiffersFromBaseline] = useState(false);
   const originalMarkdownRef = useRef<string | null>(null);
   // Last COMMITTED editor text (null = no edits). The Direct Edits diff reads
   // this — never the shared `markdown` state, which linked-doc navigation,
@@ -532,6 +543,27 @@ const App: React.FC = () => {
 
   // Plan diff computation
   const planDiff = usePlanDiff(markdown, previousPlan, versionInfo);
+  const warnFinishEditingFirst = useCallback((target: 'versions' | 'diff') => {
+    toast('Finish editing first', {
+      description: target === 'versions'
+        ? 'Use "Done editing" before changing the comparison version.'
+        : 'Use "Done editing" before opening the version diff.',
+    });
+  }, []);
+  const handleSelectBaseVersion = useCallback((version: number) => {
+    if (isEditingMarkdown) {
+      warnFinishEditingFirst('versions');
+      return Promise.resolve();
+    }
+    return planDiff.selectBaseVersion(version);
+  }, [isEditingMarkdown, planDiff.selectBaseVersion, warnFinishEditingFirst]);
+  const handleActivatePlanDiff = useCallback(() => {
+    if (isEditingMarkdown) {
+      warnFinishEditingFirst('diff');
+      return;
+    }
+    setIsPlanDiffActive(true);
+  }, [isEditingMarkdown, warnFinishEditingFirst]);
 
   const linkedDocSidebar = useMemo(() => ({
     ...sidebar,
@@ -1069,8 +1101,7 @@ const App: React.FC = () => {
     const base = originalMarkdownRef.current;
     if (base === null) return null;
     const live = isEditingMarkdown ? markdownEditorHandleRef.current?.getMarkdown() : null;
-    const current = live ?? editedMarkdownRef.current;
-    return current != null && current !== base ? current : null;
+    return normalizeEditedMarkdown(base, live ?? editedMarkdownRef.current);
   }, [isEditingMarkdown]);
 
   // Auto-save annotation drafts
@@ -1182,13 +1213,15 @@ const App: React.FC = () => {
     const edited = markdownEditorHandleRef.current?.getMarkdown();
     setIsEditingMarkdown(false);
     setEditorDirty(false);
+    setEditorDiffersFromBaseline(false);
 
     const base = originalMarkdownRef.current;
     if (edited != null) {
-      editedMarkdownRef.current = base !== null && edited === base ? null : edited;
-      setEditStats(base !== null && edited !== base ? computeEditStats(base, edited) : null);
+      const normalizedEdited = normalizeEditedMarkdown(base, edited);
+      editedMarkdownRef.current = normalizedEdited;
+      setEditStats(base !== null && normalizedEdited !== null ? computeEditStats(base, normalizedEdited) : null);
       // Surface the Direct Edits card so the user sees where their changes went.
-      if (base !== null && edited !== base && window.innerWidth >= 768) {
+      if (base !== null && normalizedEdited !== null && window.innerWidth >= 768) {
         setRightSidebarTab('annotations');
         setIsPanelOpen(true);
       }
@@ -1206,6 +1239,7 @@ const App: React.FC = () => {
     if (base === null) return;
     setIsEditingMarkdown(false);
     setEditorDirty(false);
+    setEditorDiffersFromBaseline(false);
     editedMarkdownRef.current = null;
     setEditStats(null);
     const remapped = markdown !== base ? applyEditedDocument(base) : annotations;
@@ -1231,6 +1265,7 @@ const App: React.FC = () => {
     // the user's current work wins over the draft.
     if (edited !== null && base !== null && edited !== base && editStats === null && !isEditingMarkdown) {
       editedMarkdownRef.current = edited;
+      setEditorDiffersFromBaseline(false);
       setEditStats(computeEditStats(base, edited));
       if (window.innerWidth >= 768) {
         setRightSidebarTab('annotations');
@@ -1269,8 +1304,10 @@ const App: React.FC = () => {
     if (normalized !== markdown) setMarkdown(normalized);
     // Safety net for paths that loaded content without setting the baseline.
     if (originalMarkdownRef.current === null) originalMarkdownRef.current = normalized;
+    const base = originalMarkdownRef.current;
     editSessionBaseRef.current = normalized;
     setEditorDirty(false);
+    setEditorDiffersFromBaseline(base !== null && normalized !== base);
     setIsEditingMarkdown(true);
   }, [isEditingMarkdown, commitMarkdownEdits, markdown]);
 
@@ -1278,13 +1315,17 @@ const App: React.FC = () => {
   // keystroke is fine at plan sizes; setState bails out on unchanged values.
   const handleEditorChange = useCallback((md: string) => {
     setEditorDirty(md !== editSessionBaseRef.current);
+    const base = originalMarkdownRef.current;
+    setEditorDiffersFromBaseline(base !== null && md !== base);
     // Mid-edit keystrokes persist too — a crash loses at most the debounce
     // window. The hook reads the live buffer via getDraftEditedMarkdown.
     scheduleDraftSave();
   }, [scheduleDraftSave]);
 
   // True when there is anything the Direct Edits diff would carry.
-  const hasDirectEdits = editStats !== null || (isEditingMarkdown && editorDirty);
+  const hasDirectEdits = isEditingMarkdown ? editorDiffersFromBaseline : editedMarkdownRef.current !== null;
+  const hasFeedbackToSend = hasAnyAnnotations || hasDirectEdits;
+  const feedbackLoss = feedbackLossDescription(feedbackAnnotationCount, hasDirectEdits);
 
   // Pinned "Direct edits" card data for the annotation sidebar. Memoized per
   // commit (editStats changes identity on every commit) — the diff is computed
@@ -1305,34 +1346,14 @@ const App: React.FC = () => {
   // as-submitted baseline. getEditedMarkdown owns the read discipline.
   const buildEditsSection = useCallback((): string => {
     const base = originalMarkdownRef.current;
-    const current = getEditedMarkdown();
-    if (base === null || current === null) return '';
-    const patch = createTwoFilesPatch(
-      'plan.md (original)',
-      'plan.md (edited)',
-      base,
-      current,
-      undefined,
-      undefined,
-      { context: 3 }
-    );
-    const preamble = sourceConverted
-      ? 'The user edited a markdown conversion of the original source. This diff describes the desired content changes (it is not a literal patch to a file on disk):'
-      : 'The user edited the document directly. Apply these exact changes — a unified diff against the version you submitted:';
-    return ['# Direct Edits', '', preamble, '', '```diff', patch.trimEnd(), '```'].join('\n');
+    return buildDirectEditsSection(base, getEditedMarkdown(), sourceConverted);
   }, [getEditedMarkdown, sourceConverted]);
 
   // Prepends the Direct Edits section to annotation feedback. When edits exist
   // but there are no annotations, the "no feedback" sentinel is replaced rather
   // than appended to.
   const composeFeedback = useCallback((annotationsText: string): string => {
-    const edits = buildEditsSection();
-    if (!edits) return annotationsText;
-    const isEmptySentinel =
-      annotationsText.length === 0 ||
-      annotationsText === 'User reviewed the document and has no feedback.' ||
-      annotationsText === 'User reviewed the messages and has no feedback.';
-    return isEmptySentinel ? edits : `${edits}\n\n---\n\n${annotationsText}`;
+    return composeFeedbackWithDirectEdits(annotationsText, buildEditsSection());
   }, [buildEditsSection]);
 
   const handleTaterModeChange = useCallback((enabled: boolean) => {
@@ -1883,7 +1904,7 @@ const App: React.FC = () => {
       // Annotate mode: gate-enabled + no annotations → approve (empty stdout).
       // Otherwise: send feedback.
       if (annotateMode) {
-        if (gate && !hasAnyAnnotations && !hasDirectEdits) {
+        if (gate && !hasFeedbackToSend) {
           handleAnnotateApprove();
           return;
         }
@@ -1891,12 +1912,8 @@ const App: React.FC = () => {
         return;
       }
 
-      // No annotations → Approve, otherwise → Send Feedback
-      const docAnnotations = linkedDocHook.getDocAnnotations();
-      const hasDocAnnotations = Array.from(docAnnotations.values()).some(
-        (d) => d.annotations.length > 0 || d.globalAttachments.length > 0
-      );
-      if (allAnnotations.length === 0 && codeAnnotations.length === 0 && editorAnnotations.length === 0 && !hasDocAnnotations && !hasDirectEdits) {
+      // No feedback → Approve, otherwise → Send Feedback
+      if (!hasFeedbackToSend) {
         // Check if agent exists for OpenCode users
         if (origin === 'opencode') {
           const warning = getAgentWarning();
@@ -1920,7 +1937,7 @@ const App: React.FC = () => {
     showExport, showImport, showFeedbackPrompt, showClaudeCodeWarning, showExitWarning, showAgentWarning,
     showPermissionModeSetup, pendingPasteImage,
     submitted, isSubmitting, isExiting, goalSetupAction.isSubmitting, isApiMode, linkedDocHook.isActive, annotations.length, codeAnnotations.length, externalAnnotations.length, annotateMode,
-    gate, hasAnyAnnotations, hasDirectEdits, goalSetupMode, goalSetupAction.canSubmit,
+    gate, hasFeedbackToSend, goalSetupMode, goalSetupAction.canSubmit,
     origin, getAgentWarning,
   ]);
 
@@ -2491,33 +2508,29 @@ const App: React.FC = () => {
   };
 
   const handleHeaderAnnotateExit = useCallback(() => {
-    if (hasAnyAnnotations || hasDirectEdits) {
+    if (hasFeedbackToSend) {
       setExitWarningAction('close');
       setShowExitWarning(true);
     } else {
       headerHandlersRef.current.handleAnnotateExit();
     }
-  }, [hasAnyAnnotations, hasDirectEdits]);
+  }, [hasFeedbackToSend]);
 
   const handleHeaderFeedback = useCallback(() => {
     const h = headerHandlersRef.current;
-    const docAnnotations = h.getDocAnnotations();
-    const hasDocAnnotations = Array.from(docAnnotations.values()).some(
-      (d) => d.annotations.length > 0 || d.globalAttachments.length > 0
-    );
     // Direct edits count as feedback — deny is the only Claude Code channel
     // whose output carries feedback to the agent.
-    if (allAnnotations.length === 0 && codeAnnotations.length === 0 && editorAnnotations.length === 0 && !hasDocAnnotations && !hasDirectEdits) {
+    if (!hasFeedbackToSend) {
       setShowFeedbackPrompt(true);
     } else {
       h.handleDeny();
     }
-  }, [allAnnotations.length, codeAnnotations.length, editorAnnotations.length, hasDirectEdits]);
+  }, [hasFeedbackToSend]);
 
   const handleHeaderApprove = useCallback(() => {
     const h = headerHandlersRef.current;
     if (annotateMode) {
-      if (hasAnyAnnotations || hasDirectEdits) {
+      if (hasFeedbackToSend) {
         setExitWarningAction('approve');
         setShowExitWarning(true);
         return;
@@ -2525,7 +2538,7 @@ const App: React.FC = () => {
       h.handleAnnotateApprove();
       return;
     }
-    if (origin === 'claude-code' && (allAnnotations.length > 0 || codeAnnotations.length > 0 || hasDirectEdits)) {
+    if (origin === 'claude-code' && hasFeedbackToSend) {
       setShowClaudeCodeWarning(true);
       return;
     }
@@ -2538,7 +2551,7 @@ const App: React.FC = () => {
       }
     }
     h.handleApprove();
-  }, [annotateMode, hasAnyAnnotations, hasDirectEdits, origin, allAnnotations.length, codeAnnotations.length]);
+  }, [annotateMode, hasFeedbackToSend, origin]);
 
   const handleHeaderAnnotateFeedback = useCallback(() => headerHandlersRef.current.handleAnnotateFeedback(), []);
   const handleHeaderAnnotateApprove = useCallback(() => headerHandlersRef.current.handleAnnotateApprove(), []);
@@ -2619,7 +2632,7 @@ const App: React.FC = () => {
           canShareCurrentSession={canShareCurrentSession}
           agentName={agentName}
           availableAgents={availableAgents}
-          showAnnotationsWarning={allAnnotations.length > 0 || codeAnnotations.length > 0 || hasDirectEdits}
+          showAnnotationsWarning={hasFeedbackToSend}
           callbackConfig={callbackConfig}
           taterMode={taterMode}
           mobileSettingsOpen={mobileSettingsOpen}
@@ -2731,10 +2744,10 @@ const App: React.FC = () => {
                 versionInfo={versionInfo}
                 versions={planDiff.versions}
                 selectedBaseVersion={planDiff.diffBaseVersion}
-                onSelectBaseVersion={planDiff.selectBaseVersion}
+                onSelectBaseVersion={handleSelectBaseVersion}
                 isPlanDiffActive={isPlanDiffActive}
                 hasPreviousVersion={planDiff.hasPreviousVersion}
-                onActivatePlanDiff={() => setIsPlanDiffActive(true)}
+                onActivatePlanDiff={handleActivatePlanDiff}
                 isLoadingVersions={planDiff.isLoadingVersions}
                 isSelectingVersion={planDiff.isSelectingVersion}
                 fetchingVersion={planDiff.fetchingVersion}
@@ -3151,12 +3164,16 @@ const App: React.FC = () => {
         <ConfirmDialog
           isOpen={showFeedbackPrompt}
           onClose={() => setShowFeedbackPrompt(false)}
-          title="Add Annotations First"
-          message={`To provide feedback, select text in the plan and add annotations. ${agentName} will use your annotations to revise the plan.`}
+          title="Add Feedback First"
+          message={
+            canEditMarkdown
+              ? `To provide feedback, add annotations or direct edits. ${agentName} will use your feedback to revise the ${annotateMode ? 'document' : 'plan'}.`
+              : `To provide feedback, select text and add annotations. ${agentName} will use your annotations to revise the ${annotateMode ? 'document' : 'plan'}.`
+          }
           variant="info"
         />
 
-        {/* Claude Code annotation warning dialog */}
+        {/* Claude Code feedback warning dialog */}
         <ConfirmDialog
           isOpen={showClaudeCodeWarning}
           onClose={() => setShowClaudeCodeWarning(false)}
@@ -3164,8 +3181,8 @@ const App: React.FC = () => {
             setShowClaudeCodeWarning(false);
             handleApprove();
           }}
-          title="Annotations Won't Be Sent"
-          message={<>{agentName} doesn't yet support feedback on approval. Your {allAnnotations.length + codeAnnotations.length} annotation{(allAnnotations.length + codeAnnotations.length) !== 1 ? 's' : ''} will be lost.</>}
+          title="Feedback Won't Be Sent"
+          message={<>{agentName} doesn't yet support feedback on approval. Your {feedbackLoss} will be lost.</>}
           subMessage={
             <>
               To send feedback, use <strong>Send Feedback</strong> instead.
@@ -3183,7 +3200,7 @@ const App: React.FC = () => {
           showCancel
         />
 
-        {/* Unsaved-annotations warning dialog — reused by Close and (in gate mode) Approve */}
+        {/* Unsent feedback warning dialog — reused by Close and (in gate mode) Approve */}
         <ConfirmDialog
           isOpen={showExitWarning}
           onClose={() => setShowExitWarning(false)}
@@ -3192,9 +3209,9 @@ const App: React.FC = () => {
             if (exitWarningAction === 'approve') handleAnnotateApprove();
             else handleAnnotateExit();
           }}
-          title="Annotations Won't Be Sent"
-          message={<>You have {feedbackAnnotationCount} annotation{feedbackAnnotationCount !== 1 ? 's' : ''} that will be lost if you {exitWarningAction === 'approve' ? 'approve' : 'close'}.</>}
-          subMessage="To send your annotations, use Send Annotations instead."
+          title="Feedback Won't Be Sent"
+          message={<>You have {feedbackLoss} that will be lost if you {exitWarningAction === 'approve' ? 'approve' : 'close'}.</>}
+          subMessage="To send this feedback, use Send Feedback instead."
           confirmText={exitWarningAction === 'approve' ? 'Approve Anyway' : 'Close Anyway'}
           cancelText="Cancel"
           variant="warning"
@@ -3259,7 +3276,7 @@ const App: React.FC = () => {
             : goalSetupMode ? 'Answers Submitted'
             : submitted === 'approved'
               ? (annotateMode ? 'Approved' : 'Plan Approved')
-              : annotateMode ? 'Annotations Sent'
+              : annotateMode ? 'Feedback Sent'
             : 'Feedback Sent'
           }
           subtitle={
@@ -3274,8 +3291,8 @@ const App: React.FC = () => {
                       ? `${agentName} will proceed.`
                       : `${agentName} will proceed with the implementation.`)
                   : annotateMode
-                    ? `${agentName} will address your annotations on the ${annotateSource === 'message' ? 'message' : annotateSource === 'folder' ? 'files' : 'file'}.`
-                    : `${agentName} will revise the plan based on your annotations.`
+                    ? `${agentName} will address your feedback on the ${annotateSource === 'message' ? 'message' : annotateSource === 'folder' ? 'files' : 'file'}.`
+                    : `${agentName} will revise the plan based on your feedback.`
           }
           agentLabel={agentName}
         />

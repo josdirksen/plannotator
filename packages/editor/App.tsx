@@ -1527,7 +1527,10 @@ const App: React.FC = () => {
     autoSaveAttempted.current = false;
     autoSaveResultsRef.current = {};
     autoSavePromiseRef.current = null;
-  }, [markdown]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once on mount;
+    // markdown changes from edit commits, linked docs, or discard must NOT reset
+    // the arrival auto-save (Bear creates a new note each time).
+  }, []);
 
   useEffect(() => {
     if (!isApiMode || !markdown || isSharedSession || annotateMode || archive.archiveMode) return;

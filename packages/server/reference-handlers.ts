@@ -6,7 +6,8 @@
  */
 
 import { existsSync, statSync } from "fs";
-import { resolve } from "path";
+import { readdir } from "fs/promises";
+import { join, relative, resolve } from "path";
 import { buildFileTree, isFileBrowserExcludedPath } from "@plannotator/shared/reference-common";
 import {
 	filterWorkspaceStatusForDirectory,
@@ -511,6 +512,27 @@ function includeWorkspaceFile(relativePath: string, _change: WorkspaceFileChange
 	return FILE_BROWSER_EXTENSIONS.test(relativePath) && !isFileBrowserExcludedPath(relativePath);
 }
 
+async function walkFileBrowserFiles(dir: string, root: string, files: Set<string>): Promise<void> {
+	let entries;
+	try {
+		entries = await readdir(dir, { withFileTypes: true });
+	} catch {
+		return;
+	}
+
+	for (const entry of entries) {
+		const fullPath = join(dir, entry.name);
+		const relativePath = relative(root, fullPath).replace(/\\/g, "/");
+		if (entry.isDirectory()) {
+			if (isFileBrowserExcludedPath(relativePath)) continue;
+			await walkFileBrowserFiles(fullPath, root, files);
+		} else if (entry.isFile() && FILE_BROWSER_EXTENSIONS.test(entry.name)) {
+			if (isFileBrowserExcludedPath(relativePath)) continue;
+			files.add(relativePath);
+		}
+	}
+}
+
 /** List markdown files in a directory as a nested tree. */
 export async function handleFileBrowserFiles(req: Request): Promise<Response> {
 	const url = new URL(req.url);
@@ -528,16 +550,9 @@ export async function handleFileBrowserFiles(req: Request): Promise<Response> {
 	}
 
 	try {
-		const glob = new Bun.Glob("**/*.{md,mdx,txt,html,htm}");
 		const files = new Set<string>();
-		for await (const match of glob.scan({
-			cwd: resolvedDir,
-			onlyFiles: true,
-		})) {
-			if (isFileBrowserExcludedPath(match)) continue;
-			files.add(match);
-		}
-		const workspaceStatus = filterWorkspaceStatusForDirectory(getWorkspaceStatusForDirectory(resolvedDir), resolvedDir, includeWorkspaceFile);
+		await walkFileBrowserFiles(resolvedDir, resolvedDir, files);
+		const workspaceStatus = filterWorkspaceStatusForDirectory(await getWorkspaceStatusForDirectory(resolvedDir), resolvedDir, includeWorkspaceFile);
 		for (const match of getWorkspaceStatusRelativePaths(workspaceStatus, resolvedDir, includeWorkspaceFile)) {
 			files.add(match);
 		}

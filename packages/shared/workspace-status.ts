@@ -1,5 +1,6 @@
-import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, realpathSync } from "node:fs";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 
 export type WorkspaceFileStatus =
@@ -43,11 +44,24 @@ export interface GitRepositoryInfo {
 }
 
 const TEXT_FILE_MAX_BYTES = 2 * 1024 * 1024;
+const GIT_MAX_BUFFER = 20 * 1024 * 1024;
+const DEFAULT_GIT_TIMEOUT_MS = 30_000;
+type GitResult = { ok: true; stdout: string } | { ok: false; error: string };
+interface WorkspaceStatusFlight {
+	promise?: Promise<WorkspaceStatusPayload>;
+	rerunRequested: boolean;
+}
+const workspaceStatusFlights = new Map<string, WorkspaceStatusFlight>();
 
-function runGit(cwd: string, args: string[]): { ok: true; stdout: string } | { ok: false; error: string } {
+function getGitTimeoutMs(): number {
+	const timeout = Number.parseInt(process.env.PLANNOTATOR_GIT_TIMEOUT_MS ?? "", 10);
+	return Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_GIT_TIMEOUT_MS;
+}
+
+function runGit(cwd: string, args: string[]): GitResult {
 	const result = spawnSync("git", ["--no-optional-locks", "-C", cwd, ...args], {
 		encoding: "utf8",
-		maxBuffer: 20 * 1024 * 1024,
+		maxBuffer: GIT_MAX_BUFFER,
 	});
 	if (result.error) return { ok: false, error: result.error.message };
 	if (result.status !== 0) {
@@ -55,6 +69,58 @@ function runGit(cwd: string, args: string[]): { ok: true; stdout: string } | { o
 		return { ok: false, error: stderr || `git exited with status ${result.status ?? "unknown"}` };
 	}
 	return { ok: true, stdout: result.stdout ?? "" };
+}
+
+function runGitAsync(cwd: string, args: string[]): Promise<GitResult> {
+	return new Promise((resolveResult) => {
+		const child = spawn("git", ["--no-optional-locks", "-C", cwd, ...args], {
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		let stdout = "";
+		let stderr = "";
+		let stdoutBytes = 0;
+		let stderrBytes = 0;
+		let settled = false;
+		let timeout: ReturnType<typeof setTimeout> | null = null;
+
+		const finish = (result: GitResult) => {
+			if (settled) return;
+			settled = true;
+			if (timeout) clearTimeout(timeout);
+			resolveResult(result);
+		};
+
+		const timeoutMs = getGitTimeoutMs();
+		timeout = setTimeout(() => {
+			child.kill("SIGKILL");
+			finish({ ok: false, error: `git timed out after ${timeoutMs}ms` });
+		}, timeoutMs);
+
+		child.stdout.setEncoding("utf8");
+		child.stderr.setEncoding("utf8");
+		child.stdout.on("data", (chunk: string) => {
+			stdoutBytes += Buffer.byteLength(chunk);
+			if (stdoutBytes > GIT_MAX_BUFFER) {
+				child.kill();
+				finish({ ok: false, error: `git stdout exceeded ${GIT_MAX_BUFFER} bytes` });
+				return;
+			}
+			stdout += chunk;
+		});
+		child.stderr.on("data", (chunk: string) => {
+			stderrBytes += Buffer.byteLength(chunk);
+			if (stderrBytes <= GIT_MAX_BUFFER) stderr += chunk;
+		});
+		child.on("error", (error) => finish({ ok: false, error: error.message }));
+		child.on("close", (status) => {
+			if (status === 0) {
+				finish({ ok: true, stdout });
+				return;
+			}
+			const message = stderr.trim() || `git exited with status ${status ?? "unknown"}`;
+			finish({ ok: false, error: message });
+		});
+	});
 }
 
 function resolveGitPath(cwd: string, value: string): string {
@@ -97,6 +163,40 @@ export function getGitRepositoryInfo(cwd: string): GitRepositoryInfo | null {
 
 	const gitDir = runGit(cwd, ["rev-parse", "--git-dir"]);
 	const gitCommonDir = runGit(cwd, ["rev-parse", "--git-common-dir"]);
+
+	return {
+		repoRoot,
+		gitDir: gitDir.ok && gitDir.stdout.trim() ? resolveGitPath(gitCwd, gitDir.stdout.trim()) : resolve(repoRoot, ".git"),
+		gitCommonDir: gitCommonDir.ok && gitCommonDir.stdout.trim()
+			? resolveGitPath(gitCwd, gitCommonDir.stdout.trim())
+			: gitDir.ok && gitDir.stdout.trim()
+				? resolveGitPath(gitCwd, gitDir.stdout.trim())
+				: resolve(repoRoot, ".git"),
+	};
+}
+
+async function getGitRepositoryInfoAsync(cwd: string): Promise<GitRepositoryInfo | null> {
+	const topLevel = await runGitAsync(cwd, ["rev-parse", "--show-toplevel"]);
+	if (!topLevel.ok) return null;
+	const rawRepoRoot = topLevel.stdout.trim();
+	if (!rawRepoRoot) return null;
+	let gitCwd: string;
+	try {
+		gitCwd = await realpath(resolve(cwd));
+	} catch {
+		return null;
+	}
+	let repoRoot: string;
+	try {
+		repoRoot = await realpath(rawRepoRoot);
+	} catch {
+		return null;
+	}
+
+	const [gitDir, gitCommonDir] = await Promise.all([
+		runGitAsync(cwd, ["rev-parse", "--git-dir"]),
+		runGitAsync(cwd, ["rev-parse", "--git-common-dir"]),
+	]);
 
 	return {
 		repoRoot,
@@ -188,11 +288,11 @@ function parseNumstat(output: string): Map<string, { additions: number; deletion
 	return counts;
 }
 
-function countTextFileLines(path: string): number {
+async function countTextFileLines(path: string): Promise<number> {
 	try {
-		const stat = statSync(path);
-		if (!stat.isFile() || stat.size > TEXT_FILE_MAX_BYTES) return 0;
-		const text = readFileSync(path, "utf8").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+		const fileStat = await stat(path);
+		if (!fileStat.isFile() || fileStat.size > TEXT_FILE_MAX_BYTES) return 0;
+		const text = (await readFile(path, "utf8")).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 		if (text.length === 0) return 0;
 		const trimmed = text.endsWith("\n") ? text.slice(0, -1) : text;
 		return trimmed.length === 0 ? 1 : trimmed.split("\n").length;
@@ -201,50 +301,38 @@ function countTextFileLines(path: string): number {
 	}
 }
 
-export function getWorkspaceStatusForDirectory(dirPath: string): WorkspaceStatusPayload {
-	let rootPath: string;
-	try {
-		rootPath = realpathSync(resolve(dirPath));
-	} catch {
-		return {
-			available: false,
-			rootPath: resolve(dirPath),
-			files: {},
-			totals: { files: 0, additions: 0, deletions: 0 },
-			error: "invalid-directory",
-		};
-	}
-	const repo = getGitRepositoryInfo(rootPath);
-	if (!repo) {
-		return {
-			available: false,
-			rootPath,
-			files: {},
-			totals: { files: 0, additions: 0, deletions: 0 },
-			error: "not-a-git-repo",
-		};
-	}
+function unavailableWorkspaceStatus(
+	rootPath: string,
+	error: string,
+	repoRoot?: string,
+): WorkspaceStatusPayload {
+	return {
+		available: false,
+		rootPath,
+		repoRoot,
+		files: {},
+		totals: { files: 0, additions: 0, deletions: 0 },
+		error,
+	};
+}
+
+async function computeWorkspaceStatusForDirectory(rootPath: string): Promise<WorkspaceStatusPayload> {
+	const repo = await getGitRepositoryInfoAsync(rootPath);
+	if (!repo) return unavailableWorkspaceStatus(rootPath, "not-a-git-repo");
 
 	const rootPathspec = relative(repo.repoRoot, rootPath).replace(/\\/g, "/") || ".";
-	const status = runGit(repo.repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", rootPathspec]);
-	if ("error" in status) {
-		return {
-			available: false,
-			rootPath,
-			repoRoot: repo.repoRoot,
-			files: {},
-			totals: { files: 0, additions: 0, deletions: 0 },
-			error: status.error,
-		};
-	}
+	const status = await runGitAsync(repo.repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", rootPathspec]);
+	if ("error" in status) return unavailableWorkspaceStatus(rootPath, status.error, repo.repoRoot);
 
 	const entries = parsePorcelain(status.stdout);
-	const numstat = runGit(repo.repoRoot, ["diff", "--numstat", "-z", "HEAD", "--", rootPathspec]);
+	const numstat = await runGitAsync(repo.repoRoot, ["diff", "--numstat", "-z", "HEAD", "--", rootPathspec]);
 	const headLineCounts = numstat.ok ? parseNumstat(numstat.stdout) : new Map<string, { additions: number; deletions: number }>();
 	let splitLineCounts: Map<string, { additions: number; deletions: number }> | null = null;
 	if (entries.some((entry) => entry.staged && entry.unstaged)) {
-		const cached = runGit(repo.repoRoot, ["diff", "--cached", "--numstat", "-z", "--", rootPathspec]);
-		const unstaged = runGit(repo.repoRoot, ["diff", "--numstat", "-z", "--", rootPathspec]);
+		const [cached, unstaged] = await Promise.all([
+			runGitAsync(repo.repoRoot, ["diff", "--cached", "--numstat", "-z", "--", rootPathspec]),
+			runGitAsync(repo.repoRoot, ["diff", "--numstat", "-z", "--", rootPathspec]),
+		]);
 		splitLineCounts = combinedLineCounts(
 			cached.ok ? parseNumstat(cached.stdout) : new Map<string, { additions: number; deletions: number }>(),
 			unstaged.ok ? parseNumstat(unstaged.stdout) : new Map<string, { additions: number; deletions: number }>(),
@@ -266,7 +354,7 @@ export function getWorkspaceStatusForDirectory(dirPath: string): WorkspaceStatus
 			: { additions: 0, deletions: 0 };
 		const countedAdditions = counts.additions + oldCounts.additions;
 		const additions = (entry.status === "untracked" || entry.status === "added") && countedAdditions === 0
-			? countTextFileLines(absolutePath)
+			? await countTextFileLines(absolutePath)
 			: countedAdditions;
 		const deletions = counts.deletions + oldCounts.deletions;
 		const oldPath = entry.oldRepoRelativePath
@@ -298,6 +386,42 @@ export function getWorkspaceStatusForDirectory(dirPath: string): WorkspaceStatus
 			deletions: totalDeletions,
 		},
 	};
+}
+
+async function runWorkspaceStatusFlight(rootPath: string, flight: WorkspaceStatusFlight): Promise<WorkspaceStatusPayload> {
+	try {
+		let status: WorkspaceStatusPayload;
+		do {
+			flight.rerunRequested = false;
+			status = await computeWorkspaceStatusForDirectory(rootPath);
+		} while (flight.rerunRequested);
+		return status;
+	} finally {
+		if (workspaceStatusFlights.get(rootPath) === flight) {
+			workspaceStatusFlights.delete(rootPath);
+		}
+	}
+}
+
+export async function getWorkspaceStatusForDirectory(dirPath: string): Promise<WorkspaceStatusPayload> {
+	let rootPath: string;
+	try {
+		rootPath = await realpath(resolve(dirPath));
+	} catch {
+		return unavailableWorkspaceStatus(resolve(dirPath), "invalid-directory");
+	}
+
+	const existing = workspaceStatusFlights.get(rootPath);
+	if (existing?.promise) {
+		existing.rerunRequested = true;
+		return existing.promise;
+	}
+
+	const flight: WorkspaceStatusFlight = { rerunRequested: false };
+	const status = runWorkspaceStatusFlight(rootPath, flight);
+	flight.promise = status;
+	workspaceStatusFlights.set(rootPath, flight);
+	return status;
 }
 
 export function getWorkspaceStatusRelativePaths(

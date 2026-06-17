@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { handleFileBrowserFilesStream } from "./reference-watch";
+import { handleFileBrowserFilesStream, isFileBrowserWatchIgnoredPath } from "./reference-watch";
 
 const tempDirs: string[] = [];
 
@@ -52,6 +52,17 @@ afterEach(() => {
 });
 
 describe("handleFileBrowserFilesStream", () => {
+	test("ignores nested excluded folders for watcher paths", () => {
+		const root = join(tmpdir(), "plannotator-watch-root");
+
+		expect(isFileBrowserWatchIgnoredPath(join(root, "packages", "app", "node_modules"), root)).toBe(true);
+		expect(isFileBrowserWatchIgnoredPath(join(root, "packages", "app", "node_modules", "pkg", "readme.md"), root)).toBe(true);
+		expect(isFileBrowserWatchIgnoredPath(join(root, "docs", "dist", "generated.md"), root)).toBe(true);
+		expect(isFileBrowserWatchIgnoredPath(join(root, "docs", "plan.md"), root)).toBe(false);
+		expect(isFileBrowserWatchIgnoredPath(root, root)).toBe(false);
+		expect(isFileBrowserWatchIgnoredPath(join(dirname(root), "outside", "node_modules"), root)).toBe(false);
+	});
+
 	test("opens one SSE stream for multiple roots", async () => {
 		const first = makeTempDir("plannotator-watch-a-");
 		const second = makeTempDir("plannotator-watch-b-");

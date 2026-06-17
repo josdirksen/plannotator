@@ -172,7 +172,7 @@ describe("handleFileBrowserFiles", () => {
 		git(root, "commit", "-m", "init");
 
 		writeTempFile(root, "dist/generated.md", "after\n");
-		writeTempFile(root, "node_modules/pkg/readme.md", "hidden\n");
+		writeTempFile(root, "packages/app/node_modules/pkg/readme.md", "hidden\n");
 
 		const url = new URL("http://localhost/api/reference/files");
 		url.searchParams.set("dirPath", root);

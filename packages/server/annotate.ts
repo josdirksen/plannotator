@@ -39,6 +39,8 @@ import { handleOpenInApps, handleOpenIn } from "./open-in";
 import { AI_QUERY_ENDPOINT, createAIRuntime } from "./ai-runtime";
 import type { AIEndpoints } from "@plannotator/ai";
 import { createHtmlAssetRegistry } from "./html-assets";
+import { createBunAgentTerminalBridge } from "./agent-terminal";
+import { AGENT_TERMINAL_WS_PATH, supportsAnnotateAgentTerminalMode } from "@plannotator/shared/agent-terminal";
 
 // Re-export utilities
 export { isRemoteSession, getServerPort } from "./remote";
@@ -87,6 +89,8 @@ export interface AnnotateServerOptions {
   /** Session-level force-markdown preference (`--markdown`). Exposed in /api/plan so the
    *  frontend appends `&convert=1` when navigating folder/linked HTML files. */
   convertHtml?: boolean;
+  /** CWD where the optional annotate agent terminal should launch. Defaults to process.cwd(). */
+  agentCwd?: string;
   /** Called when server starts with the URL, remote status, and port */
   onReady?: (url: string, isRemote: boolean, port: number) => void;
 }
@@ -147,6 +151,7 @@ export async function startAnnotateServer(
     rawHtml,
     renderHtml = false,
     convertHtml = false,
+    agentCwd,
     onReady,
   } = options;
 
@@ -162,6 +167,10 @@ export async function startAnnotateServer(
   const externalAnnotations = createExternalAnnotationHandler("plan");
   const aiRuntime = await createAIRuntime();
   const htmlAssets = createHtmlAssetRegistry();
+  const agentTerminal = await createBunAgentTerminalBridge({
+    enabled: supportsAnnotateAgentTerminalMode(mode),
+    cwd: agentCwd ?? process.cwd(),
+  });
 
   async function loadShareHtml(pathParam: string | null): Promise<Response> {
     if (/^https?:\/\//i.test(filePath)) {
@@ -298,6 +307,13 @@ export async function startAnnotateServer(
         async fetch(req, server) {
           const url = new URL(req.url);
 
+          if (url.pathname === AGENT_TERMINAL_WS_PATH) {
+            if (agentTerminal.capability.enabled && agentTerminal.upgrade(req, server)) {
+              return;
+            }
+            return new Response("Agent terminal is unavailable", { status: 404 });
+          }
+
           // API: Get plan content (reuse /api/plan so the plan editor UI works)
           if (url.pathname === "/api/plan" && req.method === "GET") {
             const displayRawHtml = renderHtml && rawHtml ? htmlAssets.rewriteHtml(rawHtml, filePath) : undefined;
@@ -321,6 +337,7 @@ export async function startAnnotateServer(
               projectRoot: folderPath || process.cwd(),
               isWSL: wslFlag,
               serverConfig: getServerConfig(gitUser),
+              agentTerminal: agentTerminal.capability,
               ...(recentMessages ? { recentMessages } : {}),
             });
           }
@@ -580,6 +597,7 @@ export async function startAnnotateServer(
             headers: { "Content-Type": "text/html" },
           });
         },
+        websocket: agentTerminal.websocket,
 
         error(err) {
           console.error("[plannotator] Server error:", err);
@@ -632,6 +650,7 @@ export async function startAnnotateServer(
     waitForDecision: () => decisionPromise,
     stop: () => {
       aiRuntime.dispose();
+      agentTerminal.dispose();
       server.stop();
     },
   };

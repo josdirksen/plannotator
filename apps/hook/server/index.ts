@@ -1013,6 +1013,7 @@ if (args[0] === "sessions") {
     rawHtml,
     renderHtml: !!rawHtml,
     convertHtml: renderMarkdownFlag,
+    agentCwd: projectRoot,
     htmlContent: planHtmlContent,
     onReady: async (url, isRemote, port) => {
       handleAnnotateServerReady(url, isRemote, port);

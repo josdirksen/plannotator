@@ -97,6 +97,7 @@ import {
   type SourceSaveCapability,
   type SourceSaveResponse,
 } from '@plannotator/shared/source-save';
+import type { AgentTerminalCapability } from '@plannotator/shared/agent-terminal';
 // Demo content toggle. Default: the original Real-time Collaboration plan.
 // Opt-in diff-engine stress test: `VITE_DIFF_DEMO=1 bun run dev:hook` swaps
 // in the 20-case Auth Service Refactor test plan. dev-mock-api.ts reads the
@@ -112,6 +113,10 @@ const DEMO_PLAN_CONTENT = USE_DIFF_DEMO
   : DEFAULT_DEMO_PLAN_CONTENT;
 import { useCheckboxOverrides } from './hooks/useCheckboxOverrides';
 import { AppHeader } from './components/AppHeader';
+import {
+  AnnotateAgentTerminalPanel,
+  type AnnotateAgentTerminalPanelHandle,
+} from './components/AnnotateAgentTerminalPanel';
 import {
   buildPlanEditPanelItem,
   buildDirectEditsSection,
@@ -377,6 +382,10 @@ const App: React.FC = () => {
   const [pasteApiUrl, setPasteApiUrl] = useState<string | undefined>(undefined);
   const [repoInfo, setRepoInfo] = useState<{ display: string; branch?: string; host?: string } | null>(null);
   const [projectRoot, setProjectRoot] = useState<string | null>(null);
+  const [agentTerminalCapability, setAgentTerminalCapability] = useState<AgentTerminalCapability | null>(null);
+  const [isAgentTerminalOpen, setIsAgentTerminalOpen] = useState(false);
+  const [isAgentTerminalRunning, setIsAgentTerminalRunning] = useState(false);
+  const agentTerminalRef = useRef<AnnotateAgentTerminalPanelHandle>(null);
   const [wideModeType, setWideModeType] = useState<WideModeType | null>(null);
   const wideModeSnapshotRef = useRef<WideModeLayoutSnapshot | null>(null);
   const initialSidebarPreferenceAppliedRef = useRef(false);
@@ -441,7 +450,16 @@ const App: React.FC = () => {
     // Render-free drag: write the live width to a :root var the panel reads.
     apply: (w) => document.documentElement.style.setProperty('--toc-w', `${w}px`),
   });
-  const isResizing = panelResize.isDragging || tocResize.isDragging;
+  const agentTerminalResize = useResizablePanel({
+    storageKey: 'plannotator-agent-terminal-width',
+    defaultWidth: 360,
+    minWidth: 280,
+    maxWidth: 640,
+    side: 'left',
+    onSnapClose: () => setIsAgentTerminalOpen(false),
+    apply: (w) => document.documentElement.style.setProperty('--agent-terminal-w', `${w}px`),
+  });
+  const isResizing = panelResize.isDragging || tocResize.isDragging || agentTerminalResize.isDragging;
 
   // Whether the document has any TOC-eligible headings (level <= 3, matching
   // buildTocHierarchy). Drives the empty-doc auto-close behavior below — must
@@ -526,6 +544,35 @@ const App: React.FC = () => {
     setRightSidebarTab('ai');
     setIsPanelOpen(prev => rightSidebarTab === 'ai' ? !prev : true);
   }, [dismissPlanAIAnnouncement, exitWideMode, rightSidebarTab, wideModeType]);
+
+  const hideAgentTerminal = useCallback(() => {
+    setIsAgentTerminalOpen(false);
+  }, []);
+
+  const closeAgentTerminal = useCallback(() => {
+    if (agentTerminalRef.current) {
+      agentTerminalRef.current.stop();
+      return;
+    }
+    setIsAgentTerminalRunning(false);
+    hideAgentTerminal();
+  }, [hideAgentTerminal]);
+
+  const toggleAgentTerminal = useCallback(() => {
+    if (isAgentTerminalOpen) {
+      hideAgentTerminal();
+      return;
+    }
+    if (wideModeType !== null) {
+      exitWideMode({ restore: false, panelOpen: false });
+    }
+    setIsAgentTerminalOpen(true);
+  }, [exitWideMode, hideAgentTerminal, isAgentTerminalOpen, wideModeType]);
+
+  useEffect(() => {
+    if (annotateMode && annotateSource !== 'message' && agentTerminalCapability) return;
+    closeAgentTerminal();
+  }, [agentTerminalCapability, annotateMode, annotateSource, closeAgentTerminal]);
 
   // Sync sidebar open state when the "Auto-open Sidebar" preference changes in
   // Settings. Deliberately does NOT react to the document or render mode —
@@ -707,10 +754,11 @@ const App: React.FC = () => {
         panelOpen: isPanelOpen,
       };
     }
+    if (isAgentTerminalOpen) hideAgentTerminal();
     setWideModeType(type);
     sidebar.close();
     setIsPanelOpen(false);
-  }, [canUseWideMode, isPanelOpen, wideModeType, sidebar.activeTab, sidebar.close, sidebar.isOpen]);
+  }, [canUseWideMode, hideAgentTerminal, isAgentTerminalOpen, isPanelOpen, wideModeType, sidebar.activeTab, sidebar.close, sidebar.isOpen]);
 
   const toggleViewMode = useCallback((type: WideModeType) => {
     if (wideModeType === type) {
@@ -1974,7 +2022,7 @@ const App: React.FC = () => {
         if (!res.ok) throw new Error('Not in API mode');
         return res.json();
       })
-      .then((data: { plan: string; origin?: Origin; mode?: 'annotate' | 'annotate-last' | 'annotate-folder' | 'archive' | 'goal-setup'; goalSetup?: GoalSetupBundle; filePath?: string; sourceInfo?: string; sourceConverted?: boolean; sourceSave?: SourceSaveCapability; gate?: boolean; renderAs?: 'html' | 'markdown'; rawHtml?: string; shareHtml?: string; convertHtml?: boolean; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string; host?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; archivePlans?: ArchivedPlan[]; projectRoot?: string; isWSL?: boolean; serverConfig?: { displayName?: string; gitUser?: string }; recentMessages?: PickerMessage[] }) => {
+      .then((data: { plan: string; origin?: Origin; mode?: 'annotate' | 'annotate-last' | 'annotate-folder' | 'archive' | 'goal-setup'; goalSetup?: GoalSetupBundle; filePath?: string; sourceInfo?: string; sourceConverted?: boolean; sourceSave?: SourceSaveCapability; gate?: boolean; renderAs?: 'html' | 'markdown'; rawHtml?: string; shareHtml?: string; convertHtml?: boolean; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string; host?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; archivePlans?: ArchivedPlan[]; projectRoot?: string; isWSL?: boolean; serverConfig?: { displayName?: string; gitUser?: string }; recentMessages?: PickerMessage[]; agentTerminal?: AgentTerminalCapability }) => {
         // Initialize config store with server-provided values (config file > cookie > default)
         configStore.init(data.serverConfig);
         // Session-level force-markdown preference (--markdown); threaded into folder/linked
@@ -2058,6 +2106,7 @@ const App: React.FC = () => {
         if (data.projectRoot) {
           setProjectRoot(data.projectRoot);
         }
+        setAgentTerminalCapability(data.agentTerminal ?? null);
         // Capture plan version history data
         if (data.previousPlan !== undefined) {
           setPreviousPlan(data.previousPlan);
@@ -2082,6 +2131,7 @@ const App: React.FC = () => {
         // Not in API mode - use default content
         setIsApiMode(false);
         setAISessionEnabled(false);
+        setAgentTerminalCapability(null);
         // Demo mode still exercises edit mode; baseline is the demo plan.
         originalMarkdownRef.current = DEMO_PLAN_CONTENT;
       })
@@ -3436,6 +3486,16 @@ const App: React.FC = () => {
   }, [uiPrefs.planWidth]);
   const annotateReaderMaxWidth = canUseWideMode && wideModeType === 'wide' ? null : planMaxWidth;
   const selectedAIProvider = aiProviders.find(provider => provider.id === aiConfig.providerId) ?? null;
+  const showAgentTerminalControls =
+    annotateMode &&
+    annotateSource !== 'message' &&
+    agentTerminalCapability !== null &&
+    !goalSetupMode;
+  const shouldRenderAgentTerminal =
+    showAgentTerminalControls &&
+    agentTerminalCapability !== null &&
+    wideModeType === null &&
+    (isAgentTerminalOpen || isAgentTerminalRunning);
   // Only greet in a normal authoring context — not on a read-only shared session
   // (a viewer would also be able to flip the owner's gridEnabled), nor over the
   // goal-setup / permission-mode flows. Deferred (not marked seen) until then.
@@ -3594,8 +3654,35 @@ const App: React.FC = () => {
         <div data-print-region="content" className={`flex-1 flex overflow-hidden relative z-0 ${isResizing ? 'select-none' : ''}`}>
           {/* Tater sprites — inside content wrapper so z-0 stacking context applies */}
           {taterMode && <TaterSpriteRunning />}
+          {shouldRenderAgentTerminal && agentTerminalCapability && (
+            <div
+              className={
+                isAgentTerminalOpen
+                  ? "contents group/agent-terminal"
+                  : "absolute left-0 top-0 h-full w-0 overflow-hidden pointer-events-none group/agent-terminal"
+              }
+              aria-hidden={!isAgentTerminalOpen}
+              inert={!isAgentTerminalOpen ? true : undefined}
+            >
+              <AnnotateAgentTerminalPanel
+                ref={agentTerminalRef}
+                capability={agentTerminalCapability}
+                width={`var(--agent-terminal-w, ${agentTerminalResize.width}px)`}
+                onSessionActiveChange={setIsAgentTerminalRunning}
+                onClose={hideAgentTerminal}
+              />
+              {isAgentTerminalOpen && (
+                <ResizeHandle
+                  {...agentTerminalResize.handleProps}
+                  className="hidden lg:block z-[55]"
+                  side="left"
+                  onCollapse={hideAgentTerminal}
+                />
+              )}
+            </div>
+          )}
           {/* Left Sidebar: collapsed tab flags (when sidebar is closed) */}
-          {wideModeType === null && !sidebar.isOpen && !goalSetupMode && (
+          {wideModeType === null && !sidebar.isOpen && !goalSetupMode && !isAgentTerminalOpen && (
             <SidebarTabs
               activeTab={sidebar.activeTab}
               onToggleTab={toggleSidebarTab}
@@ -3603,6 +3690,10 @@ const App: React.FC = () => {
               showVersionsTab={versionInfo !== null && versionInfo.totalVersions > 1}
               showFilesTab={showFilesTab && !archive.archiveMode}
               showMessagesTab={annotateSource === 'message' && recentMessages.length > 1}
+              showAgentTerminalTab={showAgentTerminalControls}
+              isAgentTerminalOpen={isAgentTerminalOpen}
+              isAgentTerminalRunning={isAgentTerminalRunning}
+              onToggleAgentTerminal={toggleAgentTerminal}
               hasMessageAnnotations={activeMessageAnnotationCounts.size > 0}
               hasFileAnnotations={hasFileAnnotations}
               className="hidden lg:flex absolute left-0 top-0 z-20"
@@ -3620,6 +3711,10 @@ const App: React.FC = () => {
                 }}
                 onClose={sidebar.close}
                 width={`var(--toc-w, ${tocResize.width}px)`}
+                showAgentTerminalButton={showAgentTerminalControls}
+                isAgentTerminalOpen={isAgentTerminalOpen}
+                isAgentTerminalRunning={isAgentTerminalRunning}
+                onToggleAgentTerminal={toggleAgentTerminal}
                 blocks={blocks}
                 annotations={annotations}
                 activeSection={activeSection}
@@ -3686,7 +3781,7 @@ const App: React.FC = () => {
           {/* Document Area */}
           <OverlayScrollArea
             element="main"
-            className={`flex-1 min-w-0 ${isHtmlSurface ? 'bg-background' : `${gridEnabled ? "bg-grid " : "bg-card "}${!goalSetupMode && !sidebar.isOpen && wideModeType === null ? 'lg:pl-[30px]' : ''}`}`}
+            className={`flex-1 min-w-0 ${isHtmlSurface ? 'bg-background' : `${gridEnabled ? "bg-grid " : "bg-card "}${!goalSetupMode && !sidebar.isOpen && !isAgentTerminalOpen && wideModeType === null ? 'lg:pl-[30px]' : ''}`}`}
             data-print-region="document"
             onViewportReady={handleViewportReady}
           >

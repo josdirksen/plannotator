@@ -43,7 +43,8 @@
     "@pierre/diffs": "1.2.8",
     "chokidar": "^5.0.0",
     "parse5": "^7.3.0",
-    "turndown": "^7.2.4"
+    "turndown": "^7.2.4",
+    "webtui": "file:/Users/ramos/oss/webtui"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.74.0"

@@ -41,6 +41,7 @@ import {
 import { handleFileBrowserStreamRequest } from "./file-browser-watch.js";
 import { resolveUserPath, warmFileListCache } from "../generated/resolve-file.js";
 import { createExternalAnnotationHandler } from "./external-annotations.js";
+import { createNodeAgentTerminalBridge } from "./agent-terminal.js";
 import {
 	HTML_ASSET_ROUTE_PREFIX,
 	encodeHtmlAssetPath,
@@ -49,6 +50,10 @@ import {
 	rewriteHtmlAssetReferences,
 } from "../generated/html-assets.js";
 import { inlineHtmlLocalAssets, isWithinDirectory, MAX_HTML_ASSET_BYTES, resolveOpenInTarget } from "../generated/html-assets-node.js";
+import {
+	supportsAnnotateAgentTerminalMode,
+	type AgentTerminalCapability,
+} from "../generated/agent-terminal.js";
 
 export interface AnnotateServerResult {
 	port: number;
@@ -167,6 +172,7 @@ export async function startAnnotateServer(options: {
 	rawHtml?: string;
 	renderHtml?: boolean;
 	convertHtml?: boolean;
+	agentCwd?: string;
 }): Promise<AnnotateServerResult> {
 	// Side-channel pre-warm so /api/doc/exists POSTs land on warm cache.
 	void warmFileListCache(process.cwd(), "code");
@@ -210,6 +216,10 @@ export async function startAnnotateServer(options: {
 	const externalAnnotations = createExternalAnnotationHandler("plan");
 	const aiRuntime = await createPiAIRuntime();
 	const htmlAssets = createHtmlAssetRegistry();
+	let agentTerminalCapability: AgentTerminalCapability = {
+		enabled: false,
+		reason: "unsupported-runtime",
+	};
 
 	function isAllowedHtmlSharePath(targetPath: string): boolean {
 		const roots = new Set<string>([process.cwd()]);
@@ -348,6 +358,7 @@ export async function startAnnotateServer(options: {
 				repoInfo,
 				projectRoot: options.folderPath || process.cwd(),
 				serverConfig: getServerConfig(gitUser),
+				agentTerminal: agentTerminalCapability,
 				...(options.recentMessages ? { recentMessages: options.recentMessages } : {}),
 			});
 		} else if (url.pathname === "/api/share-html" && req.method === "GET") {
@@ -525,6 +536,12 @@ export async function startAnnotateServer(options: {
 			html(res, options.htmlContent);
 		}
 	});
+	const agentTerminal = await createNodeAgentTerminalBridge({
+		enabled: supportsAnnotateAgentTerminalMode(options.mode || "annotate"),
+		cwd: options.agentCwd ?? process.cwd(),
+		server,
+	});
+	agentTerminalCapability = agentTerminal.capability;
 
 	const { port, portSource } = await listenOnPort(server);
 
@@ -535,6 +552,7 @@ export async function startAnnotateServer(options: {
 		waitForDecision: () => decisionPromise,
 		stop: () => {
 			aiRuntime?.dispose();
+			agentTerminal.dispose();
 			server.close();
 		},
 	};

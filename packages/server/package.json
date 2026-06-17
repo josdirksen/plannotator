@@ -25,13 +25,15 @@
     "./html-assets": "./html-assets.ts"
   },
   "files": [
-    "*.ts"
+    "*.ts",
+    "*.mjs"
   ],
   "dependencies": {
     "chokidar": "^5.0.0",
     "@pierre/diffs": "1.2.8",
     "@plannotator/ai": "workspace:*",
-    "@plannotator/shared": "workspace:*"
+    "@plannotator/shared": "workspace:*",
+    "webtui": "file:/Users/ramos/oss/webtui"
   },
   "peerDependencies": {
     "bun": ">=1.0.0"

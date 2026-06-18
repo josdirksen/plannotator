@@ -26,10 +26,10 @@ import {
   saveAnnotateAgentId,
 } from "@plannotator/ui/utils/annotateAgentTerminal";
 import { getItem, setItem } from "@plannotator/ui/utils/storage";
-import { WebSocketPtyBackend } from "webtui/browser";
-import { WebTuiTerminal } from "webtui/react";
-import type { PtyExit } from "webtui/core";
-import type { WebTuiSession } from "webtui/browser";
+import { WebSocketPtyBackend } from "@plannotator/webtui/browser";
+import { WebTuiTerminal } from "@plannotator/webtui/react";
+import type { PtyExit } from "@plannotator/webtui/core";
+import type { WebTuiSession } from "@plannotator/webtui/browser";
 import {
   Check,
   ChevronDown,
@@ -43,6 +43,7 @@ import { useAnnotateAgentTerminalTheme } from "./annotateAgentTerminalTheme";
 
 export type AnnotateAgentTerminalPanelHandle = {
   stop(): void;
+  sendMessage(message: string): boolean;
 };
 
 type TerminalStatus = "idle" | "starting" | "running" | "stopping" | "exited";
@@ -60,6 +61,7 @@ interface AnnotateAgentTerminalPanelProps {
   capability: AgentTerminalCapability;
   width: number | string;
   onSessionActiveChange?: (active: boolean) => void;
+  onSessionReadyChange?: (ready: boolean) => void;
   onClose: () => void;
 }
 
@@ -116,7 +118,7 @@ const AGENT_TERMINAL_FONT_ZOOM = {
 export const AnnotateAgentTerminalPanel = forwardRef<
   AnnotateAgentTerminalPanelHandle,
   AnnotateAgentTerminalPanelProps
->(function AnnotateAgentTerminalPanel({ capability, width, onSessionActiveChange, onClose }, ref) {
+>(function AnnotateAgentTerminalPanel({ capability, width, onSessionActiveChange, onSessionReadyChange, onClose }, ref) {
   const agents = capability.enabled ? capability.agents : [];
   const availableAgents = useMemo(
     () => agents.filter((agent) => agent.available),
@@ -165,7 +167,8 @@ export const AnnotateAgentTerminalPanel = forwardRef<
     sessionRef.current?.pty.kill();
     sessionRef.current = null;
     onSessionActiveChange?.(false);
-  }, [clearTimers, onSessionActiveChange]);
+    onSessionReadyChange?.(false);
+  }, [clearTimers, onSessionActiveChange, onSessionReadyChange]);
 
   useEffect(() => {
     return () => {
@@ -238,7 +241,8 @@ export const AnnotateAgentTerminalPanel = forwardRef<
     setStartedAgentId(selectedAgent.id);
     setStatus("starting");
     onSessionActiveChange?.(true);
-  }, [canStart, onSessionActiveChange, saveAsDefault, selectedAgent]);
+    onSessionReadyChange?.(false);
+  }, [canStart, onSessionActiveChange, onSessionReadyChange, saveAsDefault, selectedAgent]);
 
   const requestStop = useCallback((closeAfterStop: boolean) => {
     stopRequestedRef.current = true;
@@ -254,6 +258,7 @@ export const AnnotateAgentTerminalPanel = forwardRef<
       setStartedAgentId(null);
       setStatus("idle");
       onSessionActiveChange?.(false);
+      onSessionReadyChange?.(false);
       if (closeAfterStop) onClose();
       return;
     }
@@ -261,15 +266,30 @@ export const AnnotateAgentTerminalPanel = forwardRef<
     clearTimers();
     closeAfterStopRef.current = closeAfterStop;
     setStatus("stopping");
+    onSessionReadyChange?.(false);
     session.write("\x03");
     timersRef.current.push(window.setTimeout(() => sessionRef.current?.write("\x03"), 350));
     timersRef.current.push(window.setTimeout(() => {
       sessionRef.current?.pty.kill();
       if (closeAfterStopRef.current) onClose();
     }, 1400));
-  }, [clearTimers, onClose, onSessionActiveChange, startedAgentId]);
+  }, [clearTimers, onClose, onSessionActiveChange, onSessionReadyChange, startedAgentId]);
 
-  useImperativeHandle(ref, () => ({ stop: () => requestStop(true) }), [requestStop]);
+  const sendMessage = useCallback((message: string) => {
+    const text = message.trim();
+    const session = sessionRef.current;
+    if (!text || !session) return false;
+    try {
+      return session.sendAgentMessage({ text });
+    } catch {
+      return false;
+    }
+  }, []);
+
+  useImperativeHandle(ref, () => ({
+    stop: () => requestStop(true),
+    sendMessage,
+  }), [requestStop, sendMessage]);
 
   const handleExit = useCallback((event: PtyExit) => {
     clearTimers();
@@ -277,6 +297,7 @@ export const AnnotateAgentTerminalPanel = forwardRef<
     sessionRef.current = null;
     setStartedAgentId(null);
     onSessionActiveChange?.(false);
+    onSessionReadyChange?.(false);
     setExitLabel(formatExit(event));
     if (closeAfterStopRef.current) {
       closeAfterStopRef.current = false;
@@ -284,7 +305,7 @@ export const AnnotateAgentTerminalPanel = forwardRef<
       return;
     }
     setStatus("exited");
-  }, [clearTimers, onClose, onSessionActiveChange]);
+  }, [clearTimers, onClose, onSessionActiveChange, onSessionReadyChange]);
 
   return (
     <aside
@@ -349,6 +370,7 @@ export const AnnotateAgentTerminalPanel = forwardRef<
                   return;
                 }
                 setStatus("running");
+                onSessionReadyChange?.(true);
               }}
               onExit={handleExit}
             />

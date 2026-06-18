@@ -33,7 +33,7 @@
     "@pierre/diffs": "1.2.8",
     "@plannotator/ai": "workspace:*",
     "@plannotator/shared": "workspace:*",
-    "webtui": "file:/Users/ramos/oss/webtui"
+    "@plannotator/webtui": "^0.1.0"
   },
   "peerDependencies": {
     "bun": ">=1.0.0"

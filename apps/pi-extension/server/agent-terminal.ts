@@ -7,10 +7,10 @@ import {
 	type AgentTerminalAgent,
 	type AgentTerminalCapability,
 } from "../generated/agent-terminal.js";
-import type { PtyBackend, PtyExit, PtySession, PtySpawnOptions, Unsubscribe } from "webtui/core";
+import type { PtyBackend, PtyExit, PtySession, PtySpawnOptions, Unsubscribe } from "@plannotator/webtui/core";
 
-type WebTuiCore = typeof import("webtui/core");
-type WebTuiServer = typeof import("webtui/server");
+type WebTuiCore = typeof import("@plannotator/webtui/core");
+type WebTuiServer = typeof import("@plannotator/webtui/server");
 
 export type NodeAgentTerminalBridge = {
 	capability: AgentTerminalCapability;
@@ -33,8 +33,8 @@ export async function createNodeAgentTerminalBridge(args: {
 	let serverModule: WebTuiServer;
 	try {
 		[core, serverModule] = await Promise.all([
-			import("webtui/core"),
-			import("webtui/server"),
+			import("@plannotator/webtui/core"),
+			import("@plannotator/webtui/server"),
 		]);
 	} catch (err) {
 		return createDisabledBridge({

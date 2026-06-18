@@ -19,7 +19,7 @@ type AgentTerminalSocketData = {
   pending: string[];
 };
 
-type WebTuiCore = typeof import("webtui/core");
+type WebTuiCore = typeof import("@plannotator/webtui/core");
 
 type NodeAgentTerminalSidecar = {
   wsUrl: string;
@@ -46,7 +46,7 @@ export async function createBunAgentTerminalBridge(args: {
 
   let core: WebTuiCore;
   try {
-    core = await import("webtui/core");
+    core = await import("@plannotator/webtui/core");
   } catch (err) {
     return createDisabledBridge({
       enabled: false,
@@ -196,8 +196,8 @@ async function startNodeAgentTerminalSidecar(
       ...process.env,
       PLANNOTATOR_AGENT_CWD: cwd,
       PLANNOTATOR_AGENT_WS_PATH: AGENT_TERMINAL_WS_PATH,
-      PLANNOTATOR_AGENT_WEBTUI_CORE_URL: resolveImportUrl("webtui/core"),
-      PLANNOTATOR_AGENT_WEBTUI_SERVER_URL: resolveImportUrl("webtui/server"),
+      PLANNOTATOR_AGENT_WEBTUI_CORE_URL: resolveImportUrl("@plannotator/webtui/core"),
+      PLANNOTATOR_AGENT_WEBTUI_SERVER_URL: resolveImportUrl("@plannotator/webtui/server"),
     },
     stdin: "pipe",
     stdout: "pipe",

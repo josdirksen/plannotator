@@ -14,7 +14,7 @@
 import { isRemoteSession, getServerHostname, getServerPort } from "./remote";
 import { getRepoInfo } from "./repo";
 import type { Origin } from "@plannotator/shared/agents";
-import { handleImage, handleUpload, handleServerReady, handleDraftSave, handleDraftLoad, handleDraftDelete, handleFavicon, handleSaveNotes } from "./shared-handlers";
+import { handleImage, handleUpload, handleServerReady, handleDraftSave, handleDraftLoad, handleDraftDelete, handleFavicon, handleSaveNotes, readDraftGenerationFromBody, readDraftGenerationFromUrl } from "./shared-handlers";
 import { handleDoc, handleDocExists, handleFileBrowserFiles, handleObsidianVaults, handleObsidianFiles, handleObsidianDoc } from "./reference-handlers";
 import { handleFileBrowserFilesStream } from "./reference-watch";
 import { resolveUserPath, warmFileListCache } from "@plannotator/shared/resolve-file";
@@ -521,7 +521,7 @@ export async function startAnnotateServer(
           // API: Annotation draft persistence
           if (url.pathname === "/api/draft") {
             if (req.method === "POST") return handleDraftSave(req, draftKey);
-            if (req.method === "DELETE") return handleDraftDelete(draftKey);
+            if (req.method === "DELETE") return handleDraftDelete(draftKey, req);
             return handleDraftLoad(draftKey);
           }
 
@@ -544,14 +544,14 @@ export async function startAnnotateServer(
 
           // API: Exit annotation session without feedback
           if (url.pathname === "/api/exit" && req.method === "POST") {
-            deleteDraft(draftKey);
+            deleteDraft(draftKey, readDraftGenerationFromUrl(req));
             resolveDecision({ feedback: "", annotations: [], exit: true });
             return Response.json({ ok: true });
           }
 
           // API: Approve the annotation session (review-gate UX)
           if (url.pathname === "/api/approve" && req.method === "POST") {
-            deleteDraft(draftKey);
+            deleteDraft(draftKey, readDraftGenerationFromUrl(req));
             resolveDecision({ feedback: "", annotations: [], approved: true });
             return Response.json({ ok: true });
           }
@@ -564,9 +564,10 @@ export async function startAnnotateServer(
                 annotations: unknown[];
                 selectedMessageId?: string;
                 feedbackScope?: "message" | "messages";
+                draftGeneration?: number;
               };
 
-              deleteDraft(draftKey);
+              deleteDraft(draftKey, readDraftGenerationFromBody(body));
               resolveDecision({
                 feedback: body.feedback || "",
                 annotations: body.annotations || [],

@@ -20,6 +20,8 @@ import {
 	handleDraftRequest,
 	handleFavicon,
 	handleImageRequest,
+	readDraftGenerationFromBody,
+	readDraftGenerationFromUrl,
 	handleSaveNotesRequest,
 	handleUploadRequest,
 } from "./handlers.js";
@@ -508,17 +510,17 @@ export async function startAnnotateServer(options: {
 		} else if (url.pathname === "/favicon.svg") {
 			handleFavicon(res);
 		} else if (url.pathname === "/api/exit" && req.method === "POST") {
-			deleteDraft(draftKey);
+			deleteDraft(draftKey, readDraftGenerationFromUrl(req));
 			resolveDecision({ feedback: "", annotations: [], exit: true });
 			json(res, { ok: true });
 		} else if (url.pathname === "/api/approve" && req.method === "POST") {
-			deleteDraft(draftKey);
+			deleteDraft(draftKey, readDraftGenerationFromUrl(req));
 			resolveDecision({ feedback: "", annotations: [], approved: true });
 			json(res, { ok: true });
 		} else if (url.pathname === "/api/feedback" && req.method === "POST") {
 			try {
 				const body = await parseBody(req);
-				deleteDraft(draftKey);
+				deleteDraft(draftKey, readDraftGenerationFromBody(body));
 				resolveDecision({
 					feedback: (body.feedback as string) || "",
 					annotations: (body.annotations as unknown[]) || [],

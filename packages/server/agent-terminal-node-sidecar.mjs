@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 
-const webtuiCoreUrl = process.env.PLANNOTATOR_AGENT_WEBTUI_CORE_URL || "webtui/core";
-const webtuiServerUrl = process.env.PLANNOTATOR_AGENT_WEBTUI_SERVER_URL || "webtui/server";
+const webtuiCoreUrl = process.env.PLANNOTATOR_AGENT_WEBTUI_CORE_URL || "@plannotator/webtui/core";
+const webtuiServerUrl = process.env.PLANNOTATOR_AGENT_WEBTUI_SERVER_URL || "@plannotator/webtui/server";
 const { listBuiltInAgents } = await import(webtuiCoreUrl);
 const { createNodePtyWebSocketServer, NodePtyBackend } = await import(webtuiServerUrl);
 

@@ -41,10 +41,10 @@
   "dependencies": {
     "@joplin/turndown-plugin-gfm": "^1.0.64",
     "@pierre/diffs": "1.2.8",
+    "@plannotator/webtui": "^0.1.0",
     "chokidar": "^5.0.0",
     "parse5": "^7.3.0",
-    "turndown": "^7.2.4",
-    "webtui": "file:/Users/ramos/oss/webtui"
+    "turndown": "^7.2.4"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.74.0"

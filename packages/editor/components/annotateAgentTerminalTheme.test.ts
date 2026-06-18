@@ -37,22 +37,22 @@ describe("buildAnnotateAgentTerminalTheme", () => {
 });
 
 describe("resolveAnnotateAgentTerminalTheme", () => {
-  test("uses a Plannotator-native dark terminal palette instead of the WebTUI gray fallback", () => {
+  test("uses the active Plannotator palette instead of a separate terminal preset", () => {
     const theme = resolveAnnotateAgentTerminalTheme("plannotator", "dark", palette);
 
-    expect(theme.background).toBe("#11131d");
+    expect(theme.background).toBe(palette.background);
     expect(theme.background).not.toBe("#282c34");
-    expect(theme.foreground).toBe("#e8e6f0");
-    expect(theme.blue).toBe("#9f8cff");
-    expect(theme.cyan).toBe("#47d5c8");
+    expect(theme.foreground).toBe(palette.foreground);
+    expect(theme.blue).toBe(palette.primary);
+    expect(theme.cyan).toBe(palette.secondary);
   });
 
-  test("uses the matching Catppuccin terminal palette", () => {
+  test("does not let curated terminal presets override the active app palette", () => {
     const theme = resolveAnnotateAgentTerminalTheme("catppuccin", "dark", palette);
 
-    expect(theme.background).toBe("#1e1e2e");
-    expect(theme.foreground).toBe("#cdd6f4");
-    expect(theme.blue).toBe("#89b4fa");
+    expect(theme.background).toBe(palette.background);
+    expect(theme.foreground).toBe(palette.foreground);
+    expect(theme.blue).toBe(palette.primary);
   });
 
   test("does not fall back to a dark preset when a theme has no curated light terminal palette", () => {

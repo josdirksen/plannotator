@@ -211,7 +211,10 @@ export const CommentPopover: React.FC<CommentPopoverProps> = ({
       kind: isGlobal ? 'general' : 'selection',
       text: contextText,
     });
-  }, [askAIContext, contextText, isGlobal, onAskAI, text]);
+    if (draftKey) draftStore.delete(draftKey);
+    onDraftChange?.('', allowImages ? [] : undefined);
+    onClose();
+  }, [allowImages, askAIContext, contextText, draftKey, isGlobal, onAskAI, onClose, onDraftChange, text]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Escape') {

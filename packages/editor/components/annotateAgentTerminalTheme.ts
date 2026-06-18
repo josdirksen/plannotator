@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useTheme } from "@plannotator/ui/components/ThemeProvider";
 import { BUILT_IN_THEMES } from "@plannotator/ui/utils/themeRegistry";
-import type { CreateAgentTerminalSessionOptions } from "webtui/browser";
+import type { CreateAgentTerminalSessionOptions } from "@plannotator/webtui/browser";
 
 type TerminalOptions = NonNullable<CreateAgentTerminalSessionOptions["terminalOptions"]>;
 export type AnnotateAgentTerminalTheme = NonNullable<TerminalOptions["theme"]>;
@@ -36,7 +36,10 @@ type ResolvedTerminalPalette = {
   warning: string;
   focus: string;
   fontMono: string;
+  terminalTheme?: AnnotateAgentTerminalTheme;
 };
+
+type ResolvedTerminalPaletteColorKey = Exclude<keyof ResolvedTerminalPalette, "terminalTheme">;
 
 const FALLBACK_MONO_FONT =
   '"SF Mono", "Menlo", "Monaco", "Cascadia Mono", "Consolas", ui-monospace, monospace';
@@ -93,6 +96,8 @@ const PLANNOTATOR_LIGHT_TERMINAL_THEME: AnnotateAgentTerminalTheme = {
   brightWhite: "#ffffff",
 };
 
+// Browser sessions read Plannotator's live CSS variables. These presets are only
+// fallback data for non-DOM startup paths where computed CSS is unavailable.
 const TERMINAL_THEME_PRESETS: Record<string, Partial<Record<TerminalThemeMode, AnnotateAgentTerminalTheme>>> = {
   plannotator: {
     dark: PLANNOTATOR_DARK_TERMINAL_THEME,
@@ -545,12 +550,11 @@ export function resolveAnnotateAgentTerminalMode(
 }
 
 export function resolveAnnotateAgentTerminalTheme(
-  colorTheme: string,
+  _colorTheme: string,
   mode: TerminalThemeMode,
   palette: ResolvedTerminalPalette,
 ): AnnotateAgentTerminalTheme {
-  const preset = TERMINAL_THEME_PRESETS[colorTheme]?.[mode];
-  return preset ?? buildAnnotateAgentTerminalTheme(palette, mode);
+  return palette.terminalTheme ?? buildAnnotateAgentTerminalTheme(palette, mode);
 }
 
 function resolveActiveAnnotateAgentTerminalMode(
@@ -617,19 +621,28 @@ function readResolvedTerminalPalette(
   document.documentElement.appendChild(probe);
 
   try {
-    const readToken = (token: keyof ResolvedTerminalPalette, cssVar: string) =>
+    const readToken = (token: ResolvedTerminalPaletteColorKey, cssVar: string) =>
       resolveTokenColor(style, probe, cssVar, fallbackPalette[token]);
     const card = readToken("card", "--card");
-    const foreground = readToken("foreground", "--foreground");
+    const foreground = resolveTokenColor(
+      style,
+      probe,
+      "--terminal-foreground",
+      readToken("foreground", "--foreground"),
+    );
     const mutedForeground = readToken("mutedForeground", "--muted-foreground");
-    const themedBackground = mode === "dark"
-      ? resolveTokenColor(style, probe, "--background", fallbackPalette.background)
-      : resolveTokenColor(style, probe, "--code-bg", card);
-    const terminalBackground = resolveTerminalBackground(themedBackground, mode, fallbackPalette.background);
+    const themedBackground = resolveTokenColor(
+      style,
+      probe,
+      "--terminal-background",
+      readToken("background", "--background"),
+    );
+    const terminalBackground = resolveTerminalBackground(themedBackground, fallbackPalette.background);
+    const terminalForeground = resolveTerminalForeground(foreground, terminalBackground, fallbackPalette.foreground);
 
-    return {
+    const resolvedPalette: ResolvedTerminalPalette = {
       background: terminalBackground,
-      foreground: resolveTerminalForeground(foreground, terminalBackground, fallbackPalette.foreground),
+      foreground: terminalForeground,
       card,
       muted: readToken("muted", "--muted"),
       mutedForeground: resolveTerminalMutedForeground(
@@ -646,6 +659,50 @@ function readResolvedTerminalPalette(
       warning: readToken("warning", "--warning"),
       focus: resolveTokenColor(style, probe, "--focus-highlight", readToken("secondary", "--secondary")),
       fontMono: style.getPropertyValue("--font-mono").trim() || FALLBACK_MONO_FONT,
+    };
+
+    const derivedTheme = buildAnnotateAgentTerminalTheme(resolvedPalette, mode);
+    const readTerminalColor = (
+      cssVar: string,
+      fallback: string | undefined,
+    ): string => resolveTokenColor(style, probe, cssVar, fallback ?? terminalForeground);
+
+    return {
+      ...resolvedPalette,
+      terminalTheme: {
+        background: terminalBackground,
+        foreground: terminalForeground,
+        cursor: readTerminalColor("--terminal-cursor", derivedTheme.cursor),
+        cursorAccent: readTerminalColor("--terminal-cursor-accent", derivedTheme.cursorAccent),
+        selectionBackground: readTerminalColor(
+          "--terminal-selection-background",
+          derivedTheme.selectionBackground,
+        ),
+        selectionForeground: readTerminalColor(
+          "--terminal-selection-foreground",
+          derivedTheme.selectionForeground,
+        ),
+        selectionInactiveBackground: readTerminalColor(
+          "--terminal-selection-inactive-background",
+          derivedTheme.selectionInactiveBackground,
+        ),
+        black: readTerminalColor("--terminal-black", derivedTheme.black),
+        red: readTerminalColor("--terminal-red", derivedTheme.red),
+        green: readTerminalColor("--terminal-green", derivedTheme.green),
+        yellow: readTerminalColor("--terminal-yellow", derivedTheme.yellow),
+        blue: readTerminalColor("--terminal-blue", derivedTheme.blue),
+        magenta: readTerminalColor("--terminal-magenta", derivedTheme.magenta),
+        cyan: readTerminalColor("--terminal-cyan", derivedTheme.cyan),
+        white: readTerminalColor("--terminal-white", derivedTheme.white),
+        brightBlack: readTerminalColor("--terminal-bright-black", derivedTheme.brightBlack),
+        brightRed: readTerminalColor("--terminal-bright-red", derivedTheme.brightRed),
+        brightGreen: readTerminalColor("--terminal-bright-green", derivedTheme.brightGreen),
+        brightYellow: readTerminalColor("--terminal-bright-yellow", derivedTheme.brightYellow),
+        brightBlue: readTerminalColor("--terminal-bright-blue", derivedTheme.brightBlue),
+        brightMagenta: readTerminalColor("--terminal-bright-magenta", derivedTheme.brightMagenta),
+        brightCyan: readTerminalColor("--terminal-bright-cyan", derivedTheme.brightCyan),
+        brightWhite: readTerminalColor("--terminal-bright-white", derivedTheme.brightWhite),
+      },
     };
   } finally {
     probe.remove();
@@ -667,6 +724,18 @@ function createFallbackTerminalPalette(
   const primary = normalizeStaticColor(colors?.primary, defaultTheme.blue!);
   const secondary = normalizeStaticColor(colors?.secondary, defaultTheme.cyan!);
   const accent = normalizeStaticColor(colors?.accent, defaultTheme.magenta!);
+  const preset = TERMINAL_THEME_PRESETS[colorTheme]?.[mode];
+  const terminalTheme = preset
+    ? {
+        ...preset,
+        background,
+        foreground,
+        cursor: primary,
+        cursorAccent: background,
+        selectionForeground: foreground,
+        brightWhite: foreground,
+      }
+    : undefined;
 
   return {
     background,
@@ -683,6 +752,7 @@ function createFallbackTerminalPalette(
     warning: mode === "light" ? "#a16207" : "#f5c451",
     focus: secondary,
     fontMono: FALLBACK_MONO_FONT,
+    terminalTheme,
   };
 }
 
@@ -772,10 +842,9 @@ function isSentinelColor(value: string): boolean {
   return normalized === "#010203" || normalized === "rgb(1,2,3)";
 }
 
-function resolveTerminalBackground(color: string, mode: TerminalThemeMode, fallback: string): string {
+function resolveTerminalBackground(color: string, fallback: string): string {
   const rgb = parseRgb(color);
   if (!rgb) return fallback;
-  if (mode === "dark" && relativeLuminance(rgb) > 0.28) return fallback;
   return color;
 }
 
@@ -783,16 +852,14 @@ function resolveTerminalForeground(color: string, background: string, fallback: 
   const foreground = parseRgb(color);
   const bg = parseRgb(background);
   if (!foreground || !bg) return fallback;
-  if (contrastRatio(foreground, bg) >= 4.5) return color;
-  return fallback;
+  return color;
 }
 
 function resolveTerminalMutedForeground(color: string, background: string, fallback: string): string {
   const foreground = parseRgb(color);
   const bg = parseRgb(background);
   if (!foreground || !bg) return fallback;
-  if (contrastRatio(foreground, bg) >= 3) return color;
-  return fallback;
+  return color;
 }
 
 function parseRgb(color: string): [number, number, number] | null {
@@ -888,22 +955,6 @@ function rgbToCss([r, g, b]: [number, number, number]): string {
 function clampColorChannel(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(255, Math.max(0, Math.round(value)));
-}
-
-function contrastRatio(a: [number, number, number], b: [number, number, number]): number {
-  const l1 = relativeLuminance(a);
-  const l2 = relativeLuminance(b);
-  const lighter = Math.max(l1, l2);
-  const darker = Math.min(l1, l2);
-  return (lighter + 0.05) / (darker + 0.05);
-}
-
-function relativeLuminance([r, g, b]: [number, number, number]): number {
-  const convert = (channel: number) => {
-    const value = channel / 255;
-    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * convert(r) + 0.7152 * convert(g) + 0.0722 * convert(b);
 }
 
 function blendChannel(channel: number, alpha: number): number {

@@ -36,7 +36,7 @@ Add an optional WebTUI-powered agent terminal to `plannotator annotate` for sing
 
 - ADR: `doc/adr/0002-add-webtui-agent-panel-for-annotate-mode.md`.
 - WebTUI source: `/Users/ramos/oss/webtui`.
-- WebTUI is private/local, so local development uses package-level `file:/Users/ramos/oss/webtui` dependencies in the importing packages.
+- WebTUI is consumed through `@plannotator/webtui`; local file dependencies should not be reintroduced.
 - WebTUI exports from `dist`; rebuild WebTUI after changing it.
 - Current runtime finding: WebTUI's `NodePtyBackend` under Bun can spawn a PTY but did not deliver `onData` output in local smoke tests. The same backend under Node delivered shell and Claude output correctly. This matches WebTUI's working examples, which run the PTY backend in Node.
 - Bun uses `packages/server/agent-terminal.ts` as a same-origin browser WebSocket proxy. It starts `packages/server/agent-terminal-node-sidecar.mjs` lazily on first terminal WebSocket connection. No sidecar or PTY exists when annotate opens.

@@ -54,14 +54,16 @@ function macAppExists(appName: string): boolean {
 		`/Applications/${appName}.app`,
 		join(os.homedir(), "Applications", `${appName}.app`),
 		`/System/Applications/${appName}.app`,
+		// Terminal.app and other built-ins live in the Utilities subfolder.
+		`/System/Applications/Utilities/${appName}.app`,
 	];
 	return candidates.some((p) => existsSync(p));
 }
 
 /** Is the given catalog app launchable on THIS host? */
 function isAppAvailable(app: OpenInApp): boolean {
-	// reveal + system-default are always available.
-	if (app.id === "reveal" || app.id === "system-default") return true;
+	// reveal is always available.
+	if (app.id === "reveal") return true;
 
 	const platform = currentPlatform();
 	if (platform === "mac") {
@@ -78,7 +80,7 @@ function isAppAvailable(app: OpenInApp): boolean {
 
 /**
  * The catalog filtered to apps launchable on this host (always including
- * `reveal` and `system-default`), in catalog order, with `reveal`'s label and
+ * `reveal`), in catalog order, with `reveal`'s label and
  * icon resolved per host platform. Used by GET /api/open-in/apps.
  */
 export function getAvailableOpenInApps(): Array<{
@@ -106,9 +108,10 @@ function run(
 	cmd: string,
 	args: string[],
 	notFoundLabel: string,
+	opts?: { cwd?: string },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
 	return new Promise((resolve) => {
-		const proc = execFile(cmd, args, (err) => {
+		const proc = execFile(cmd, args, opts?.cwd ? { cwd: opts.cwd } : {}, (err) => {
 			if (!err) {
 				resolve({ ok: true });
 				return;
@@ -156,8 +159,8 @@ export function openFileInApp(
 	const platform = currentPlatform();
 	const app = appId ? getOpenInApp(appId) : undefined;
 
-	// system-default, unknown, or undefined -> OS default handler on the file.
-	if (!app || app.id === "system-default") {
+	// Unknown or undefined appId -> OS default handler on the file.
+	if (!app) {
 		if (platform === "mac") return run("open", [absPath], "Default app");
 		if (platform === "win") return run("cmd", ["/c", "start", "", absPath], "Default app");
 		return run("xdg-open", [absPath], "Default app");
@@ -183,10 +186,10 @@ export function openFileInApp(
 		if (platform === "win") {
 			if (!app.win?.bin)
 				return Promise.resolve({ ok: false, error: `${app.label} is not available on this platform.` });
-			// A terminal launched as `<bin> <dir>` treats the dir as a command to
-			// run (e.g. powershell). Open a new console window with its working
-			// directory set via `start "" /D <dir> <bin>`.
-			return run("cmd", ["/c", "start", "", "/D", dir, app.win.bin], app.label);
+			// Open a new console window for the terminal. The directory is passed
+			// via cwd (NOT a cmd argument) so a repo-controlled path never reaches
+			// cmd's parser; `start` inherits that cwd. bin is a trusted catalog value.
+			return run("cmd", ["/c", "start", "", app.win.bin], app.label, { cwd: dir });
 		}
 		if (!app.linux?.bin)
 			return Promise.resolve({ ok: false, error: `${app.label} is not available on this platform.` });

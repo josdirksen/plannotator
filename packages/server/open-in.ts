@@ -11,7 +11,6 @@
  *   - file-manager (reveal)  -> reveal the file in the OS file manager
  *   - editor                 -> open the file itself
  *   - terminal               -> open the file's parent directory
- *   - 'system-default'       -> OS default handler for the file
  */
 
 import path from "node:path";
@@ -50,11 +49,13 @@ async function runArgv(
   cmd: string,
   args: string[],
   friendlyName: string,
+  opts?: { cwd?: string },
 ): Promise<OpenInLaunchResult> {
   try {
     const proc = Bun.spawn([cmd, ...args], {
       stdout: "ignore",
       stderr: "pipe",
+      ...(opts?.cwd && { cwd: opts.cwd }),
     });
     const exitCode = await proc.exited;
     if (exitCode !== 0) {
@@ -161,10 +162,10 @@ function openWithApp(
       });
     }
     if (app.kind === "terminal") {
-      // A terminal launched as `<bin> <dir>` treats the dir as a command to run
-      // (e.g. powershell). Open a new console window with its working directory
-      // set via `start "" /D <dir> <bin>`.
-      return runArgv("cmd", ["/c", "start", "", "/D", target, bin], app.label);
+      // Open a new console window for the terminal. The directory is passed via
+      // cwd (NOT a cmd argument) so a repo-controlled path never reaches cmd's
+      // parser; `start` inherits that cwd. bin is a trusted catalog value.
+      return runArgv("cmd", ["/c", "start", "", bin], app.label, { cwd: target });
     }
     return runArgv(bin, [target], app.label);
   }
@@ -180,14 +181,14 @@ function openWithApp(
 }
 
 /**
- * Open a file in the given app (by catalog id). Unknown/undefined ids and
- * 'system-default' fall back to the OS default handler.
+ * Open a file in the given app (by catalog id). An unknown or undefined id
+ * falls back to the OS default handler.
  */
 export async function openFileInApp(
   absPath: string,
   appId?: string,
 ): Promise<OpenInLaunchResult> {
-  if (!appId || appId === "system-default") {
+  if (!appId) {
     return openSystemDefault(absPath);
   }
 
@@ -214,6 +215,8 @@ function macAppBundleExists(appName: string): boolean {
     path.join("/Applications", bundle),
     path.join(os.homedir(), "Applications", bundle),
     path.join("/System/Applications", bundle),
+    // Terminal.app and other built-ins live in the Utilities subfolder.
+    path.join("/System/Applications/Utilities", bundle),
   ];
   return candidates.some((p) => {
     try {
@@ -226,12 +229,12 @@ function macAppBundleExists(appName: string): boolean {
 
 /**
  * Whether the given catalog app is launchable on this host.
- *   - 'reveal' and 'system-default' are always available.
+ *   - 'reveal' is always available.
  *   - mac: the `.app` bundle exists (we launch via `open -a "<appName>"`).
  *   - win/linux: its bin resolves on PATH.
  */
 function isAppAvailable(app: OpenInApp, platform: OpenInPlatform): boolean {
-  if (app.id === "reveal" || app.id === "system-default") {
+  if (app.id === "reveal") {
     return true;
   }
 
@@ -263,7 +266,7 @@ export interface AvailableOpenInApp {
 /**
  * The catalog filtered to apps launchable on this host, in catalog order,
  * with per-platform label/icon resolved for the 'reveal' entry. Always
- * includes 'reveal' and 'system-default'.
+ * includes 'reveal'.
  */
 export function getAvailableOpenInApps(): AvailableOpenInApp[] {
   const platform = currentPlatform();
@@ -289,8 +292,8 @@ export function getAvailableOpenInApps(): AvailableOpenInApp[] {
  * GET /api/open-in/apps handler.
  *
  * `available` is false in remote/headless sessions (the UI hides the control
- * entirely). `apps` is the host-filtered catalog (always includes 'reveal' and
- * 'system-default'); empty when unavailable.
+ * entirely). `apps` is the host-filtered catalog (always includes 'reveal');
+ * empty when unavailable.
  */
 export function handleOpenInApps(): Response {
   if (isRemoteSession()) {

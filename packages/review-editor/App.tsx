@@ -1581,6 +1581,7 @@ const ReviewApp: React.FC = () => {
     feedbackDiffContext,
     prReviewScope: prReviewScopeLabel,
     prDiffScope,
+    agentCwd,
     allAnnotations,
     externalAnnotations,
     selectedAnnotationId,
@@ -1640,7 +1641,7 @@ const ReviewApp: React.FC = () => {
   }), [
     files, diffData?.rawPatch, activeFileIndex, diffStyle, diffOverflow, diffIndicators,
     diffLineDiffType, diffShowLineNumbers, diffShowBackground,
-    diffExpandUnchanged, diffFontFamily, diffFontSize, activeDiffBase, committedBase, feedbackDiffContext, prReviewScopeLabel, prDiffScope,
+    diffExpandUnchanged, diffFontFamily, diffFontSize, activeDiffBase, committedBase, feedbackDiffContext, prReviewScopeLabel, prDiffScope, agentCwd,
     allAnnotations, externalAnnotations,
     selectedAnnotationId, pendingSelection, handleLineSelection,
     handleAddAnnotation, handleAddFileComment, handleAddFileCommentForFile, handleEditAnnotation,
@@ -2074,7 +2075,9 @@ const ReviewApp: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1 md:gap-2">
-            {/* Diff style toggle */}
+            {/* Diff-display controls: Split/Unified toggle + settings cog in
+                one pill. The cog is an action (not a toggle segment), set off
+                by a divider so the grouping reads clearly. */}
             <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
               <button
                 onClick={() => handleDiffStyleChange('split')}
@@ -2096,6 +2099,8 @@ const ReviewApp: React.FC = () => {
               >
                 Unified
               </button>
+              <div className="w-px h-4 bg-border/60 mx-0.5" />
+              <DiffOptionsPopover />
             </div>
 
             {origin ? (
@@ -2333,11 +2338,6 @@ const ReviewApp: React.FC = () => {
                 )}
               </button>
             )}
-
-            {/* Global diff display options. These settings apply to every
-                file's diff, so they live once in the toolbar instead of being
-                repeated in every FileHeader. */}
-            <DiffOptionsPopover />
 
             <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
 

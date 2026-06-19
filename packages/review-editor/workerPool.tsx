@@ -25,6 +25,12 @@ const poolOptions: WorkerPoolOptions = {
 
 const highlighterOptions: WorkerInitializationRenderOptions = {
   preferredHighlighter: 'shiki-js',
+  // Wrap tokens with `data-char` so token-level interactions work (Cmd+click
+  // code navigation, token hover). Highlighting runs in the worker, and the
+  // worker's render options — NOT the per-component onToken*/useTokenTransformer
+  // options — decide whether the token transformer runs. Without this, tokens
+  // render highlighted but un-interactable and code-nav silently no-ops.
+  useTokenTransformer: true,
   // Preload the common languages; anything else resolves on demand.
   langs: ['typescript', 'tsx', 'javascript', 'json', 'css', 'html', 'python', 'go', 'rust', 'sh', 'yaml', 'markdown'],
 };

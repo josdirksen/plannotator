@@ -76,6 +76,9 @@ const PierreDiffContent = React.memo(({
         themeType: pierreTheme.type,
         unsafeCSS: pierreTheme.css,
         ...(pierreTheme.syntaxTheme && { theme: pierreTheme.syntaxTheme }),
+        // We render our own FileHeader above this view; suppress Pierre's
+        // built-in header (and its file-status symbol) so it doesn't double up.
+        disableFileHeader: true,
         diffStyle,
         overflow: diffOverflow,
         diffIndicators,
@@ -88,6 +91,11 @@ const PierreDiffContent = React.memo(({
         enableGutterUtility: true,
         onGutterUtilityClick,
         onLineSelectionEnd,
+        // Pierre's renderer-options builder drops onToken* before it evaluates
+        // shouldUseTokenTransformer, so passing the handlers alone never wraps
+        // tokens (no data-char) and code-nav/token events never fire. Enable
+        // the token transformer explicitly.
+        useTokenTransformer: true,
         onTokenClick,
         onTokenEnter,
         onTokenLeave,

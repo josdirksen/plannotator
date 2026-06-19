@@ -63,6 +63,7 @@ import { type PRMetadata, type PRReviewFileComment, type PRStackTree, type PRLis
 import { AI_QUERY_ENDPOINT, createAIRuntime } from "./ai-runtime";
 import type { AIEndpoints } from "@plannotator/ai";
 import { isWSL } from "./browser";
+import { handleOpenInApps, handleOpenIn } from "./open-in";
 import type { LocalWorkspaceReview, WorkspaceDiffType } from "./review-workspace";
 import { handleCodeNavResolve, extractChangedFiles } from "./code-nav";
 
@@ -767,6 +768,20 @@ export async function startReviewServer(
               semanticDiff: await getSemanticDiffAdvert(),
               serverConfig: getServerConfig(gitUser),
             });
+          }
+
+          // API: List apps the host can open a file in (Open in App control).
+          if (url.pathname === "/api/open-in/apps" && req.method === "GET") {
+            return handleOpenInApps();
+          }
+
+          // API: Open a file in an app. Resolves the repo-relative `git diff`
+          // path against the VCS root server-side (resolveAgentCwd folds in
+          // workspace.root, the PR local checkout, resolveVcsCwd(gitContext.cwd),
+          // and process.cwd()) — not the client `base`, which is wrong when
+          // review runs from a subdirectory — then containment-checks it.
+          if (url.pathname === "/api/open-in" && req.method === "POST") {
+            return handleOpenIn(req, { resolveRoot: resolveAgentCwd });
           }
 
           // API: cheap staleness probe — has the underlying VCS state changed

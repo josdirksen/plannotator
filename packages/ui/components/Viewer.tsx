@@ -96,6 +96,8 @@ interface ViewerProps {
   archiveInfo?: { status: 'approved' | 'denied' | 'unknown'; timestamp: string; title: string } | null;
   /** Source attribution for HTML/URL annotations (e.g. URL or filename) */
   sourceInfo?: string;
+  /** Absolute path of the annotated source file for the Open-in-app control. */
+  openInAppPath?: string | null;
   /**
    * Message picker affordance — annotate-last mode only. Shown as a button in
    * the sticky-top action bar so the user can switch to a different recent
@@ -180,6 +182,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   actionsLabelMode = 'full',
   archiveInfo,
   sourceInfo,
+  openInAppPath,
   messagePickerInfo,
   onToggleCheckbox,
   checkboxOverrides,
@@ -539,7 +542,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
         style={{ WebkitTouchCallout: 'none' } as React.CSSProperties}
       >
         {/* Repo info + plan diff badge + demo badge + linked doc badge + archive badge - top left */}
-        {(repoInfo || hasPreviousVersion || showDemoBadge || linkedDocInfo || archiveInfo || sourceInfo) && (
+        {(repoInfo || hasPreviousVersion || showDemoBadge || linkedDocInfo || archiveInfo || sourceInfo || openInAppPath) && (
           <div data-print-hide className={`absolute top-3 md:top-4 ${gridEnabled ? 'left-3 md:left-5' : 'left-0'}`}>
             <DocBadges
               layout="column"
@@ -552,6 +555,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
               archiveInfo={archiveInfo}
               linkedDocInfo={linkedDocInfo}
               sourceInfo={sourceInfo}
+              openInAppPath={openInAppPath}
             />
           </div>
         )}

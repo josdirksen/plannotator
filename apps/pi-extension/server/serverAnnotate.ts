@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { dirname, resolve as resolvePath } from "node:path";
+import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
@@ -26,7 +26,8 @@ import {
 import { html, json, parseBody, requestUrl } from "./helpers.js";
 import { createPiAIRuntime, handlePiAIRequest } from "./ai-runtime.js";
 
-import { listenOnPort } from "./network.js";
+import { isRemoteSession, listenOnPort } from "./network.js";
+import { getAvailableOpenInApps, openFileInApp } from "./open-in-apps.js";
 
 import { getRepoInfo } from "./project.js";
 import {
@@ -369,6 +370,53 @@ export async function startAnnotateServer(options: {
 			return;
 		} else if (url.pathname === "/api/upload" && req.method === "POST") {
 			await handleUploadRequest(req, res);
+		} else if (url.pathname === "/api/open-in/apps" && req.method === "GET") {
+			// Remote/headless sessions can't open apps on the user's machine, and
+			// URL annotations have no local file to reveal — report unavailable so
+			// the UI hides the control entirely.
+			const urlSource = /^https?:\/\//i.test(options.filePath);
+			if (isRemoteSession() || urlSource) {
+				json(res, { available: false, apps: [] });
+				return;
+			}
+			json(res, { available: true, apps: getAvailableOpenInApps() });
+		} else if (url.pathname === "/api/open-in" && req.method === "POST") {
+			if (isRemoteSession() || /^https?:\/\//i.test(options.filePath)) {
+				json(res, { ok: false, error: "Open in app is unavailable for this source" }, 400);
+				return;
+			}
+			try {
+				const body = await parseBody(req);
+				const filePath = body.filePath;
+				if (typeof filePath !== "string" || !filePath) {
+					json(res, { ok: false, error: "Missing filePath" }, 400);
+					return;
+				}
+				const base = typeof body.base === "string" && body.base ? body.base : null;
+				const appId = typeof body.appId === "string" ? body.appId : undefined;
+				// filePath is absolute and base is null, so containment-check
+				// against the file's own directory — letting any annotated file on
+				// disk (including ones outside cwd) open while still rejecting
+				// traversal that escapes a provided base.
+				const root = base
+					? resolvePath(base)
+					: isAbsolute(filePath)
+						? dirname(resolvePath(filePath))
+						: process.cwd();
+				const abs = resolvePath(root, filePath);
+				if (!isWithinDirectory(abs, root)) {
+					json(res, { ok: false, error: "Path is outside the allowed directory" }, 400);
+					return;
+				}
+				const result = await openFileInApp(abs, appId);
+				json(res, result, 200);
+			} catch (err) {
+				json(
+					res,
+					{ ok: false, error: err instanceof Error ? err.message : "Failed to open file" },
+					500,
+				);
+			}
 		} else if (url.pathname === "/api/draft") {
 			await handleDraftRequest(req, res, draftKey);
 		} else if (url.pathname === "/api/doc" && req.method === "GET") {

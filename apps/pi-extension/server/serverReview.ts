@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
 import os from "node:os";
-import { basename } from "node:path";
+import { basename, resolve as resolvePath } from "node:path";
 
 import { contentHash, deleteDraft } from "../generated/draft.js";
 import { loadConfig, saveConfig, detectGitUser, getServerConfig, resolveSharingEnabled } from "../generated/config.js";
@@ -58,6 +58,8 @@ import { html, json, parseBody, requestUrl } from "./helpers.js";
 import { createPiAIRuntime, handlePiAIRequest } from "./ai-runtime.js";
 
 import { isRemoteSession, listenOnPort } from "./network.js";
+import { getAvailableOpenInApps, openFileInApp } from "./open-in-apps.js";
+import { isWithinDirectory } from "../generated/html-assets-node.js";
 import {
 	fetchPR,
 	fetchPRContext,
@@ -1345,6 +1347,47 @@ export async function startReviewServer(options: {
 				const message =
 					err instanceof Error ? err.message : "Failed to stage file";
 				json(res, { error: message }, 500);
+			}
+		} else if (url.pathname === "/api/open-in/apps" && req.method === "GET") {
+			// Remote/headless sessions can't open apps on the user's machine —
+			// report unavailable so the UI hides the control entirely.
+			if (isRemote) {
+				json(res, { available: false, apps: [] });
+				return;
+			}
+			json(res, { available: true, apps: getAvailableOpenInApps() });
+		} else if (url.pathname === "/api/open-in" && req.method === "POST") {
+			if (isRemote) {
+				json(res, { ok: false, error: "Open in app is unavailable in remote sessions" }, 400);
+				return;
+			}
+			try {
+				const body = await parseBody(req);
+				const filePath = body.filePath;
+				if (typeof filePath !== "string" || !filePath) {
+					json(res, { ok: false, error: "Missing filePath" }, 400);
+					return;
+				}
+				const appId = typeof body.appId === "string" ? body.appId : undefined;
+				// Resolve repo-relative `git diff` paths against the VCS root
+				// server-side (resolveAgentCwd folds in workspace.root, the PR
+				// local checkout, resolveVcsCwd(gitContext.cwd), and process.cwd())
+				// — not the client `base`, which is wrong when review runs from a
+				// subdirectory — then containment-check.
+				const root = resolvePath(resolveAgentCwd());
+				const abs = resolvePath(root, filePath);
+				if (!isWithinDirectory(abs, root)) {
+					json(res, { ok: false, error: "Path is outside the allowed directory" }, 400);
+					return;
+				}
+				const result = await openFileInApp(abs, appId);
+				json(res, result, 200);
+			} catch (err) {
+				json(
+					res,
+					{ ok: false, error: err instanceof Error ? err.message : "Failed to open file" },
+					500,
+				);
 			}
 		} else if (url.pathname === "/api/draft") {
 			await handleDraftRequest(req, res, draftKey);

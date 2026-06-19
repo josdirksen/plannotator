@@ -14,6 +14,7 @@ import React from 'react';
 import { PlanDiffBadge } from './plan-diff/PlanDiffBadge';
 import type { PlanDiffStats } from '../utils/planDiffEngine';
 import { hostnameOrFallback } from '@plannotator/shared/project';
+import { OpenInAppButton } from './OpenInAppButton';
 
 export interface LinkedDocBadgeInfo {
   filepath: string;
@@ -35,6 +36,11 @@ export interface DocBadgesProps {
   linkedDocInfo?: LinkedDocBadgeInfo | null;
   /** Source attribution for HTML/URL annotations (e.g. "https://..." or "index.html") */
   sourceInfo?: string;
+  /**
+   * Absolute on-disk path of the annotated source file, used by the
+   * Open-in-app control. Omitted (or an https:// URL) -> no control rendered.
+   */
+  openInAppPath?: string | null;
 }
 
 export const DocBadges: React.FC<DocBadgesProps> = ({
@@ -48,15 +54,18 @@ export const DocBadges: React.FC<DocBadgesProps> = ({
   archiveInfo,
   linkedDocInfo,
   sourceInfo,
+  openInAppPath,
 }) => {
   const isRow = layout === 'row';
+  const canOpenInApp =
+    !!openInAppPath && !/^https?:\/\//i.test(openInAppPath);
 
   // In row layout, only PlanDiffBadge (when it has stats to show) and
   // archiveInfo actually render — everything else is hidden. Check what
   // will truly produce visible output to avoid an empty wrapper div.
   const anything = isRow
     ? (!linkedDocInfo && ((hasPreviousVersion && planDiffStats) || archiveInfo))
-    : repoInfo || hasPreviousVersion || showDemoBadge || linkedDocInfo || archiveInfo || sourceInfo;
+    : repoInfo || hasPreviousVersion || showDemoBadge || linkedDocInfo || archiveInfo || sourceInfo || canOpenInApp;
   if (!anything) return null;
 
   // Row layout: single horizontal line. Column layout: stacked rows.
@@ -66,6 +75,12 @@ export const DocBadges: React.FC<DocBadgesProps> = ({
 
   return (
     <div className={outerClass}>
+      {/* Open-in-app for the current annotate file (root or browsed linked
+          doc). Rendered independent of sourceInfo/linked-doc so it shows for
+          every file. Hidden in the compact sticky row and for URL sources. */}
+      {!isRow && canOpenInApp && (
+        <OpenInAppButton filePath={openInAppPath} base={null} />
+      )}
       {/* Row layout (sticky lane) omits repo/branch to keep the bar compact —
           they'd otherwise push the container wide enough to visually extend
           under the action buttons. Plan-diff badge still renders below. */}
@@ -92,14 +107,16 @@ export const DocBadges: React.FC<DocBadgesProps> = ({
       )}
 
       {sourceInfo && !linkedDocInfo && !isRow && (
-        <span
-          className="px-1.5 py-0.5 bg-muted/30 rounded truncate max-w-[200px]"
-          title={sourceInfo}
-        >
-          {/^https?:\/\//i.test(sourceInfo)
-            ? hostnameOrFallback(sourceInfo)
-            : sourceInfo}
-        </span>
+        <div className="flex items-center gap-1">
+          <span
+            className="px-1.5 py-0.5 bg-muted/30 rounded truncate max-w-[200px]"
+            title={sourceInfo}
+          >
+            {/^https?:\/\//i.test(sourceInfo)
+              ? hostnameOrFallback(sourceInfo)
+              : sourceInfo}
+          </span>
+        </div>
       )}
 
       {onPlanDiffToggle && !linkedDocInfo && (

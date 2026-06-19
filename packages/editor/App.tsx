@@ -3983,6 +3983,7 @@ const App: React.FC = () => {
                     copyLabel={annotateSource === 'message' ? 'Copy message' : annotateSource === 'file' || annotateSource === 'folder' ? 'Copy file' : undefined}
                     archiveInfo={archive.currentInfo}
                     sourceInfo={sourceInfo}
+                    openInAppPath={linkedDocHook.isActive ? (linkedDocHook.filepath ?? null) : sourceFilePath}
                     messagePickerInfo={
                       annotateSource === 'message' && recentMessages.length > 1
                         ? {

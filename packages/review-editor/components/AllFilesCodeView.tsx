@@ -779,7 +779,7 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
     return viewerRef.current?.getItem(itemId)?.collapsed === true;
   }, []);
 
-  // Collapse or expand every file at once — driven by the floating top-left
+  // Collapse or expand every file at once — driven by the floating bottom-left
   // toggle. Pins scroll to the first file when collapsing so the view doesn't
   // jump into empty space.
   const setAllItemsCollapsed = useStableCallback((collapsed: boolean) => {
@@ -1863,8 +1863,8 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
 
   return (
     <div className="relative h-full">
-      {/* Floating collapse/expand-all toggle, pinned to the panel's top-left
-          corner above the scrolling diff list. Only exists in all-files mode
+      {/* Floating collapse/expand-all toggle, pinned to the panel's bottom-left
+          corner over the scrolling diff list. Only exists in all-files mode
           (this component renders only there). */}
       {identity.items.length > 0 && (
         <button

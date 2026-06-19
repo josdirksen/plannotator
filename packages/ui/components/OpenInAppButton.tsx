@@ -48,6 +48,27 @@ interface OpenInAppButtonProps {
   disabled?: boolean;
 }
 
+// The host app catalog is static for the session, but the all-files view
+// renders one OpenInAppButton per file — so fetch /api/open-in/apps once and
+// share the promise across every instance instead of N identical requests.
+interface OpenInAppsResponse {
+  available: boolean;
+  apps: DetectedApp[];
+}
+let openInAppsPromise: Promise<OpenInAppsResponse> | null = null;
+function loadOpenInApps(): Promise<OpenInAppsResponse> {
+  if (!openInAppsPromise) {
+    openInAppsPromise = fetch('/api/open-in/apps')
+      .then((r) => r.json())
+      .then((data: OpenInAppsResponse) => ({
+        available: !!data.available,
+        apps: Array.isArray(data.apps) ? data.apps : [],
+      }))
+      .catch(() => ({ available: false, apps: [] }));
+  }
+  return openInAppsPromise;
+}
+
 export const OpenInAppButton: React.FC<OpenInAppButtonProps> = ({
   filePath,
   base,
@@ -66,18 +87,11 @@ export const OpenInAppButton: React.FC<OpenInAppButtonProps> = ({
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/open-in/apps')
-      .then((r) => r.json())
-      .then((data: { available: boolean; apps: DetectedApp[] }) => {
-        if (cancelled) return;
-        setAvailable(data.available);
-        setApps(Array.isArray(data.apps) ? data.apps : []);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setAvailable(false);
-        setApps([]);
-      });
+    loadOpenInApps().then((data) => {
+      if (cancelled) return;
+      setAvailable(data.available);
+      setApps(data.apps);
+    });
     return () => {
       cancelled = true;
     };

@@ -6,8 +6,8 @@ import {
   groupSemanticChangesByFile,
   lineSelectionForChange,
 } from '../dock/panels/semanticDiffShared';
+import { loadSemanticDiff } from '../hooks/useFileSemanticChanges';
 import type {
-  SemanticDiffResponse,
   SemanticDiffOkResponse,
   SemanticDiffChange,
   SemanticDiffBinaryChange,
@@ -48,33 +48,29 @@ export const SemanticDiffAccordion: React.FC = () => {
       setLoadState({ status: 'unavailable' });
       return;
     }
-    const controller = new AbortController();
+    // Reuse the shared, per-patch cache the file-header badges use — one request
+    // for both surfaces (with its retry/backoff) instead of a duplicate fetch.
+    let cancelled = false;
     setLoadState({ status: 'loading' });
-    fetch('/api/semantic-diff', { signal: controller.signal })
-      .then((res) => {
-        if (!res.ok) throw new Error('Semantic diff failed');
-        return res.json() as Promise<SemanticDiffResponse>;
-      })
-      .then((data) => {
-        if (controller.signal.aborted) return;
-        if (data.status === 'unavailable') {
-          setLoadState({ status: 'unavailable' });
-          return;
-        }
-        if (data.status === 'error') {
-          setLoadState({ status: 'error' });
-          return;
-        }
-        setLoadState(
-          data.changes.length === 0 && data.binaryChanges.length === 0
-            ? { status: 'empty', data }
-            : { status: 'ready', data },
-        );
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setLoadState({ status: 'error' });
-      });
-    return () => controller.abort();
+    loadSemanticDiff(rawPatch ?? '').then((data) => {
+      if (cancelled) return;
+      if (data.status === 'unavailable') {
+        setLoadState({ status: 'unavailable' });
+        return;
+      }
+      if (data.status === 'error') {
+        setLoadState({ status: 'error' });
+        return;
+      }
+      setLoadState(
+        data.changes.length === 0 && data.binaryChanges.length === 0
+          ? { status: 'empty', data }
+          : { status: 'ready', data },
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [rawPatch, semanticDiffAvailable]);
 
   const grouped = useMemo(() => {

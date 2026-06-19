@@ -3160,22 +3160,22 @@ const App: React.FC = () => {
     openAIChat();
   }, [dismissPlanAIAnnouncement, openAIChat]);
 
-  const handleAskAI = useCallback((question: string, context?: CommentAskAIContext) => {
+  const handleAskAI = useCallback((question: string, context?: CommentAskAIContext): boolean => {
     if (isAgentTerminalReady) {
       if (sendToAgentTerminal(buildAgentAskPrompt(question, context))) {
         dismissPlanAIAnnouncement();
-        return;
+        return true;
       }
       handleAgentTerminalReadyChange(false);
       if (!canUseAI) {
         toast.error('Agent terminal is not ready');
-        return;
+        return false;
       }
     }
 
     if (!canUseAI) {
       toast.error('Ask AI is unavailable');
-      return;
+      return false;
     }
     dismissPlanAIAnnouncement();
     openAIChat();
@@ -3189,6 +3189,7 @@ const App: React.FC = () => {
       } : undefined,
       contextUpdate: aiSessionId ? aiAnnotationsContext : undefined,
     });
+    return true;
   }, [
     aiAnnotationsContext,
     aiDocumentPath,

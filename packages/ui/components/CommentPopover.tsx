@@ -38,7 +38,7 @@ interface CommentPopoverProps {
   /** Whether submitting empty text is allowed, for editors that support clearing. */
   allowEmptySubmit?: boolean;
   /** Optional Ask AI action. Absent by default so existing comment surfaces are unchanged. */
-  onAskAI?: (question: string, context: CommentAskAIContext) => void;
+  onAskAI?: (question: string, context: CommentAskAIContext) => boolean | void | Promise<boolean | void>;
   askAIContext?: CommentAskAIContext;
   askAIDisabled?: boolean;
 }
@@ -201,16 +201,20 @@ export const CommentPopover: React.FC<CommentPopoverProps> = ({
     }
   }, [text, images, onSubmit, draftKey, allowImages, allowEmptySubmit, initialText, hasUnsavedContent]);
 
-  const handleAskAI = useCallback(() => {
+  const handleAskAI = useCallback(async () => {
     const question = text.trim();
     if (!question || !onAskAI) {
       textareaRef.current?.focus();
       return;
     }
-    onAskAI(question, askAIContext ?? {
+    const accepted = await onAskAI(question, askAIContext ?? {
       kind: isGlobal ? 'general' : 'selection',
       text: contextText,
     });
+    if (accepted === false) {
+      textareaRef.current?.focus();
+      return;
+    }
     if (draftKey) draftStore.delete(draftKey);
     onDraftChange?.('', allowImages ? [] : undefined);
     onClose();

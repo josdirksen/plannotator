@@ -7,7 +7,10 @@ import React, {
   useRef,
   useState,
 } from "react";
-import type { AgentTerminalCapability } from "@plannotator/shared/agent-terminal";
+import type {
+  AgentTerminalAgent,
+  AgentTerminalCapability,
+} from "@plannotator/shared/agent-terminal";
 import {
   Popover,
   PopoverContent,
@@ -425,7 +428,7 @@ function AgentSelect({
   selectedAgentId,
   onSelect,
 }: {
-  agents: AgentTerminalCapability["agents"];
+  agents: AgentTerminalAgent[];
   selectedAgentId: string;
   onSelect: (agentId: string) => void;
 }) {

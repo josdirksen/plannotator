@@ -34,7 +34,7 @@ Add an optional WebTUI-powered agent terminal to `plannotator annotate` for sing
 
 ## Notes And Findings
 
-- ADR: `doc/adr/0002-add-webtui-agent-panel-for-annotate-mode.md`.
+- ADR: `adr/0002-add-webtui-agent-panel-for-annotate-mode.md`.
 - WebTUI source: `/Users/ramos/oss/webtui`.
 - WebTUI is consumed through `@plannotator/webtui`; local file dependencies should not be reintroduced.
 - WebTUI exports from `dist`; rebuild WebTUI after changing it.

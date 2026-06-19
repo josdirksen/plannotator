@@ -238,7 +238,7 @@ Do not reintroduce local `file:` dependencies for WebTUI.
 
 ## ADR
 
-Earlier accepted ADR: `doc/adr/0002-add-webtui-agent-panel-for-annotate-mode.md`.
+Earlier accepted ADR: `adr/0002-add-webtui-agent-panel-for-annotate-mode.md`.
 
 ## Verification
 

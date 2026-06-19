@@ -339,6 +339,16 @@ export async function startReviewServer(
     }
     return options.agentCwd ?? resolveVcsCwd(currentDiffType as DiffType, gitContext?.cwd) ?? process.cwd();
   };
+  // Strict launch root for /api/open-in: in PR pool mode only the PR's own
+  // checkout is acceptable — never the launch-repo fallback resolveAgentCwd
+  // uses, which would open a file from the wrong tree. Returns [] until the
+  // checkout is ready so resolveOpenInTarget rejects (the button is gated off
+  // then anyway); non-PR resolves to the working tree as usual.
+  const resolveOpenInRoot = (): string | string[] => {
+    if (workspace) return workspace.root;
+    if (options.worktreePool && prMetadata) return resolvePRLocalCwd() ?? [];
+    return options.agentCwd ?? resolveVcsCwd(currentDiffType as DiffType, gitContext?.cwd) ?? process.cwd();
+  };
   // Async sibling of resolveAgentCwd: waits for the current PR's checkout
   // warmup instead of falling back while it is still being created.
   const resolveAgentCwdReady = async (): Promise<string> => {
@@ -752,8 +762,16 @@ export async function startReviewServer(
               shareBaseUrl,
               repoInfo,
               isWSL: wslFlag,
-              ...(options.agentCwd && { agentCwd: options.agentCwd }),
-              ...(workspace && { agentCwd: workspace.root }),
+              // PR mode advertises the ready PR checkout (null while warming), so
+              // the Open-in button gates correctly from the initial load — not
+              // the launch repo. Non-PR keeps the workspace/local cwd.
+              ...(isPRMode
+                ? { agentCwd: resolvePRLocalCwd() ?? null }
+                : workspace
+                  ? { agentCwd: workspace.root }
+                  : options.agentCwd
+                    ? { agentCwd: options.agentCwd }
+                    : {}),
               ...(isPRMode && {
                 prMetadata,
                 platformUser,
@@ -781,7 +799,7 @@ export async function startReviewServer(
           // and process.cwd()) — not the client `base`, which is wrong when
           // review runs from a subdirectory — then containment-checks it.
           if (url.pathname === "/api/open-in" && req.method === "POST") {
-            return handleOpenIn(req, { resolveRoot: resolveAgentCwd });
+            return handleOpenIn(req, { resolveRoot: resolveOpenInRoot });
           }
 
           // API: cheap staleness probe — has the underlying VCS state changed
@@ -1150,6 +1168,9 @@ export async function startReviewServer(
                 rawPatch: currentPatch,
                 gitRef: currentGitRef,
                 prMetadata: pr.metadata,
+                // The new PR's checkout (null while warming) so Open-in re-roots
+                // immediately on switch instead of waiting for the 5s probe.
+                agentCwd: resolvePRLocalCwd(pr.metadata) ?? null,
                 prStackInfo,
                 prStackTree,
                 prDiffScope: currentPRDiffScope,

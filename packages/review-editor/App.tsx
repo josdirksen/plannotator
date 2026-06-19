@@ -1206,6 +1206,7 @@ const ReviewApp: React.FC = () => {
     repoInfo?: { display: string; branch?: string };
     viewedFiles?: string[]; error?: string;
     semanticDiff?: SemanticDiffAdvert;
+    agentCwd?: string | null;
   }) {
     const isPRSwitch = !!data.prMetadata;
     const nextFiles = parseDiffToFiles(data.rawPatch);
@@ -1238,6 +1239,15 @@ const ReviewApp: React.FC = () => {
     }
     setDiffError(data.error || null);
     applySemanticDiffAdvert(data.semanticDiff);
+    // The PR's local checkout changes on switch (and warms in later). Use the
+    // server's value when present; otherwise clear it on a switch so the Open-in
+    // button can't keep pointing at the previous PR's checkout (the 5s freshness
+    // probe re-advertises the new one). Scope toggles keep the same checkout.
+    if (data.agentCwd !== undefined) {
+      setAgentCwd(data.agentCwd);
+    } else if (isPRSwitch) {
+      setAgentCwd(null);
+    }
     resetStagedFiles();
   }
 

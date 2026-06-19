@@ -402,6 +402,15 @@ export async function startReviewServer(options: {
 		}
 		return options.agentCwd && existsSync(options.agentCwd) ? options.agentCwd : null;
 	}
+	// Strict launch root for /api/open-in: in PR pool mode only the PR's own
+	// checkout is acceptable — never the launch-repo fallback resolveAgentCwd
+	// uses. Returns [] until ready so resolveOpenInTarget rejects (the button is
+	// gated off then anyway); non-PR resolves to the working tree as usual.
+	function resolveOpenInRoot(): string | string[] {
+		if (workspace) return workspace.root;
+		if (options.worktreePool && prMeta) return resolvePRLocalCwd() ?? [];
+		return options.agentCwd ?? resolveVcsCwd(currentDiffType as DiffType, options.gitContext?.cwd) ?? process.cwd();
+	}
 	function getWorkspacePromptContext(): WorkspaceReviewPromptContext | undefined {
 		if (!workspace) return undefined;
 		return workspace.getPromptContext();
@@ -712,8 +721,16 @@ export async function startReviewServer(options: {
 				pasteApiUrl,
 				repoInfo,
 				isWSL: wslFlag,
-				...(options.agentCwd && { agentCwd: options.agentCwd }),
-				...(workspace && { agentCwd: workspace.root }),
+				// PR mode advertises the ready PR checkout (null while warming), so
+				// the Open-in button gates correctly from the initial load — not the
+				// launch repo. Non-PR keeps the workspace/local cwd.
+				...(isPRMode
+					? { agentCwd: resolvePRLocalCwd() }
+					: workspace
+						? { agentCwd: workspace.root }
+						: options.agentCwd
+							? { agentCwd: options.agentCwd }
+							: {}),
 				...(isPRMode && {
 					prMetadata: prMeta,
 					platformUser,
@@ -1035,6 +1052,9 @@ export async function startReviewServer(options: {
 					rawPatch: currentPatch,
 					gitRef: currentGitRef,
 					prMetadata: pr.metadata,
+					// The new PR's checkout (null while warming) so Open-in re-roots
+					// immediately on switch instead of waiting for the 5s probe.
+					agentCwd: resolvePRLocalCwd() ?? null,
 					prStackInfo,
 					prStackTree,
 					prDiffScope: currentPRDiffScope,
@@ -1394,7 +1414,7 @@ export async function startReviewServer(options: {
 				// local checkout, resolveVcsCwd(gitContext.cwd), and process.cwd())
 				// — not the client `base`, which is wrong when review runs from a
 				// subdirectory — then containment-check.
-				const abs = resolveOpenInTarget(filePath, null, resolveAgentCwd);
+				const abs = resolveOpenInTarget(filePath, null, resolveOpenInRoot);
 				if (abs == null) {
 					json(res, { ok: false, error: "Path is outside the allowed directory" }, 403);
 					return;

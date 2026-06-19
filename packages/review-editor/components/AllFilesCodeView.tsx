@@ -739,6 +739,12 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
 
   // --- Collapse via CodeView item state (Diffshub pattern + anchor fix) ------
 
+  const [allCollapsed, setAllCollapsed] = useState(false);
+
+  // Reset the global collapse toggle when the file set changes — items re-seed
+  // expanded on CodeView remount.
+  useEffect(() => setAllCollapsed(false), [identity.items]);
+
   const toggleItemCollapsed = useStableCallback((itemId: string) => {
     const handle = viewerRef.current;
     const viewer = handle?.getInstance();
@@ -772,6 +778,37 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
   const isItemCollapsed = useCallback((itemId: string): boolean => {
     return viewerRef.current?.getItem(itemId)?.collapsed === true;
   }, []);
+
+  // Collapse or expand every file at once — driven by the floating top-left
+  // toggle. Pins scroll to the first file when collapsing so the view doesn't
+  // jump into empty space.
+  const setAllItemsCollapsed = useStableCallback((collapsed: boolean) => {
+    const handle = viewerRef.current;
+    if (handle == null) return;
+    for (const { id } of identity.items) {
+      const item = handle.getItem(id);
+      if (item == null || (item.collapsed === true) === collapsed) continue;
+      item.collapsed = collapsed;
+      item.version = (item.version ?? 0) + 1;
+      handle.updateItem(item);
+    }
+    if (collapsed) {
+      const first = identity.items[0]?.id;
+      if (first) handle.getInstance()?.scrollTo({ type: 'item', id: first, align: 'start' });
+    }
+  });
+
+  const handleToggleAllCollapsed = useStableCallback(() => {
+    const handle = viewerRef.current;
+    if (handle == null) return;
+    // If anything is open, collapse all; otherwise expand all. Computed from
+    // live item state so it stays correct after manual per-file toggles.
+    const anyExpanded = identity.items.some(
+      ({ id }) => handle.getItem(id)?.collapsed !== true,
+    );
+    setAllItemsCollapsed(anyExpanded);
+    setAllCollapsed(anyExpanded);
+  });
 
   // Force CodeView to re-render an item's slots (header included) WITHOUT
   // otherwise mutating it. Pierre renders `renderCustomHeader` into a portal
@@ -1775,6 +1812,10 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
       // callbacks), so file identity comes from context.item — no geometry or
       // active-file inference. Only wired when onCodeNavRequest is provided.
       ...(onCodeNavRequest && {
+        // Pierre's renderer-options builder drops onToken* before it evaluates
+        // shouldUseTokenTransformer, so the handlers alone never wrap tokens
+        // (no data-char) and token events never fire. Enable it explicitly.
+        useTokenTransformer: true,
         onTokenClick(props, event, context) {
           handleTokenClick(props, event, context.item);
         },
@@ -1822,6 +1863,40 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
 
   return (
     <div className="relative h-full">
+      {/* Floating collapse/expand-all toggle, pinned to the panel's top-left
+          corner above the scrolling diff list. Only exists in all-files mode
+          (this component renders only there). */}
+      {identity.items.length > 0 && (
+        <button
+          type="button"
+          onClick={handleToggleAllCollapsed}
+          className="absolute bottom-0 left-0 z-30 flex items-center justify-center h-[var(--panel-header-h)] w-[var(--panel-header-h)] border-r border-t border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          title={allCollapsed ? 'Expand all files' : 'Collapse all files'}
+          aria-label={allCollapsed ? 'Expand all files' : 'Collapse all files'}
+        >
+          <svg
+            className="w-3.5 h-3.5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            {allCollapsed ? (
+              <>
+                <path d="M7 9l5-5 5 5" />
+                <path d="M7 15l5 5 5-5" />
+              </>
+            ) : (
+              <>
+                <path d="M7 4l5 5 5-5" />
+                <path d="M7 20l5-5 5 5" />
+              </>
+            )}
+          </svg>
+        </button>
+      )}
       <CodeView<DiffAnnotationMetadata>
         // Remount on diff switch so uncontrolled `initialItems` re-seeds from
         // the freshly computed identity. Without this, switching diff

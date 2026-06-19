@@ -78,4 +78,14 @@ describe("resolveOpenInTarget — /api/open-in containment", () => {
     // Outside every allowed root → still rejected.
     expect(resolveOpenInTarget("/etc/passwd", null, () => [a, b])).toBeNull();
   });
+
+  test("multi-root resolves relative paths per-root and rejects cross-root traversal", () => {
+    const a = makeDir();
+    const b = makeDir();
+    writeFileSync(join(a, "x.md"), "x");
+    // A relative path resolves within a root that contains it.
+    expect(resolveOpenInTarget("x.md", null, () => [a, b])).not.toBeNull();
+    // A traversal can't escape one root by landing inside another.
+    expect(resolveOpenInTarget("../x.md", null, () => [a, b])).toBeNull();
+  });
 });

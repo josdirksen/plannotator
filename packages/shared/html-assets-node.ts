@@ -93,8 +93,9 @@ export function isWithinDirectory(filePath: string, root: string): boolean {
  * same set of reference roots `/api/doc` serves from, so any linked doc the
  * user can view can also be opened. Root precedence: server-supplied root(s)
  * override the client `base`; then `base`; then an absolute `filePath`'s own
- * directory; then cwd. Relative paths resolve against the first root. Returns
- * the absolute path, or null when it escapes every allowed root.
+ * directory; then cwd. Each root resolves `filePath` independently, so a
+ * relative path is resolved correctly per-root (not only against the first).
+ * Returns the absolute path, or null when it escapes every allowed root.
  */
 export function resolveOpenInTarget(
   filePath: string,
@@ -117,7 +118,13 @@ export function resolveOpenInTarget(
   )
     .filter((r): r is string => !!r)
     .map((r) => resolvePath(r));
-  if (roots.length === 0) return null;
-  const abs = resolvePath(roots[0], filePath);
-  return roots.some((r) => isWithinDirectory(abs, r)) ? abs : null;
+  // Resolve against each root and return the first that contains its own
+  // resolution. For an absolute filePath the resolution is identical for every
+  // root (a pure containment check); for a relative filePath this avoids the
+  // duplicate-basename trap of resolving only against roots[0].
+  for (const root of roots) {
+    const abs = resolvePath(root, filePath);
+    if (isWithinDirectory(abs, root)) return abs;
+  }
+  return null;
 }

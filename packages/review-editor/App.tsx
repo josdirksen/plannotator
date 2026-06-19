@@ -81,7 +81,6 @@ import {
   REVIEW_PR_SUMMARY_PANEL_ID,
   REVIEW_PR_COMMENTS_PANEL_ID,
   REVIEW_PR_CHECKS_PANEL_ID,
-  REVIEW_SEMANTIC_DIFF_PANEL_ID,
   REVIEW_ALL_FILES_PANEL_ID,
   REVIEW_CODE_NAV_PANEL_ID,
 } from './dock/reviewPanelTypes';
@@ -127,7 +126,6 @@ const ReviewApp: React.FC = () => {
   // at call time instead of a stale closure capture.
   const isAllFilesActiveRef = useRef(isAllFilesActive);
   isAllFilesActiveRef.current = isAllFilesActive;
-  const [isSemanticDiffActive, setIsSemanticDiffActive] = useState(false);
   const [semanticDiffAvailable, setSemanticDiffAvailable] = useState(false);
   const [isDiffPanelActive, setIsDiffPanelActive] = useState(false);
   const [allFilesVisibleFile, setAllFilesVisibleFile] = useState<string | null>(null);
@@ -294,7 +292,6 @@ const ReviewApp: React.FC = () => {
   const filesRef = useRef(files);
   filesRef.current = files;
   const needsInitialDiffPanel = useRef(true);
-  const semanticDiffAutoFallbackPending = useRef(false);
 
   // PR context (lifted from sidebar so center dock PR panels can access it)
   const { prContext, isLoading: isPRContextLoading, error: prContextError, fetchContext: fetchPRContext } = usePRContext(prMetadata ?? null);
@@ -304,7 +301,6 @@ const ReviewApp: React.FC = () => {
   const openDiffFile = useCallback((filePath: string) => {
     const file = files.find(candidate => candidate.path === filePath);
     if (!file) return;
-    semanticDiffAutoFallbackPending.current = false;
 
     if (!dockApi) {
       const fileIndex = files.findIndex(candidate => candidate.path === filePath);
@@ -486,9 +482,7 @@ const ReviewApp: React.FC = () => {
       existing.api.setTitle(`References: ${request.symbol}`);
       existing.api.setActive();
     } else {
-      const refPanel = isSemanticDiffActive
-        ? REVIEW_SEMANTIC_DIFF_PANEL_ID
-        : isAllFilesActive
+      const refPanel = isAllFilesActive
         ? REVIEW_ALL_FILES_PANEL_ID
         : REVIEW_DIFF_PANEL_ID;
       dockApi.addPanel({
@@ -499,7 +493,7 @@ const ReviewApp: React.FC = () => {
         initialHeight: 250,
       });
     }
-  }, [codeNav.resolve, dockApi, isAllFilesActive, isSemanticDiffActive, gitContext, agentCwd]);
+  }, [codeNav.resolve, dockApi, isAllFilesActive, gitContext, agentCwd]);
 
   // Check AI capabilities on mount
   useEffect(() => {
@@ -659,12 +653,10 @@ const ReviewApp: React.FC = () => {
     event.api.onDidActivePanelChange((panel) => {
       if (!panel) {
         setIsAllFilesActive(false);
-        setIsSemanticDiffActive(false);
         setIsDiffPanelActive(false);
         return;
       }
       setIsAllFilesActive(panel.id === REVIEW_ALL_FILES_PANEL_ID);
-      setIsSemanticDiffActive(panel.id === REVIEW_SEMANTIC_DIFF_PANEL_ID);
       setIsDiffPanelActive(isReviewDiffPanelId(panel.id));
       if (!isReviewDiffPanelId(panel.id)) return;
       const filePath = getReviewDiffPanelFilePath(panel.params);
@@ -685,7 +677,6 @@ const ReviewApp: React.FC = () => {
           : undefined;
       const hideHeaders =
         lonePanel?.id === REVIEW_DIFF_PANEL_ID ||
-        lonePanel?.id === REVIEW_SEMANTIC_DIFF_PANEL_ID ||
         lonePanel?.id === REVIEW_ALL_FILES_PANEL_ID;
       for (const group of event.api.groups) {
         group.header.hidden = hideHeaders;
@@ -775,7 +766,6 @@ const ReviewApp: React.FC = () => {
 
   const openAllFilesPanel = useCallback(() => {
     if (!dockApi) return;
-    semanticDiffAutoFallbackPending.current = false;
     const existing = dockApi.getPanel(REVIEW_ALL_FILES_PANEL_ID);
     if (existing) { existing.api.setActive(); return; }
     dockApi.addPanel({
@@ -785,56 +775,10 @@ const ReviewApp: React.FC = () => {
     });
   }, [dockApi]);
 
-  const openSemanticDiffPanel = useCallback((options?: { autoFallbackOnError?: boolean }) => {
-    if (!dockApi) return;
-    semanticDiffAutoFallbackPending.current = options?.autoFallbackOnError === true;
-    if (!semanticDiffAvailable) {
-      openAllFilesPanel();
-      return;
-    }
-    const existing = dockApi.getPanel(REVIEW_SEMANTIC_DIFF_PANEL_ID);
-    if (existing) { existing.api.setActive(); return; }
-    dockApi.addPanel({
-      id: REVIEW_SEMANTIC_DIFF_PANEL_ID,
-      component: REVIEW_PANEL_TYPES.SEMANTIC_DIFF,
-      title: 'Semantic diff',
-    });
-  }, [dockApi, openAllFilesPanel, semanticDiffAvailable]);
-
-  const handleSemanticDiffUnavailable = useCallback(() => {
-    semanticDiffAutoFallbackPending.current = false;
-    setSemanticDiffAvailable(false);
-    dockApi?.getPanel(REVIEW_SEMANTIC_DIFF_PANEL_ID)?.api.close();
-    openAllFilesPanel();
-  }, [dockApi, openAllFilesPanel]);
-
-  const handleSemanticDiffLoadSuccess = useCallback(() => {
-    semanticDiffAutoFallbackPending.current = false;
-  }, []);
-
-  const handleSemanticDiffLoadError = useCallback(() => {
-    if (!semanticDiffAutoFallbackPending.current) return false;
-    if (dockApi?.activePanel?.id !== REVIEW_SEMANTIC_DIFF_PANEL_ID) {
-      // The user has already moved on; don't steal focus by auto-opening All files.
-      semanticDiffAutoFallbackPending.current = false;
-      return false;
-    }
-    semanticDiffAutoFallbackPending.current = false;
-    dockApi?.getPanel(REVIEW_SEMANTIC_DIFF_PANEL_ID)?.api.close();
-    openAllFilesPanel();
-    return true;
-  }, [dockApi, openAllFilesPanel]);
-
   const applySemanticDiffAdvert = useCallback((semanticDiff?: SemanticDiffAdvert) => {
     if (!semanticDiff) return;
-    const available = semanticDiff.available === true;
-    setSemanticDiffAvailable(available);
-    if (!available) {
-      semanticDiffAutoFallbackPending.current = false;
-      dockApi?.getPanel(REVIEW_SEMANTIC_DIFF_PANEL_ID)?.api.close();
-      if (isSemanticDiffActive) openAllFilesPanel();
-    }
-  }, [dockApi, isSemanticDiffActive, openAllFilesPanel]);
+    setSemanticDiffAvailable(semanticDiff.available === true);
+  }, []);
 
   // Open the All files overview on first load. Semantic diff stays available via
   // the file-tree nav entry, but it's no longer the default landing view.
@@ -1628,11 +1572,7 @@ const ReviewApp: React.FC = () => {
     openDiffFile,
     onAllFilesVisibleFileChange: setAllFilesVisibleFile,
     isAllFilesActive,
-    isSemanticDiffActive,
     semanticDiffAvailable,
-    onSemanticDiffUnavailable: handleSemanticDiffUnavailable,
-    onSemanticDiffLoadError: handleSemanticDiffLoadError,
-    onSemanticDiffLoadSuccess: handleSemanticDiffLoadSuccess,
     openTourPanel: handleOpenTour,
     onCodeNavRequest: handleCodeNavRequest,
     codeNavResult: codeNav.result,
@@ -1653,8 +1593,7 @@ const ReviewApp: React.FC = () => {
     handleAskAI, handleAskAIForFile, handleViewAIResponse, handleClickAIMarker,
     aiHistoryForSelection, getAIHistoryForFile, agentJobs.jobs, prMetadata, prContext,
     isPRContextLoading, prContextError, fetchPRContext, platformUser, openDiffFile,
-    handleOpenTour, isAllFilesActive, isSemanticDiffActive, semanticDiffAvailable,
-    handleSemanticDiffUnavailable, handleSemanticDiffLoadError, handleSemanticDiffLoadSuccess, handleAddAnnotationForFile,
+    handleOpenTour, isAllFilesActive, semanticDiffAvailable, handleAddAnnotationForFile,
     handleCodeNavRequest, codeNav.result, codeNav.isLoading, codeNav.activeSymbol,
   ]);
 
@@ -1996,7 +1935,7 @@ const ReviewApp: React.FC = () => {
       <div className="h-screen flex flex-col bg-background overflow-hidden">
         {/* Header */}
         <header className="py-1 flex items-center justify-between px-2 md:px-4 border-b border-border/50 bg-card/50 backdrop-blur-xl z-50">
-          <div className="min-w-0 flex items-center gap-2 md:gap-3 -ml-1.5 md:-ml-3">
+          <div className="min-w-0 flex items-center gap-2 md:gap-3">
             {shouldShowFileTree && (
               <>
                 <button
@@ -2008,7 +1947,7 @@ const ReviewApp: React.FC = () => {
                   }`}
                   title={isFileTreeOpen ? 'Hide file tree' : 'Show file tree'}
                 >
-                  <FolderTree className="w-4 h-4" />
+                  <FolderTree className="w-3.5 h-3.5" />
                 </button>
                 <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
               </>
@@ -2417,9 +2356,6 @@ const ReviewApp: React.FC = () => {
               <FileTree
                 files={files}
                 activeFileIndex={activeFileIndex}
-                onSelectSemanticDiff={() => openSemanticDiffPanel()}
-                isSemanticDiffActive={isSemanticDiffActive}
-                semanticDiffAvailable={semanticDiffAvailable}
                 onSelectAllFiles={openAllFilesPanel}
                 isAllFilesActive={isAllFilesActive}
                 scrollHighlightIndex={isAllFilesActive && allFilesVisibleFile ? files.findIndex(f => f.path === allFilesVisibleFile) : undefined}

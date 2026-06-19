@@ -6,7 +6,9 @@ interface UseResizablePanelOptions {
   defaultWidth?: number;
   minWidth?: number;
   maxWidth?: number;
-  side?: 'left' | 'right';
+  side?: 'left' | 'right' | 'top' | 'bottom';
+  /** Drag axis: 'x' resizes width (default), 'y' resizes height (uses clientY). */
+  axis?: 'x' | 'y';
   /**
    * When provided, dragging the panel narrower than `snapCloseRatio * minWidth`
    * snaps it shut (calls this) instead of clamping at minWidth.
@@ -37,6 +39,7 @@ export function useResizablePanel({
   minWidth = 200,
   maxWidth = 600,
   side = 'right',
+  axis = 'x',
   onSnapClose,
   snapCloseRatio = 0.6,
   apply,
@@ -73,7 +76,7 @@ export function useResizablePanel({
     rafRef.current = null;
     if (!draggingRef.current) return;
     const delta =
-      side === 'right'
+      side === 'right' || side === 'bottom'
         ? startXRef.current - latestXRef.current
         : latestXRef.current - startXRef.current;
     const raw = startWidthRef.current + delta;
@@ -102,9 +105,10 @@ export function useResizablePanel({
       // Only primary button / touch / pen.
       if (e.button !== 0) return;
       e.preventDefault();
-      startXRef.current = e.clientX;
+      const pos = axis === 'y' ? e.clientY : e.clientX;
+      startXRef.current = pos;
       startWidthRef.current = widthRef.current;
-      latestXRef.current = e.clientX;
+      latestXRef.current = pos;
       snappedRef.current = false;
       draggingRef.current = true;
       setIsDragging(true);
@@ -115,7 +119,7 @@ export function useResizablePanel({
       // moves once the pointer leaves it).
       const onMove = (ev: PointerEvent) => {
         if (!draggingRef.current) return;
-        latestXRef.current = ev.clientX;
+        latestXRef.current = axis === 'y' ? ev.clientY : ev.clientX;
         if (rafRef.current == null) rafRef.current = requestAnimationFrame(flush);
       };
       const cleanup = () => {
@@ -144,7 +148,7 @@ export function useResizablePanel({
       window.addEventListener('pointerup', onUp);
       window.addEventListener('pointercancel', onUp);
     },
-    [flush, storageKey],
+    [flush, storageKey, axis],
   );
 
   const resetWidth = useCallback(() => {
@@ -156,6 +160,8 @@ export function useResizablePanel({
 
   return {
     width,
+    /** Alias for `width` — reads clearer when axis is 'y' (it's a height). */
+    size: width,
     isDragging,
     handleProps: {
       isDragging,

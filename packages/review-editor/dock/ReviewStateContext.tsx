@@ -111,11 +111,7 @@ export interface ReviewState {
   openDiffFile: (filePath: string) => void;
   onAllFilesVisibleFileChange: (filePath: string | null) => void;
   isAllFilesActive: boolean;
-  isSemanticDiffActive: boolean;
   semanticDiffAvailable: boolean;
-  onSemanticDiffUnavailable: () => void;
-  onSemanticDiffLoadError: () => boolean;
-  onSemanticDiffLoadSuccess: () => void;
 
   // Tour
   openTourPanel: (jobId: string) => void;

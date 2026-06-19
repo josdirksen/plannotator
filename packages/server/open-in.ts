@@ -26,7 +26,7 @@ import {
   type OpenInKind,
   type OpenInPlatform,
 } from "@plannotator/shared/open-in-apps";
-import { isWithinDirectory } from "@plannotator/shared/html-assets-node";
+import { resolveOpenInTarget } from "@plannotator/shared/html-assets-node";
 import { isRemoteSession } from "./remote";
 
 export type OpenInLaunchResult = { ok: true } | { ok: false; error: string };
@@ -221,7 +221,7 @@ function macAppBundleExists(appName: string): boolean {
 /**
  * Whether the given catalog app is launchable on this host.
  *   - 'reveal' and 'system-default' are always available.
- *   - mac: app bundle exists, OR its bin resolves on PATH.
+ *   - mac: the `.app` bundle exists (we launch via `open -a "<appName>"`).
  *   - win/linux: its bin resolves on PATH.
  */
 function isAppAvailable(app: OpenInApp, platform: OpenInPlatform): boolean {
@@ -230,12 +230,11 @@ function isAppAvailable(app: OpenInApp, platform: OpenInPlatform): boolean {
   }
 
   if (platform === "mac") {
+    // We launch via `open -a "<appName>"`, so availability must mean the .app
+    // bundle is present — a CLI shim on PATH without the bundle would show the
+    // app in the menu and then fail to launch.
     const appName = app.mac?.appName;
-    if (appName && macAppBundleExists(appName)) return true;
-    // Fall back to a CLI lookup (e.g. `code`, `subl`) for apps that ship one.
-    const candidateBin = app.win?.bin ?? app.linux?.bin;
-    if (candidateBin && Bun.which(candidateBin)) return true;
-    return false;
+    return !!appName && macAppBundleExists(appName);
   }
 
   if (platform === "win") {
@@ -306,21 +305,8 @@ export interface HandleOpenInOptions {
 }
 
 /**
- * POST /api/open-in handler.
- *
- * Body: `{ filePath: string; base?: string | null; appId?: string }`.
- * Resolves `abs` against a root, containment-checks it, then launches via
- * openFileInApp.
- *
- * Root resolution (in priority order):
- *   1. `options.resolveRoot()` — server-supplied, overrides the client `base`
- *      (review: the VCS root via resolveAgentCwd).
- *   2. client `base` (when provided).
- *   3. for an absolute `filePath` with no base — the file's own directory, so
- *      already-resolved absolute paths (annotate: any file on disk) always pass
- *      containment while traversal that escapes a provided base is still
- *      rejected.
- *   4. `process.cwd()`.
+ * POST /api/open-in handler. Resolves + containment-checks the target via
+ * resolveOpenInTarget (shared), then launches via openFileInApp.
  */
 export async function handleOpenIn(
   req: Request,
@@ -347,18 +333,8 @@ export async function handleOpenIn(
   const base = typeof body.base === "string" ? body.base : null;
   const appId = typeof body.appId === "string" ? body.appId : undefined;
 
-  // Server-supplied root (review) overrides the client `base`.
-  const serverRoot = options.resolveRoot?.();
-  const root = serverRoot
-    ? path.resolve(serverRoot)
-    : base
-      ? path.resolve(base)
-      : path.isAbsolute(filePath)
-        ? path.dirname(path.resolve(filePath))
-        : path.resolve(process.cwd());
-  const abs = path.resolve(root, filePath);
-
-  if (!isWithinDirectory(abs, root)) {
+  const abs = resolveOpenInTarget(filePath, base, options.resolveRoot);
+  if (abs == null) {
     return Response.json({ ok: false, error: "Access denied" }, { status: 403 });
   }
 

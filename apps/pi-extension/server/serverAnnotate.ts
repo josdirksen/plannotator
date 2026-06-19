@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
+import { dirname, resolve as resolvePath } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
@@ -48,7 +48,7 @@ import {
 	normalizeHtmlAssetRoutePath,
 	rewriteHtmlAssetReferences,
 } from "../generated/html-assets.js";
-import { inlineHtmlLocalAssets, isWithinDirectory, MAX_HTML_ASSET_BYTES } from "../generated/html-assets-node.js";
+import { inlineHtmlLocalAssets, isWithinDirectory, MAX_HTML_ASSET_BYTES, resolveOpenInTarget } from "../generated/html-assets-node.js";
 
 export interface AnnotateServerResult {
 	port: number;
@@ -392,20 +392,16 @@ export async function startAnnotateServer(options: {
 					json(res, { ok: false, error: "Missing filePath" }, 400);
 					return;
 				}
-				const base = typeof body.base === "string" && body.base ? body.base : null;
 				const appId = typeof body.appId === "string" ? body.appId : undefined;
-				// filePath is absolute and base is null, so containment-check
-				// against the file's own directory — letting any annotated file on
-				// disk (including ones outside cwd) open while still rejecting
-				// traversal that escapes a provided base.
-				const root = base
-					? resolvePath(base)
-					: isAbsolute(filePath)
-						? dirname(resolvePath(filePath))
-						: process.cwd();
-				const abs = resolvePath(root, filePath);
-				if (!isWithinDirectory(abs, root)) {
-					json(res, { ok: false, error: "Path is outside the allowed directory" }, 400);
+				// Bind opens to this session: confine to the annotated folder
+				// (folder mode) or the source file's directory. Client `base` ignored.
+				const sessionRoot =
+					options.mode === "annotate-folder" && options.folderPath
+						? resolvePath(options.folderPath)
+						: dirname(resolvePath(options.filePath));
+				const abs = resolveOpenInTarget(filePath, null, () => sessionRoot);
+				if (abs == null) {
+					json(res, { ok: false, error: "Path is outside the allowed directory" }, 403);
 					return;
 				}
 				const result = await openFileInApp(abs, appId);

@@ -59,7 +59,7 @@ import { createPiAIRuntime, handlePiAIRequest } from "./ai-runtime.js";
 
 import { isRemoteSession, listenOnPort } from "./network.js";
 import { getAvailableOpenInApps, openFileInApp } from "./open-in-apps.js";
-import { isWithinDirectory } from "../generated/html-assets-node.js";
+import { resolveOpenInTarget } from "../generated/html-assets-node.js";
 import {
 	fetchPR,
 	fetchPRContext,
@@ -1374,10 +1374,9 @@ export async function startReviewServer(options: {
 				// local checkout, resolveVcsCwd(gitContext.cwd), and process.cwd())
 				// — not the client `base`, which is wrong when review runs from a
 				// subdirectory — then containment-check.
-				const root = resolvePath(resolveAgentCwd());
-				const abs = resolvePath(root, filePath);
-				if (!isWithinDirectory(abs, root)) {
-					json(res, { ok: false, error: "Path is outside the allowed directory" }, 400);
+				const abs = resolveOpenInTarget(filePath, null, resolveAgentCwd);
+				if (abs == null) {
+					json(res, { ok: false, error: "Path is outside the allowed directory" }, 403);
 					return;
 				}
 				const result = await openFileInApp(abs, appId);

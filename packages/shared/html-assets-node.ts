@@ -82,3 +82,30 @@ export function isWithinDirectory(filePath: string, root: string): boolean {
   const rel = relative(resolvedRoot, resolved);
   return rel === "" || (!!rel && !rel.startsWith("..") && !isAbsolute(rel));
 }
+
+/**
+ * Resolve the absolute file an /api/open-in request may launch and confirm it
+ * stays within its root — the security boundary for the open-in endpoints,
+ * shared by the Bun and Pi servers so the resolve + containment can't drift
+ * between runtimes (same reason isWithinDirectory is single-sourced). Root
+ * precedence: a server-supplied `resolveRoot()` (review: the VCS root; annotate:
+ * the session folder / source-file dir) overrides the client `base`; then the
+ * client `base`; then an absolute `filePath`'s own directory; then cwd. Returns
+ * the absolute path, or null when it escapes the root.
+ */
+export function resolveOpenInTarget(
+  filePath: string,
+  base: string | null,
+  resolveRoot?: () => string,
+): string | null {
+  const serverRoot = resolveRoot?.();
+  const root = serverRoot
+    ? resolvePath(serverRoot)
+    : base
+      ? resolvePath(base)
+      : isAbsolute(filePath)
+        ? dirname(resolvePath(filePath))
+        : resolvePath(process.cwd());
+  const abs = resolvePath(root, filePath);
+  return isWithinDirectory(abs, root) ? abs : null;
+}

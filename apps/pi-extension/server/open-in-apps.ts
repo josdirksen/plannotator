@@ -65,15 +65,9 @@ function isAppAvailable(app: OpenInApp): boolean {
 
 	const platform = currentPlatform();
 	if (platform === "mac") {
-		if (app.mac?.appName) {
-			if (macAppExists(app.mac.appName)) return true;
-		}
-		// Fall back to a CLI shim if one is configured (none of the mac entries
-		// declare a bin today, but stay robust if that changes).
-		if (app.mac && "bin" in app.mac && (app.mac as { bin?: string }).bin) {
-			return whichBin((app.mac as { bin: string }).bin);
-		}
-		return false;
+		// We launch via `open -a "<appName>"`, so availability must mean the .app
+		// bundle exists — matching the Bun runtime.
+		return !!app.mac?.appName && macAppExists(app.mac.appName);
 	}
 	if (platform === "win") {
 		return app.win?.bin ? whichBin(app.win.bin) : false;

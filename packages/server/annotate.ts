@@ -334,12 +334,22 @@ export async function startAnnotateServer(
             return handleOpenInApps();
           }
 
-          // API: Open the annotated file in an app. filePath is absolute and
-          // base is null, so the handler containment-checks against the file's
-          // own directory — letting any annotated file on disk (including ones
-          // outside cwd) open while still rejecting traversal.
+          // API: Open the annotated file in an app. Bind opens to this session:
+          // a URL source has no local file, and any other open is confined to
+          // the session root (the annotated folder, or the source file's
+          // directory) — the client `base` is ignored (resolveRoot overrides it).
           if (url.pathname === "/api/open-in" && req.method === "POST") {
-            return handleOpenIn(req);
+            if (/^https?:\/\//i.test(filePath)) {
+              return Response.json(
+                { ok: false, error: "Open in app is unavailable for this source" },
+                { status: 400 },
+              );
+            }
+            const sessionRoot =
+              mode === "annotate-folder" && folderPath
+                ? resolvePath(folderPath)
+                : dirname(resolvePath(filePath));
+            return handleOpenIn(req, { resolveRoot: () => sessionRoot });
           }
 
           // API: Update user config (write-back to ~/.plannotator/config.json)

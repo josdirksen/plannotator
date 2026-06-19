@@ -31,6 +31,11 @@ describe("resolveOpenInTarget — /api/open-in containment", () => {
     expect(resolveOpenInTarget("notes.md", null, () => root)).not.toBeNull();
   });
 
+  test("empty server roots deny opens while PR checkout warmup is pending", () => {
+    // resolveOpenInRoot returns [] in PR pool warmup; that must deny, not fall back.
+    expect(resolveOpenInTarget("notes.md", null, () => [])).toBeNull();
+  });
+
   test("rejects relative traversal that escapes the root", () => {
     const root = makeDir();
     expect(resolveOpenInTarget("../escape.md", null, () => root)).toBeNull();

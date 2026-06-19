@@ -859,7 +859,7 @@ const ReviewApp: React.FC = () => {
         base?: string;
         gitContext?: GitContext;
         diffOptions?: DiffOption[];
-        agentCwd?: string;
+        agentCwd?: string | null;
         sharingEnabled?: boolean;
         repoInfo?: { display: string; branch?: string };
         prMetadata?: PRMetadata;
@@ -905,7 +905,7 @@ const ReviewApp: React.FC = () => {
           setSelectedBase(initial);
           setCommittedBase(initial);
         }
-        if (data.agentCwd) setAgentCwd(data.agentCwd);
+        if (data.agentCwd !== undefined) setAgentCwd(data.agentCwd);
         if (data.sharingEnabled !== undefined) setSharingEnabled(data.sharingEnabled);
         if (data.repoInfo) setRepoInfo(data.repoInfo);
         updatePRSession({

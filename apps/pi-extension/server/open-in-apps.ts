@@ -10,7 +10,7 @@
 
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import os from "node:os";
 
 import {
@@ -162,7 +162,8 @@ export function openFileInApp(
 	// Unknown or undefined appId -> OS default handler on the file.
 	if (!app) {
 		if (platform === "mac") return run("open", [absPath], "Default app");
-		if (platform === "win") return run("cmd", ["/c", "start", "", absPath], "Default app");
+		if (platform === "win")
+			return run("cmd", ["/c", "start", "", basename(absPath)], "Default app", { cwd: dirname(absPath) });
 		return run("xdg-open", [absPath], "Default app");
 	}
 

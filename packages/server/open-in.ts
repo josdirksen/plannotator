@@ -110,7 +110,9 @@ function openSystemDefault(target: string): Promise<OpenInLaunchResult> {
   if (platform === "win") {
     // `start` is a cmd builtin; the empty-string title arg avoids the quoted
     // target being treated as a window title.
-    return runArgv("cmd", ["/c", "start", "", target], "default app");
+    return runArgv("cmd", ["/c", "start", "", path.basename(target)], "default app", {
+      cwd: path.dirname(target),
+    });
   }
   return runArgv("xdg-open", [target], "default app");
 }

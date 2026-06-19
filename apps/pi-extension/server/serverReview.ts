@@ -388,6 +388,20 @@ export async function startReviewServer(options: {
 		if (options.agentCwd) return options.agentCwd;
 		return resolveVcsCwd(currentDiffType as DiffType, options.gitContext?.cwd) ?? process.cwd();
 	}
+	// The current PR's local checkout if one is usable, else null. Mirrors the
+	// Bun review server's resolvePRLocalCwd: a pool entry that exists but isn't
+	// ready yet yields null (no usable checkout), distinct from resolveAgentCwd
+	// which always falls back to a cwd for agent/launch resolution. Used to
+	// advertise the Open-in root to the client without a page reload.
+	function resolvePRLocalCwd(): string | null {
+		const pool = options.worktreePool;
+		if (pool && prMeta) {
+			const entry = pool.get(prMeta.url);
+			if (entry?.ready) return entry.path;
+			if (entry) return null;
+		}
+		return options.agentCwd && existsSync(options.agentCwd) ? options.agentCwd : null;
+	}
 	function getWorkspacePromptContext(): WorkspaceReviewPromptContext | undefined {
 		if (!workspace) return undefined;
 		return workspace.getPromptContext();
@@ -723,11 +737,7 @@ export async function startReviewServer(options: {
 			// on every probe — the Open-in control tracks the current checkout
 			// without a page reload. Null until a usable checkout exists (the pool
 			// resolves a path only once ready). Non-PR sessions omit this field.
-			const advertisedPRCwd = !isPRMode
-				? undefined
-				: (options.worktreePool && prMeta ? options.worktreePool.resolve(prMeta.url) : undefined) ??
-					(options.agentCwd && existsSync(options.agentCwd) ? options.agentCwd : null);
-			const prCwdAdvert = advertisedPRCwd === undefined ? {} : { agentCwd: advertisedPRCwd };
+			const prCwdAdvert = isPRMode ? { agentCwd: resolvePRLocalCwd() } : {};
 			const baseline = currentFingerprint;
 			if (baseline == null) {
 				json(res, { fresh: true, ...prCwdAdvert });

@@ -268,7 +268,7 @@ export const FileHeader: React.FC<FileHeaderProps> = ({
           filePath={filePath}
           base={state?.agentCwd ?? null}
           diffText={patch}
-          canOpen={!(state?.prMetadata && !state?.agentCwd)}
+          canOpen={!(state?.prMetadata && !state?.agentCwd) && status !== 'deleted'}
           showLabel={!isCompact}
         />
       </div>

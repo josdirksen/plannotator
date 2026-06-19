@@ -718,9 +718,19 @@ export async function startReviewServer(options: {
 			// Cheap staleness probe — has the underlying VCS state changed since
 			// the current diff snapshot was computed? Best-effort: anything that
 			// cannot be fingerprinted reports fresh (no banner).
+			// In PR review the local checkout can appear (pool warmup) or change
+			// (in-place PR switch) after the initial /api/diff, so re-advertise it
+			// on every probe — the Open-in control tracks the current checkout
+			// without a page reload. Null until a usable checkout exists (the pool
+			// resolves a path only once ready). Non-PR sessions omit this field.
+			const advertisedPRCwd = !isPRMode
+				? undefined
+				: (options.worktreePool && prMeta ? options.worktreePool.resolve(prMeta.url) : undefined) ??
+					(options.agentCwd && existsSync(options.agentCwd) ? options.agentCwd : null);
+			const prCwdAdvert = advertisedPRCwd === undefined ? {} : { agentCwd: advertisedPRCwd };
 			const baseline = currentFingerprint;
 			if (baseline == null) {
-				json(res, { fresh: true });
+				json(res, { fresh: true, ...prCwdAdvert });
 				return;
 			}
 			const probe = await computeDiffFingerprint();
@@ -728,13 +738,13 @@ export async function startReviewServer(options: {
 			// fingerprint); report fresh and let the next poll compare against
 			// the new baseline.
 			if (currentFingerprint !== baseline) {
-				json(res, { fresh: true });
+				json(res, { fresh: true, ...prCwdAdvert });
 				return;
 			}
 			const fresh = probe == null || probe === baseline;
 			// The probe fingerprint lets the client distinguish "still the same
 			// staleness I dismissed" from "ANOTHER change landed since".
-			json(res, { fresh, ...(fresh ? {} : { fingerprint: probe }) });
+			json(res, { fresh, ...(fresh ? {} : { fingerprint: probe }), ...prCwdAdvert });
 		} else if (url.pathname === "/api/semantic-diff" && req.method === "GET") {
 			json(res, await getSemanticDiff(url));
 		} else if (url.pathname === "/api/diff/switch" && req.method === "POST") {

@@ -1425,6 +1425,7 @@ const ReviewApp: React.FC = () => {
   const diffFreshness = useDiffFreshness({
     enabled: !!origin,
     resetKey: diffData?.rawPatch ?? '',
+    onAgentCwd: setAgentCwd,
   });
 
   const handleRefreshStaleDiff = useCallback(() => {

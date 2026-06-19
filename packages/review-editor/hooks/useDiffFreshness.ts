@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -26,14 +26,23 @@ export interface DiffFreshness {
 export function useDiffFreshness({
   enabled,
   resetKey,
+  onAgentCwd,
 }: {
   enabled: boolean;
   /** Identity of the current diff snapshot (e.g. the rawPatch string). A new
    * snapshot (refresh / switch) clears staleness + dismissal and resumes. */
   resetKey: string;
+  /** Called when a probe re-advertises the PR-mode local checkout (or null when
+   * none is usable yet), so the Open-in control tracks pool warmup / in-place PR
+   * switches without a page reload. A probe that omits the field leaves the
+   * current value untouched (non-PR sessions never send it). */
+  onAgentCwd?: (cwd: string | null) => void;
 }): DiffFreshness {
   const [staleFingerprint, setStaleFingerprint] = useState<string | null>(null);
   const [dismissedFingerprint, setDismissedFingerprint] = useState<string | null>(null);
+  // Latest callback in a ref so the polling effect never resubscribes for it.
+  const onAgentCwdRef = useRef(onAgentCwd);
+  onAgentCwdRef.current = onAgentCwd;
 
   // New snapshot → clean slate.
   useEffect(() => {
@@ -59,11 +68,18 @@ export function useDiffFreshness({
       try {
         const res = await fetch('/api/diff/fresh');
         if (!cancelled && res.ok) {
-          const data = (await res.json()) as { fresh: boolean; fingerprint?: string };
+          const data = (await res.json()) as {
+            fresh: boolean;
+            fingerprint?: string;
+            agentCwd?: string | null;
+          };
           // Keep polling even while stale: a reverted edit flips back to
           // fresh, and a FURTHER change updates the fingerprint so a
           // dismissed notice can reappear.
           setStaleFingerprint(data.fresh ? null : data.fingerprint ?? 'stale');
+          // PR mode re-advertises the live local checkout each probe; non-PR
+          // probes omit the field entirely (leave agentCwd untouched).
+          if ('agentCwd' in data) onAgentCwdRef.current?.(data.agentCwd ?? null);
         }
       } catch {
         // Transient/network/server-gone: ignore — staleness is best-effort.

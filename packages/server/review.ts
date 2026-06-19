@@ -788,17 +788,23 @@ export async function startReviewServer(
           // since the current diff snapshot was computed? Best-effort: anything
           // that cannot be fingerprinted reports fresh (no banner).
           if (url.pathname === "/api/diff/fresh" && req.method === "GET") {
+            // In PR review the local checkout can appear (pool warmup) or change
+            // (in-place PR switch) after the initial /api/diff, so re-advertise it
+            // on every probe — the Open-in control tracks the current checkout
+            // without a page reload. resolvePRLocalCwd() is null until a usable
+            // checkout exists. Non-PR sessions never carry this field.
+            const prCwdAdvert = isPRMode ? { agentCwd: resolvePRLocalCwd() ?? null } : {};
             const baseline = currentFingerprint;
-            if (baseline == null) return Response.json({ fresh: true });
+            if (baseline == null) return Response.json({ fresh: true, ...prCwdAdvert });
             const probe = await computeDiffFingerprint();
             // A diff switch landing mid-probe replaces the snapshot (and its
             // fingerprint); report fresh and let the next poll compare
             // against the new baseline.
-            if (currentFingerprint !== baseline) return Response.json({ fresh: true });
+            if (currentFingerprint !== baseline) return Response.json({ fresh: true, ...prCwdAdvert });
             const fresh = probe == null || probe === baseline;
             // The probe fingerprint lets the client distinguish "still the
             // same staleness I dismissed" from "ANOTHER change landed since".
-            return Response.json({ fresh, ...(fresh ? {} : { fingerprint: probe }) });
+            return Response.json({ fresh, ...(fresh ? {} : { fingerprint: probe }), ...prCwdAdvert });
           }
 
           // API: Get semantic diff content

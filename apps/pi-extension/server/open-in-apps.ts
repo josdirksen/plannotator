@@ -8,7 +8,7 @@
  * (packages/shared/open-in-apps.ts, vendored into generated/).
  */
 
-import { execFile, execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import os from "node:os";
@@ -126,6 +126,26 @@ function run(
 }
 
 /**
+ * Spawn a launcher we can't meaningfully await — e.g. Windows `explorer`, which
+ * exits non-zero even on success. Returns ok immediately; an async spawn failure
+ * (missing binary) is swallowed so it can't crash the server. Mirrors the Bun
+ * runtime's spawnDetached (packages/server/open-in.ts).
+ */
+function spawnDetached(
+	cmd: string,
+	args: string[],
+): Promise<{ ok: true } | { ok: false; error: string }> {
+	try {
+		const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
+		child.on("error", () => {}); // fire-and-forget; ignore async spawn failure
+		child.unref();
+		return Promise.resolve({ ok: true });
+	} catch (err) {
+		return Promise.resolve({ ok: false, error: err instanceof Error ? err.message : String(err) });
+	}
+}
+
+/**
  * Launch `absPath` in the app identified by `appId` (defaults / unknown ->
  * the OS default handler). Mirrors the Bun-side launch semantics exactly.
  */
@@ -146,7 +166,9 @@ export function openFileInApp(
 	if (app.kind === "file-manager") {
 		// Reveal the file in the OS file manager.
 		if (platform === "mac") return run("open", ["-R", absPath], "Finder");
-		if (platform === "win") return run("explorer", [`/select,${absPath}`], "Explorer");
+		// explorer.exe exits non-zero even on success; launch fire-and-forget so
+		// a successful reveal doesn't report failure.
+		if (platform === "win") return spawnDetached("explorer", [`/select,${absPath}`]);
 		return run("xdg-open", [dirname(absPath)], "File manager");
 	}
 
@@ -161,7 +183,10 @@ export function openFileInApp(
 		if (platform === "win") {
 			if (!app.win?.bin)
 				return Promise.resolve({ ok: false, error: `${app.label} is not available on this platform.` });
-			return run(app.win.bin, [dir], app.label);
+			// A terminal launched as `<bin> <dir>` treats the dir as a command to
+			// run (e.g. powershell). Open a new console window with its working
+			// directory set via `start "" /D <dir> <bin>`.
+			return run("cmd", ["/c", "start", "", "/D", dir, app.win.bin], app.label);
 		}
 		if (!app.linux?.bin)
 			return Promise.resolve({ ok: false, error: `${app.label} is not available on this platform.` });

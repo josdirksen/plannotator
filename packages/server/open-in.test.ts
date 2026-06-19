@@ -67,4 +67,15 @@ describe("resolveOpenInTarget — /api/open-in containment", () => {
     // Documents the default (review supplies resolveAgentCwd; this is the fallback).
     expect(resolveOpenInTarget(join(root, "file.md"), null, undefined)).not.toBeNull();
   });
+
+  test("accepts a file in any of several roots (annotate reference roots)", () => {
+    const a = makeDir();
+    const b = makeDir();
+    writeFileSync(join(b, "doc.md"), "x");
+    // A linked doc living in root B is allowed because B is one of the roots
+    // (mirrors /api/doc serving from cwd + the source-file dir).
+    expect(resolveOpenInTarget(join(b, "doc.md"), null, () => [a, b])).not.toBeNull();
+    // Outside every allowed root → still rejected.
+    expect(resolveOpenInTarget("/etc/passwd", null, () => [a, b])).toBeNull();
+  });
 });

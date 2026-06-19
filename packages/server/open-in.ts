@@ -160,6 +160,12 @@ function openWithApp(
         error: `${app.label} is not available on Windows`,
       });
     }
+    if (app.kind === "terminal") {
+      // A terminal launched as `<bin> <dir>` treats the dir as a command to run
+      // (e.g. powershell). Open a new console window with its working directory
+      // set via `start "" /D <dir> <bin>`.
+      return runArgv("cmd", ["/c", "start", "", "/D", target, bin], app.label);
+    }
     return runArgv(bin, [target], app.label);
   }
 
@@ -299,9 +305,10 @@ export interface HandleOpenInOptions {
    * `base`. The review server passes `resolveAgentCwd()` here so repo-relative
    * `git diff` paths resolve against the VCS root rather than the launch cwd
    * (which differs when `plannotator review` runs from a subdirectory).
-   * When omitted, the handler falls back to the client `base`.
+   * When omitted, the handler falls back to the client `base`. May return
+   * several roots (annotate passes the session's reference roots).
    */
-  resolveRoot?: () => string;
+  resolveRoot?: () => string | string[];
 }
 
 /**

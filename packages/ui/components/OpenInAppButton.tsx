@@ -64,7 +64,10 @@ function loadOpenInApps(): Promise<OpenInAppsResponse> {
         available: !!data.available,
         apps: Array.isArray(data.apps) ? data.apps : [],
       }))
-      .catch(() => ({ available: false, apps: [] }));
+      .catch(() => {
+        openInAppsPromise = null; // don't memoize failure — let the next mount retry
+        return { available: false, apps: [] };
+      });
   }
   return openInAppsPromise;
 }

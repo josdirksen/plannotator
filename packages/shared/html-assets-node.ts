@@ -85,27 +85,39 @@ export function isWithinDirectory(filePath: string, root: string): boolean {
 
 /**
  * Resolve the absolute file an /api/open-in request may launch and confirm it
- * stays within its root — the security boundary for the open-in endpoints,
- * shared by the Bun and Pi servers so the resolve + containment can't drift
- * between runtimes (same reason isWithinDirectory is single-sourced). Root
- * precedence: a server-supplied `resolveRoot()` (review: the VCS root; annotate:
- * the session folder / source-file dir) overrides the client `base`; then the
- * client `base`; then an absolute `filePath`'s own directory; then cwd. Returns
- * the absolute path, or null when it escapes the root.
+ * stays within an allowed root — the security boundary for the open-in
+ * endpoints, shared by the Bun and Pi servers so the resolve + containment
+ * can't drift between runtimes (same reason isWithinDirectory is single-sourced).
+ *
+ * `resolveRoot` may return one root or several: annotate scopes opens to the
+ * same set of reference roots `/api/doc` serves from, so any linked doc the
+ * user can view can also be opened. Root precedence: server-supplied root(s)
+ * override the client `base`; then `base`; then an absolute `filePath`'s own
+ * directory; then cwd. Relative paths resolve against the first root. Returns
+ * the absolute path, or null when it escapes every allowed root.
  */
 export function resolveOpenInTarget(
   filePath: string,
   base: string | null,
-  resolveRoot?: () => string,
+  resolveRoot?: () => string | string[],
 ): string | null {
-  const serverRoot = resolveRoot?.();
-  const root = serverRoot
-    ? resolvePath(serverRoot)
-    : base
-      ? resolvePath(base)
-      : isAbsolute(filePath)
-        ? dirname(resolvePath(filePath))
-        : resolvePath(process.cwd());
-  const abs = resolvePath(root, filePath);
-  return isWithinDirectory(abs, root) ? abs : null;
+  const provided = resolveRoot?.();
+  const roots = (
+    provided == null
+      ? [
+          base
+            ? resolvePath(base)
+            : isAbsolute(filePath)
+              ? dirname(resolvePath(filePath))
+              : resolvePath(process.cwd()),
+        ]
+      : Array.isArray(provided)
+        ? provided
+        : [provided]
+  )
+    .filter((r): r is string => !!r)
+    .map((r) => resolvePath(r));
+  if (roots.length === 0) return null;
+  const abs = resolvePath(roots[0], filePath);
+  return roots.some((r) => isWithinDirectory(abs, r)) ? abs : null;
 }

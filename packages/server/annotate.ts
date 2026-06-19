@@ -331,13 +331,18 @@ export async function startAnnotateServer(
 
           // API: List apps the host can open a file in (Open in App control).
           if (url.pathname === "/api/open-in/apps" && req.method === "GET") {
+            // A URL annotation source has no local file to open — mirror Pi and
+            // report unavailable so the UI hides the control entirely.
+            if (/^https?:\/\//i.test(filePath)) {
+              return Response.json({ available: false, apps: [] });
+            }
             return handleOpenInApps();
           }
 
-          // API: Open the annotated file in an app. Bind opens to this session:
-          // a URL source has no local file, and any other open is confined to
-          // the session root (the annotated folder, or the source file's
-          // directory) — the client `base` is ignored (resolveRoot overrides it).
+          // API: Open the annotated file in an app. A URL source has no local
+          // file; any other open is confined to the same reference roots
+          // /api/doc serves from, so any linked doc the user can view can also
+          // be opened — and nothing outside the session can.
           if (url.pathname === "/api/open-in" && req.method === "POST") {
             if (/^https?:\/\//i.test(filePath)) {
               return Response.json(
@@ -345,11 +350,7 @@ export async function startAnnotateServer(
                 { status: 400 },
               );
             }
-            const sessionRoot =
-              mode === "annotate-folder" && folderPath
-                ? resolvePath(folderPath)
-                : dirname(resolvePath(filePath));
-            return handleOpenIn(req, { resolveRoot: () => sessionRoot });
+            return handleOpenIn(req, { resolveRoot: getReferenceRootPaths });
           }
 
           // API: Update user config (write-back to ~/.plannotator/config.json)

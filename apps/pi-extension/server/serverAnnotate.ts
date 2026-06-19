@@ -393,13 +393,9 @@ export async function startAnnotateServer(options: {
 					return;
 				}
 				const appId = typeof body.appId === "string" ? body.appId : undefined;
-				// Bind opens to this session: confine to the annotated folder
-				// (folder mode) or the source file's directory. Client `base` ignored.
-				const sessionRoot =
-					options.mode === "annotate-folder" && options.folderPath
-						? resolvePath(options.folderPath)
-						: dirname(resolvePath(options.filePath));
-				const abs = resolveOpenInTarget(filePath, null, () => sessionRoot);
+				// Confine opens to the same reference roots /api/doc serves from,
+				// so any linked doc the user can view can also be opened.
+				const abs = resolveOpenInTarget(filePath, null, getReferenceRootPaths);
 				if (abs == null) {
 					json(res, { ok: false, error: "Path is outside the allowed directory" }, 403);
 					return;

@@ -59,6 +59,9 @@ export const DocBadges: React.FC<DocBadgesProps> = ({
   const isRow = layout === 'row';
   const canOpenInApp =
     !!openInAppPath && !/^https?:\/\//i.test(openInAppPath);
+  const openInButton = canOpenInApp ? (
+    <OpenInAppButton filePath={openInAppPath} base={null} />
+  ) : null;
 
   // In row layout, only PlanDiffBadge (when it has stats to show) and
   // archiveInfo actually render — everything else is hidden. Check what
@@ -75,12 +78,10 @@ export const DocBadges: React.FC<DocBadgesProps> = ({
 
   return (
     <div className={outerClass}>
-      {/* Open-in-app for the current annotate file (root or browsed linked
-          doc). Rendered independent of sourceInfo/linked-doc so it shows for
-          every file. Hidden in the compact sticky row and for URL sources. */}
-      {!isRow && canOpenInApp && (
-        <OpenInAppButton filePath={openInAppPath} base={null} />
-      )}
+      {/* Open-in-app normally renders inline (to the right) within the source /
+          linked-doc rows below. This standalone fallback only fires when there
+          is no file row to attach to. Hidden in the sticky row and for URLs. */}
+      {!isRow && canOpenInApp && !sourceInfo && !linkedDocInfo && openInButton}
       {/* Row layout (sticky lane) omits repo/branch to keep the bar compact —
           they'd otherwise push the container wide enough to visually extend
           under the action buttons. Plan-diff badge still renders below. */}
@@ -116,6 +117,7 @@ export const DocBadges: React.FC<DocBadgesProps> = ({
               ? hostnameOrFallback(sourceInfo)
               : sourceInfo}
           </span>
+          {openInButton}
         </div>
       )}
 
@@ -188,6 +190,7 @@ export const DocBadges: React.FC<DocBadgesProps> = ({
             >
               {linkedDocInfo.filepath.split('/').pop()}
             </span>
+            {openInButton}
           </div>
         ) : (
           <div className="flex items-center gap-1.5">
@@ -219,6 +222,7 @@ export const DocBadges: React.FC<DocBadgesProps> = ({
             >
               {linkedDocInfo.filepath.split('/').pop()}
             </span>
+            {openInButton}
           </div>
         )
       )}

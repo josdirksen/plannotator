@@ -78,22 +78,8 @@ export async function resolveAgentTerminalRuntime(): Promise<ResolvedAgentTermin
 
   const bundledSidecarPath = resolveBundledAgentTerminalSidecarPath();
   if (bundledSidecarPath) {
-    const webtuiCoreUrl = resolveImportUrl("@plannotator/webtui/core");
-    const webtuiServerUrl = resolveImportUrl("@plannotator/webtui/server");
-    const preflight = await preflightNodeImports(nodePath, {
-      cwd: process.cwd(),
-      webtuiCoreUrl,
-      webtuiServerUrl,
-    });
-    if (!preflight.ok) return preflight;
-    return {
-      ok: true,
-      nodePath,
-      sidecarPath: bundledSidecarPath,
-      sidecarCwd: process.cwd(),
-      webtuiCoreUrl,
-      webtuiServerUrl,
-    };
+    const bundledRuntime = await resolveBundledAgentTerminalRuntime(nodePath, bundledSidecarPath);
+    if (bundledRuntime.ok) return bundledRuntime;
   }
 
   return resolveManagedAgentTerminalRuntime(nodePath);
@@ -103,6 +89,28 @@ export function resolveBundledAgentTerminalSidecarPath(moduleUrl = import.meta.u
   const bundledSidecarPath = fileURLToPath(new URL("./agent-terminal-node-sidecar.mjs", moduleUrl));
   if (isBunVirtualPath(bundledSidecarPath)) return null;
   return existsSync(bundledSidecarPath) ? bundledSidecarPath : null;
+}
+
+async function resolveBundledAgentTerminalRuntime(
+  nodePath: string,
+  bundledSidecarPath: string,
+): Promise<ResolvedAgentTerminalRuntime | UnresolvedAgentTerminalRuntime> {
+  const webtuiCoreUrl = resolveImportUrl("@plannotator/webtui/core");
+  const webtuiServerUrl = resolveImportUrl("@plannotator/webtui/server");
+  const preflight = await preflightNodeImports(nodePath, {
+    cwd: process.cwd(),
+    webtuiCoreUrl,
+    webtuiServerUrl,
+  });
+  if (!preflight.ok) return preflight;
+  return {
+    ok: true,
+    nodePath,
+    sidecarPath: bundledSidecarPath,
+    sidecarCwd: process.cwd(),
+    webtuiCoreUrl,
+    webtuiServerUrl,
+  };
 }
 
 async function resolveManagedAgentTerminalRuntime(
@@ -120,7 +128,8 @@ async function resolveManagedAgentTerminalRuntime(
     };
   }
 
-  const sidecarPath = materializeAgentTerminalSidecar(runtimeDir);
+  const sidecarPath = tryMaterializeAgentTerminalSidecar(runtimeDir);
+  if (!sidecarPath.ok) return sidecarPath;
   const preflight = await preflightNodeImports(nodePath, {
     cwd: runtimeDir,
     webtuiCoreUrl: "@plannotator/webtui/core",
@@ -131,7 +140,7 @@ async function resolveManagedAgentTerminalRuntime(
   return {
     ok: true,
     nodePath,
-    sidecarPath,
+    sidecarPath: sidecarPath.path,
     sidecarCwd: runtimeDir,
     webtuiCoreUrl: "@plannotator/webtui/core",
     webtuiServerUrl: "@plannotator/webtui/server",
@@ -163,9 +172,13 @@ export async function installAgentTerminalRuntime(): Promise<AgentTerminalRuntim
     return fail(runtimeDir, "Skipping agent terminal runtime install (npm was not found).");
   }
 
-  mkdirSync(runtimeDir, { recursive: true });
-  writeRuntimePackageJson(runtimeDir);
-  materializeAgentTerminalSidecar(runtimeDir);
+  try {
+    mkdirSync(runtimeDir, { recursive: true });
+    writeRuntimePackageJson(runtimeDir);
+    materializeAgentTerminalSidecar(runtimeDir);
+  } catch (err) {
+    return fail(runtimeDir, `Skipping agent terminal runtime install (${formatError(err)}).`);
+  }
 
   if (readInstalledWebTuiVersion(runtimeDir) === AGENT_TERMINAL_WEBTUI_VERSION) {
     const preflight = await preflightNodeImports(nodePath, {
@@ -218,6 +231,20 @@ function materializeAgentTerminalSidecar(runtimeDir: string): string {
   const sidecarPath = join(runtimeDir, "agent-terminal-node-sidecar.mjs");
   writeFileSync(sidecarPath, nodeAgentTerminalSidecarSource, "utf8");
   return sidecarPath;
+}
+
+function tryMaterializeAgentTerminalSidecar(
+  runtimeDir: string,
+): { ok: true; path: string } | UnresolvedAgentTerminalRuntime {
+  try {
+    return { ok: true, path: materializeAgentTerminalSidecar(runtimeDir) };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: "runtime-unavailable",
+      message: `Agent terminal runtime sidecar could not be written (${formatError(err)}). Run plannotator install-runtime agent-terminal or reinstall Plannotator.`,
+    };
+  }
 }
 
 function writeRuntimePackageJson(runtimeDir: string): void {
@@ -361,9 +388,16 @@ function resolveImportUrl(specifier: string): string {
 }
 
 function isBunVirtualPath(path: string): boolean {
-  return path.startsWith("/$bunfs/") || path.includes("\\$bunfs\\");
+  const normalized = path.replace(/\\/g, "/");
+  return normalized.startsWith("/$bunfs/") ||
+    /^[A-Za-z]:\/(?:\$bunfs|~BUN)\//i.test(normalized) ||
+    /^\/[A-Za-z]:\/(?:\$bunfs|~BUN)\//i.test(normalized);
 }
 
 function isTruthy(value: string | undefined): boolean {
   return value === "1" || value?.toLowerCase() === "true" || value?.toLowerCase() === "yes";
+}
+
+function formatError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

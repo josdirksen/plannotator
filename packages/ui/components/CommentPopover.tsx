@@ -14,6 +14,11 @@ export interface CommentAskAIContext {
   sourcePath?: string;
 }
 
+export type CommentAskAIHandler = (
+  question: string,
+  context: CommentAskAIContext,
+) => boolean | void | Promise<boolean | void>;
+
 interface CommentPopoverProps {
   /** Element to anchor the popover near (re-reads position on scroll) */
   anchorEl?: HTMLElement;
@@ -38,7 +43,7 @@ interface CommentPopoverProps {
   /** Whether submitting empty text is allowed, for editors that support clearing. */
   allowEmptySubmit?: boolean;
   /** Optional Ask AI action. Absent by default so existing comment surfaces are unchanged. */
-  onAskAI?: (question: string, context: CommentAskAIContext) => boolean | void | Promise<boolean | void>;
+  onAskAI?: CommentAskAIHandler;
   askAIContext?: CommentAskAIContext;
   askAIDisabled?: boolean;
 }
@@ -207,10 +212,17 @@ export const CommentPopover: React.FC<CommentPopoverProps> = ({
       textareaRef.current?.focus();
       return;
     }
-    const accepted = await onAskAI(question, askAIContext ?? {
-      kind: isGlobal ? 'general' : 'selection',
-      text: contextText,
-    });
+    let accepted: boolean | void;
+    try {
+      accepted = await onAskAI(question, askAIContext ?? {
+        kind: isGlobal ? 'general' : 'selection',
+        text: contextText,
+      });
+    } catch (error) {
+      console.error('Ask AI action failed:', error);
+      textareaRef.current?.focus();
+      return;
+    }
     if (accepted === false) {
       textareaRef.current?.focus();
       return;

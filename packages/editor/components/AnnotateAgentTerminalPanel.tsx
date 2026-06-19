@@ -28,7 +28,7 @@ import {
 import { getItem, setItem } from "@plannotator/ui/utils/storage";
 import { WebSocketPtyBackend } from "@plannotator/webtui/browser";
 import { WebTuiTerminal } from "@plannotator/webtui/react";
-import type { PtyExit } from "@plannotator/webtui/core";
+import type { PtyBackend, PtyExit, PtySpawnOptions } from "@plannotator/webtui/core";
 import type { WebTuiSession } from "@plannotator/webtui/browser";
 import {
   Check,
@@ -128,7 +128,7 @@ export const AnnotateAgentTerminalPanel = forwardRef<
     ? resolveAgentTerminalWebSocketUrl(capability.wsPath)
     : "";
   const backend = useMemo(
-    () => (wsUrl ? new WebSocketPtyBackend(wsUrl) : null),
+    () => (wsUrl ? createAgentOnlyBackend(wsUrl) : null),
     [wsUrl],
   );
   const initialAgentId = useMemo(
@@ -476,6 +476,30 @@ function AgentSelect({
 
 function formatAgentName(id: string, agents: { id: string; name: string }[]): string {
   return agents.find((agent) => agent.id === id)?.name ?? id;
+}
+
+function createAgentOnlyBackend(wsUrl: string): PtyBackend {
+  const backend = new WebSocketPtyBackend(wsUrl);
+  return {
+    spawn(options) {
+      return backend.spawn(buildAgentOnlySpawnOptions(options));
+    },
+  };
+}
+
+function buildAgentOnlySpawnOptions(options: PtySpawnOptions): PtySpawnOptions {
+  const spawnOptions: PtySpawnOptions = {};
+  if (options.agent) spawnOptions.agent = options.agent;
+  const cols = normalizeTerminalDimension(options.cols);
+  if (cols !== undefined) spawnOptions.cols = cols;
+  const rows = normalizeTerminalDimension(options.rows);
+  if (rows !== undefined) spawnOptions.rows = rows;
+  return spawnOptions;
+}
+
+function normalizeTerminalDimension(value: unknown): number | undefined {
+  if (!Number.isInteger(value) || (value as number) <= 0) return undefined;
+  return Math.min(value as number, 1_000);
 }
 
 function formatExit(event: PtyExit): string {

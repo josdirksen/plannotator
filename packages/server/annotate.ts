@@ -40,7 +40,7 @@ import { AI_QUERY_ENDPOINT, createAIRuntime } from "./ai-runtime";
 import type { AIEndpoints } from "@plannotator/ai";
 import { createHtmlAssetRegistry } from "./html-assets";
 import { createBunAgentTerminalBridge } from "./agent-terminal";
-import { AGENT_TERMINAL_WS_PATH, supportsAnnotateAgentTerminalMode } from "@plannotator/shared/agent-terminal";
+import { isAgentTerminalWsRoute, supportsAnnotateAgentTerminalMode } from "@plannotator/shared/agent-terminal";
 
 // Re-export utilities
 export { isRemoteSession, getServerPort } from "./remote";
@@ -307,10 +307,13 @@ export async function startAnnotateServer(
         async fetch(req, server) {
           const url = new URL(req.url);
 
-          if (url.pathname === AGENT_TERMINAL_WS_PATH) {
+          if (agentTerminal.matches(url.pathname)) {
             if (agentTerminal.capability.enabled && agentTerminal.upgrade(req, server)) {
               return;
             }
+            return new Response("Agent terminal is unavailable", { status: 404 });
+          }
+          if (isAgentTerminalWsRoute(url.pathname)) {
             return new Response("Agent terminal is unavailable", { status: 404 });
           }
 

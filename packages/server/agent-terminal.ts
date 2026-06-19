@@ -1,33 +1,34 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { randomBytes } from "node:crypto";
 import {
-  AGENT_TERMINAL_WS_PATH,
+  buildAgentTerminalWsPath,
   type AgentTerminalAgent,
   type AgentTerminalCapability,
 } from "@plannotator/shared/agent-terminal";
-import { getPlannotatorDataDir } from "@plannotator/shared/data-dir";
-
-// Bun's compiled binary exposes bundled files under /$bunfs, which Node cannot
-// execute as a child process. Keep the sidecar source embedded so compiled
-// binaries can materialize it to a real path before spawning Node.
-// @ts-ignore - Bun import attribute for text
-import nodeAgentTerminalSidecarSource from "./agent-terminal-node-sidecar.mjs" with { type: "text" };
+import { isRemoteSession } from "./remote";
+import {
+  isAgentTerminalRemoteEnabled,
+  resolveAgentTerminalRuntime,
+  type ResolvedAgentTerminalRuntime,
+} from "./agent-terminal-runtime";
 
 type AgentTerminalSocketData = {
   upstream: WebSocket | null;
   pending: string[];
 };
 
+const MAX_PENDING_MESSAGES = 100;
+
 type WebTuiCore = typeof import("@plannotator/webtui/core");
 
 type NodeAgentTerminalSidecar = {
   wsUrl: string;
+  exited: Promise<void>;
   dispose(): void;
 };
 
 export type BunAgentTerminalBridge = {
   capability: AgentTerminalCapability;
+  matches(pathname: string): boolean;
   upgrade(req: Request, server: Bun.Server<AgentTerminalSocketData>): boolean;
   websocket: Bun.WebSocketHandler<AgentTerminalSocketData>;
   dispose(): void;
@@ -44,6 +45,14 @@ export async function createBunAgentTerminalBridge(args: {
     });
   }
 
+  if (isRemoteSession() && !isAgentTerminalRemoteEnabled()) {
+    return createDisabledBridge({
+      enabled: false,
+      reason: "remote-disabled",
+      message: "Agent terminal is disabled in remote mode. Set PLANNOTATOR_AGENT_TERMINAL_REMOTE=1 to enable it.",
+    });
+  }
+
   let core: WebTuiCore;
   try {
     core = await import("@plannotator/webtui/core");
@@ -55,38 +64,49 @@ export async function createBunAgentTerminalBridge(args: {
     });
   }
 
-  const nodePath = Bun.which("node");
-  if (!nodePath) {
+  const runtime = await resolveAgentTerminalRuntime();
+  if (!runtime.ok) {
     return createDisabledBridge({
       enabled: false,
-      reason: "pty-unavailable",
-      message: "Node.js is required for the annotate agent terminal.",
+      reason: runtime.reason,
+      message: runtime.message,
     });
   }
-  const resolvedNodePath = nodePath;
+  const resolvedRuntime = runtime;
 
+  const wsPath = buildAgentTerminalWsPath(randomBytes(18).toString("hex"));
   const upstreams = new Set<WebSocket>();
   let disposed = false;
+  let connectingClients = 0;
   let sidecar: NodeAgentTerminalSidecar | null = null;
   let sidecarPromise: Promise<NodeAgentTerminalSidecar> | null = null;
   const capability: AgentTerminalCapability = {
     enabled: true,
     cwd: args.cwd,
-    wsPath: AGENT_TERMINAL_WS_PATH,
+    wsPath,
     agents: listAgents(core),
   };
 
   return {
     capability,
+    matches(pathname) {
+      return pathname === wsPath;
+    },
     upgrade(req, server) {
+      if (!isAllowedOrigin(req)) return false;
       return server.upgrade(req, {
         data: { upstream: null, pending: [] },
       });
     },
     websocket: {
       open(ws) {
+        connectingClients += 1;
         void getSidecar().then((activeSidecar) => {
-          if (disposed || ws.readyState !== WebSocket.OPEN) return;
+          connectingClients = Math.max(0, connectingClients - 1);
+          if (disposed || ws.readyState !== WebSocket.OPEN) {
+            releaseSidecarIfIdle(activeSidecar);
+            return;
+          }
           const upstream = new WebSocket(activeSidecar.wsUrl);
           ws.data.upstream = upstream;
           upstreams.add(upstream);
@@ -106,6 +126,7 @@ export async function createBunAgentTerminalBridge(args: {
           upstream.addEventListener("close", () => {
             upstreams.delete(upstream);
             if (ws.readyState === WebSocket.OPEN) ws.close();
+            releaseSidecarIfIdle(activeSidecar);
           });
 
           upstream.addEventListener("error", () => {
@@ -114,8 +135,10 @@ export async function createBunAgentTerminalBridge(args: {
               ws.send(JSON.stringify({ type: "error", message: "Agent terminal backend failed." }));
               ws.close();
             }
+            releaseSidecarIfIdle(activeSidecar);
           });
         }).catch((err) => {
+          connectingClients = Math.max(0, connectingClients - 1);
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
               type: "error",
@@ -132,6 +155,11 @@ export async function createBunAgentTerminalBridge(args: {
           upstream.send(payload);
           return;
         }
+        if (ws.data.pending.length >= MAX_PENDING_MESSAGES) {
+          ws.send(JSON.stringify({ type: "error", message: "Agent terminal backend is still starting." }));
+          ws.close();
+          return;
+        }
         ws.data.pending.push(payload);
       },
       close(ws) {
@@ -142,6 +170,7 @@ export async function createBunAgentTerminalBridge(args: {
           upstreams.delete(upstream);
           upstream.close();
         }
+        releaseSidecarIfIdle();
       },
     },
     dispose() {
@@ -155,18 +184,39 @@ export async function createBunAgentTerminalBridge(args: {
 
   function getSidecar(): Promise<NodeAgentTerminalSidecar> {
     if (sidecar) return Promise.resolve(sidecar);
-    sidecarPromise ??= startNodeAgentTerminalSidecar(args.cwd, resolvedNodePath).then((activeSidecar) => {
-      if (disposed) {
-        activeSidecar.dispose();
-        throw new Error("Agent terminal bridge was disposed.");
-      }
-      sidecar = activeSidecar;
-      return activeSidecar;
-    }).catch((err) => {
-      sidecarPromise = null;
-      throw err;
-    });
+    if (!sidecarPromise) {
+      let promise: Promise<NodeAgentTerminalSidecar>;
+      promise = startNodeAgentTerminalSidecar(args.cwd, resolvedRuntime, wsPath).then((activeSidecar) => {
+        if (disposed) {
+          activeSidecar.dispose();
+          throw new Error("Agent terminal bridge was disposed.");
+        }
+        sidecar = activeSidecar;
+        void activeSidecar.exited.finally(() => {
+          const wasCurrent = sidecar === activeSidecar || sidecarPromise === promise;
+          if (sidecar === activeSidecar) sidecar = null;
+          if (sidecarPromise === promise) sidecarPromise = null;
+          if (wasCurrent) {
+            for (const upstream of upstreams) upstream.close();
+            upstreams.clear();
+          }
+        });
+        return activeSidecar;
+      }).catch((err) => {
+        if (sidecarPromise === promise) sidecarPromise = null;
+        throw err;
+      });
+      sidecarPromise = promise;
+    }
     return sidecarPromise;
+  }
+
+  function releaseSidecarIfIdle(activeSidecar: NodeAgentTerminalSidecar | null = sidecar): void {
+    if (!activeSidecar || disposed) return;
+    if (connectingClients > 0 || upstreams.size > 0) return;
+    if (sidecar === activeSidecar) sidecar = null;
+    sidecarPromise = null;
+    activeSidecar.dispose();
   }
 }
 
@@ -175,6 +225,9 @@ function createDisabledBridge(
 ): BunAgentTerminalBridge {
   return {
     capability,
+    matches() {
+      return false;
+    },
     upgrade() {
       return false;
     },
@@ -187,17 +240,17 @@ function createDisabledBridge(
 
 async function startNodeAgentTerminalSidecar(
   cwd: string,
-  nodePath: string,
+  runtime: ResolvedAgentTerminalRuntime,
+  wsPath: string,
 ): Promise<NodeAgentTerminalSidecar> {
-  const sidecarPath = resolveNodeAgentTerminalSidecarPath();
-  const proc = Bun.spawn([nodePath, sidecarPath], {
-    cwd: process.cwd(),
+  const proc = Bun.spawn([runtime.nodePath, runtime.sidecarPath], {
+    cwd: runtime.sidecarCwd,
     env: {
       ...process.env,
       PLANNOTATOR_AGENT_CWD: cwd,
-      PLANNOTATOR_AGENT_WS_PATH: AGENT_TERMINAL_WS_PATH,
-      PLANNOTATOR_AGENT_WEBTUI_CORE_URL: resolveImportUrl("@plannotator/webtui/core"),
-      PLANNOTATOR_AGENT_WEBTUI_SERVER_URL: resolveImportUrl("@plannotator/webtui/server"),
+      PLANNOTATOR_AGENT_WS_PATH: wsPath,
+      PLANNOTATOR_AGENT_WEBTUI_CORE_URL: runtime.webtuiCoreUrl,
+      PLANNOTATOR_AGENT_WEBTUI_SERVER_URL: runtime.webtuiServerUrl,
     },
     stdin: "pipe",
     stdout: "pipe",
@@ -210,38 +263,19 @@ async function startNodeAgentTerminalSidecar(
     if (!ready.ok || !ready.wsUrl) {
       throw new Error(ready.error ?? "Agent terminal sidecar did not report a WebSocket URL.");
     }
+    let didDispose = false;
     return {
       wsUrl: ready.wsUrl,
+      exited: proc.exited.then(() => {}, () => {}),
       dispose() {
+        if (didDispose) return;
+        didDispose = true;
         proc.kill();
       },
     };
   } catch (err) {
     proc.kill();
     throw err;
-  }
-}
-
-function resolveNodeAgentTerminalSidecarPath(): string {
-  const bundledPath = fileURLToPath(new URL("./agent-terminal-node-sidecar.mjs", import.meta.url));
-  if (!isBunVirtualPath(bundledPath)) return bundledPath;
-
-  const sidecarDir = join(getPlannotatorDataDir(), "agent-terminal");
-  const sidecarPath = join(sidecarDir, "agent-terminal-node-sidecar.mjs");
-  mkdirSync(sidecarDir, { recursive: true });
-  writeFileSync(sidecarPath, nodeAgentTerminalSidecarSource, "utf8");
-  return sidecarPath;
-}
-
-function isBunVirtualPath(path: string): boolean {
-  return path.startsWith("/$bunfs/") || path.includes("\\$bunfs\\");
-}
-
-function resolveImportUrl(specifier: string): string {
-  try {
-    return import.meta.resolve(specifier);
-  } catch {
-    return specifier;
   }
 }
 
@@ -286,6 +320,16 @@ function toWebSocketPayload(data: unknown): string | ArrayBuffer {
       : Uint8Array.from(data).buffer;
   }
   return String(data);
+}
+
+function isAllowedOrigin(req: Request): boolean {
+  const origin = req.headers.get("origin");
+  if (!origin) return true;
+  try {
+    return new URL(origin).host === new URL(req.url).host;
+  } catch {
+    return false;
+  }
 }
 
 function listAgents(core: WebTuiCore): AgentTerminalAgent[] {

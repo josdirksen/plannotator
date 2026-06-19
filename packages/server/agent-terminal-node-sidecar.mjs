@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 
 const webtuiCoreUrl = process.env.PLANNOTATOR_AGENT_WEBTUI_CORE_URL || "@plannotator/webtui/core";
 const webtuiServerUrl = process.env.PLANNOTATOR_AGENT_WEBTUI_SERVER_URL || "@plannotator/webtui/server";
-const { listBuiltInAgents } = await import(webtuiCoreUrl);
+const { buildAgentLaunchPlan, listBuiltInAgents } = await import(webtuiCoreUrl);
 const { createNodePtyWebSocketServer, NodePtyBackend } = await import(webtuiServerUrl);
 
 const cwd = process.env.PLANNOTATOR_AGENT_CWD || process.cwd();
@@ -62,11 +62,28 @@ function normalizeSpawnOptions(options) {
   if (!allowedAgents.has(options.agent)) {
     throw new Error(`Unknown WebTUI agent: ${options.agent}`);
   }
-  return {
-    ...options,
-    cwd,
+  const launch = buildAgentLaunchPlan({
     agent: options.agent,
+    allowEmptyPromptLaunch: true,
+  });
+  const normalized = {
+    agent: launch.agent,
+    command: launch.command,
+    cwd,
+    startupCommandMode: "shell-ready",
   };
+  const cols = normalizeTerminalDimension(options.cols);
+  if (cols !== undefined) normalized.cols = cols;
+  const rows = normalizeTerminalDimension(options.rows);
+  if (rows !== undefined) normalized.rows = rows;
+  if (Object.keys(launch.env).length > 0) normalized.env = launch.env;
+  if (launch.preflightTrust) normalized.preflightTrust = launch.preflightTrust;
+  return normalized;
+}
+
+function normalizeTerminalDimension(value) {
+  if (!Number.isInteger(value) || value <= 0) return undefined;
+  return Math.min(value, 1_000);
 }
 
 function wrapPtySession(session) {

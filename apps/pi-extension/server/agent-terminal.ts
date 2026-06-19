@@ -1,16 +1,19 @@
 import type { Server as HttpServer } from "node:http";
+import { randomBytes } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
 
 import {
-	AGENT_TERMINAL_WS_PATH,
+	buildAgentTerminalWsPath,
 	type AgentTerminalAgent,
 	type AgentTerminalCapability,
 } from "../generated/agent-terminal.js";
+import { isRemoteSession } from "./network.js";
 import type { PtyBackend, PtyExit, PtySession, PtySpawnOptions, Unsubscribe } from "@plannotator/webtui/core";
 
 type WebTuiCore = typeof import("@plannotator/webtui/core");
 type WebTuiServer = typeof import("@plannotator/webtui/server");
+type BuildAgentLaunchPlan = WebTuiCore["buildAgentLaunchPlan"];
 
 export type NodeAgentTerminalBridge = {
 	capability: AgentTerminalCapability;
@@ -26,6 +29,14 @@ export async function createNodeAgentTerminalBridge(args: {
 		return createDisabledBridge({
 			enabled: false,
 			reason: "not-annotate-mode",
+		});
+	}
+
+	if (isRemoteSession() && !isAgentTerminalRemoteEnabled()) {
+		return createDisabledBridge({
+			enabled: false,
+			reason: "remote-disabled",
+			message: "Agent terminal is disabled in remote mode. Set PLANNOTATOR_AGENT_TERMINAL_REMOTE=1 to enable it.",
 		});
 	}
 
@@ -58,12 +69,13 @@ export async function createNodeAgentTerminalBridge(args: {
 	const allowedAgents = new Set(core.listBuiltInAgents());
 	const sessions = new Set<PtySession>();
 	let spawnInFlight = false;
+	const wsPath = buildAgentTerminalWsPath(randomBytes(18).toString("hex"));
 	const backend: PtyBackend = {
 		async spawn(options: PtySpawnOptions): Promise<PtySession> {
 			if (spawnInFlight || sessions.size > 0) {
 				throw new Error("An agent terminal is already running.");
 			}
-			const normalized = normalizeSpawnOptions(options, args.cwd, allowedAgents);
+			const normalized = normalizeSpawnOptions(options, args.cwd, allowedAgents, core.buildAgentLaunchPlan);
 			if (!normalized.ok) throw new Error(normalized.message);
 			spawnInFlight = true;
 			try {
@@ -78,7 +90,7 @@ export async function createNodeAgentTerminalBridge(args: {
 	};
 	const ptyServer = serverModule.createNodePtyWebSocketServer({
 		server: args.server,
-		path: AGENT_TERMINAL_WS_PATH,
+		path: wsPath,
 		backend,
 	});
 
@@ -86,7 +98,7 @@ export async function createNodeAgentTerminalBridge(args: {
 		capability: {
 			enabled: true,
 			cwd: args.cwd,
-			wsPath: AGENT_TERMINAL_WS_PATH,
+			wsPath,
 			agents: listAgents(core),
 		},
 		dispose() {
@@ -186,10 +198,11 @@ function wrapPtySession(session: PtySession): PtySession {
 	};
 }
 
-function normalizeSpawnOptions(
+export function normalizeSpawnOptions(
 	options: PtySpawnOptions,
 	cwd: string,
 	allowedAgents: Set<string>,
+	buildAgentLaunchPlan: BuildAgentLaunchPlan,
 ): { ok: true; value: PtySpawnOptions } | { ok: false; message: string } {
 	if (!options.agent) {
 		return { ok: false, message: "Agent terminal requires a built-in WebTUI agent." };
@@ -197,14 +210,35 @@ function normalizeSpawnOptions(
 	if (!allowedAgents.has(options.agent)) {
 		return { ok: false, message: `Unknown WebTUI agent: ${options.agent}` };
 	}
+	const launch = buildAgentLaunchPlan({
+		agent: options.agent,
+		allowEmptyPromptLaunch: true,
+	});
+	const value: PtySpawnOptions = {
+		agent: launch.agent,
+		command: launch.command,
+		cwd,
+		startupCommandMode: "shell-ready",
+	};
+	const cols = normalizeTerminalDimension(options.cols);
+	if (cols !== undefined) value.cols = cols;
+	const rows = normalizeTerminalDimension(options.rows);
+	if (rows !== undefined) value.rows = rows;
+	if (Object.keys(launch.env).length > 0) value.env = launch.env;
+	if (launch.preflightTrust) value.preflightTrust = launch.preflightTrust;
 	return {
 		ok: true,
-		value: {
-			...options,
-			cwd,
-			agent: options.agent,
-		},
+		value,
 	};
+}
+
+function normalizeTerminalDimension(value: unknown): number | undefined {
+	if (!Number.isInteger(value) || (value as number) <= 0) return undefined;
+	return Math.min(value as number, 1_000);
+}
+
+function isAgentTerminalRemoteEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+	return /^(1|true|yes)$/i.test(env.PLANNOTATOR_AGENT_TERMINAL_REMOTE ?? "");
 }
 
 function listAgents(core: WebTuiCore): AgentTerminalAgent[] {

@@ -1,132 +1,202 @@
-# Annotate Agent Terminal Recap
+# Annotate Agent Terminal Handoff
 
-Status: implemented, verified, committed, and opened as PR 941.
+Updated: 2026-06-18
+
+Status: implemented and verified on PR #941.
 
 PR: https://github.com/backnotprop/plannotator/pull/941
 
-Primary commit: `42021708 feat(annotate): wire WebTUI agent into annotate UI`
+## Summary
 
-## What Changed
+Plannotator annotate mode now has an optional WebTUI-backed coding agent terminal for single-file and folder annotation sessions.
 
-Plannotator annotate mode now supports an optional terminal-backed coding agent panel for single-file and folder annotation sessions.
+The feature stays narrow:
 
-The feature is intentionally narrow:
+- Works for `plannotator annotate <file>` and `plannotator annotate <folder>`.
+- Does not run for plan review, code review, archive, goal setup, or `annotate-last`.
+- Starts only after the user opens the agent panel and clicks Start.
+- Launches exactly one selected WebTUI built-in agent at a time.
+- Launches in the directory where Plannotator was started.
+- Rebuilds the actual launch command on the server side; the browser only selects the agent and terminal size.
+- Renders as a separate resizable panel to the left of the normal file/sidebar area.
+- Allows hiding the panel without killing the running session.
+- Stops through WebTUI/PTY lifecycle: interrupt first, then kill if needed.
 
-- Available in `plannotator annotate <file>` and `plannotator annotate <folder>`.
-- Not enabled for plan review, archive, code review, goal setup, or annotate-last.
-- The agent does not start automatically.
-- The user opens the panel from the top-left agent icon, chooses an available agent, and clicks start.
-- Only one terminal-backed agent session runs at a time for the annotate UI.
-- Closing the panel can hide the panel without killing the session; stopping kills the PTY.
-- The terminal launches in the directory Plannotator was launched from.
-- The terminal is a separate UI panel to the left of the file sidebar. It does not merge with the file tree.
+Ask AI and Send Annotations can route into the running terminal agent when it is ready. When no terminal agent is ready, existing provider/server feedback paths remain available.
 
-## WebTUI Package
+## Current Runtime Shape
 
-WebTUI is no longer consumed through a local file dependency.
+The browser always talks to the normal Plannotator annotate server origin.
 
-Plannotator now depends on:
-
-```json
-"@plannotator/webtui": "^0.1.0"
-```
-
-This is used by:
-
-- `packages/editor`
-- `packages/server`
-- `apps/pi-extension`
-
-The npm package keeps React and ReactDOM as peer dependencies, so Plannotator continues to own the React runtime. That avoids duplicate-React issues in the app.
-
-Because the package was newly published, `@plannotator/webtui` was added to `bunfig.toml` `minimumReleaseAgeExcludes`. Without that, Bun's seven-day release-age guard blocks the package during install.
-
-## Runtime Shape
-
-The browser talks to the Plannotator server over the same origin it already uses.
-
-The terminal WebSocket path is:
+The browser-facing terminal WebSocket path is now tokenized per annotate server session:
 
 ```text
-/api/agent-terminal/pty
+/api/agent-terminal/pty/<random-token>
 ```
 
-There is no public second PTY port.
+The static path is rejected. `/api/plan` returns the only valid `agentTerminal.wsPath` for that session.
 
-### Bun Server
+## Bun Runtime
 
-The Bun annotate server cannot use WebTUI's Node PTY backend directly for reliable terminal output. The implemented shape is:
+The Bun annotate server owns the browser-facing WebSocket. The actual PTY runs in a lazy Node sidecar because WebTUI's `node-pty` path is reliable under Node.
 
-1. Annotate server reports terminal capability through `/api/plan`.
-2. Browser opens a same-origin WebSocket to `/api/agent-terminal/pty` only after the user starts an agent.
-3. Bun starts a lazy Node sidecar on first terminal connection.
-4. The sidecar binds a loopback-only internal WebSocket server.
-5. Bun proxies bytes between the browser WebSocket and the sidecar WebSocket.
-6. The sidecar launches the selected WebTUI built-in agent in the configured Plannotator cwd.
+Flow:
+
+1. Annotate server starts and resolves terminal capability.
+2. If terminal support is available, `/api/plan` returns cwd, available agents, and a tokenized `wsPath`.
+3. Browser opens the tokenized same-origin WebSocket only after the user starts the terminal.
+4. Bun validates the path and same-host `Origin`.
+5. Bun starts the Node sidecar lazily on the first terminal socket.
+6. Node sidecar imports WebTUI server modules, binds a loopback internal WebSocket, and owns `node-pty`.
+7. Bun proxies between browser socket and sidecar socket.
+8. Sidecar validates the requested built-in agent and forces the configured Plannotator cwd.
 
 Important files:
 
 - `packages/server/annotate.ts`
 - `packages/server/agent-terminal.ts`
+- `packages/server/agent-terminal-runtime.ts`
 - `packages/server/agent-terminal-node-sidecar.mjs`
+- `packages/shared/agent-terminal.ts`
 
-### Pi Node Server
+## Production Runtime
 
-The Pi extension runs on Node, so it can attach WebTUI's Node PTY WebSocket support directly to the existing HTTP server without the Bun sidecar.
+Compiled Bun binaries cannot let Node import WebTUI from Bun's bundled virtual filesystem. The fix is a managed on-disk terminal runtime installed under the Plannotator data dir:
+
+```text
+~/.plannotator/vendor/agent-terminal/webtui-0.1.0/
+```
+
+Expected contents:
+
+```text
+package.json
+node_modules/@plannotator/webtui/
+node_modules/node-pty/
+node_modules/ws/
+agent-terminal-node-sidecar.mjs
+```
+
+Plannotator now has an internal repair/install command:
+
+```bash
+plannotator install-runtime agent-terminal
+```
+
+The command:
+
+- requires Node 20+ and npm
+- installs `@plannotator/webtui@0.1.0`
+- allows `node-pty` install scripts
+- preflights Node imports for `@plannotator/webtui/core` and `@plannotator/webtui/server`
+- exits successfully for skip/success cases and exits nonzero for real install failures
+
+Installers call this command after installing the binary:
+
+- `scripts/install.sh`
+- `scripts/install.ps1`
+- `scripts/install.cmd`
+
+Installer scripts keep this runtime optional: if `plannotator install-runtime agent-terminal` fails because Node/npm or the network is unavailable, Plannotator still installs and annotate mode runs without the integrated terminal.
+
+Opt out:
+
+```bash
+PLANNOTATOR_SKIP_AGENT_TERMINAL_INSTALL=1
+```
+
+If the runtime is missing or broken, annotate mode still loads and `/api/plan` reports:
+
+```json
+{ "enabled": false, "reason": "runtime-unavailable" }
+```
+
+## Remote Mode
+
+Remote mode binds the Plannotator server to `0.0.0.0`, so the terminal is disabled by default in remote sessions.
+
+Opt in explicitly:
+
+```bash
+PLANNOTATOR_AGENT_TERMINAL_REMOTE=1
+```
+
+Even with opt-in, the terminal still uses the tokenized WebSocket path and same-host `Origin` validation.
+
+## Pi Runtime
+
+The Pi extension server runs on Node, so it does not need the Bun sidecar or managed compiled-binary runtime.
+
+It mirrors the browser-facing contract:
+
+- tokenized same-origin WebSocket path
+- same `agentTerminal` capability shape
+- one terminal session at a time
+- unsupported modes stay disabled
 
 Important files:
 
 - `apps/pi-extension/server/serverAnnotate.ts`
 - `apps/pi-extension/server/agent-terminal.ts`
-- `apps/pi-extension/server/handlers.ts`
+- `apps/pi-extension/server/agent-terminal.test.ts`
+
+Generated shared copies under `apps/pi-extension/generated/` are ignored and regenerated by:
+
+```bash
+bash apps/pi-extension/vendor.sh
+```
 
 ## UI Behavior
 
-The UI adds an agent toggle near the existing top-left sidebar controls. It uses the existing agent bot icon style from code review.
+The UI adds a top-left agent icon next to the existing sidebar controls.
 
 The panel includes:
 
-- Agent selector.
-- Start action.
-- Stop action.
-- Display settings popover.
-- WebTUI terminal surface.
+- available-agent selector
+- Start button
+- compact settings popover for terminal display
+- compact Stop control
+- full-bleed WebTUI/xterm terminal surface
 
-The panel intentionally removes redundant chrome. The first visible row is the running agent and cwd context plus compact controls.
+The redundant agent header was removed. When running, the first row is the agent name, cwd context, settings, and stop action.
 
-The terminal fills the panel edge to edge:
-
-- No rounded border around the xterm surface.
-- No extra panel padding around the terminal.
-- xterm scrollbar gap is hidden so the terminal does not reserve an empty bar on the right.
+The terminal intentionally has no rounded card frame or extra padding around xterm. The xterm scrollbar gap is hidden so the terminal fills the panel cleanly.
 
 Important files:
 
 - `packages/editor/App.tsx`
 - `packages/editor/components/AnnotateAgentTerminalPanel.tsx`
+- `packages/editor/components/annotateAgentTerminalTheme.ts`
 - `packages/editor/index.css`
+- `packages/ui/utils/annotateAgentTerminal.ts`
 
 ## Theming
 
-The terminal now derives its colors from Plannotator's active CSS theme tokens instead of using a separate fixed WebTUI theme.
+Terminal colors are derived from active Plannotator CSS theme tokens.
 
-That matters because Plannotator has many themes, including themes that switch cleanly between light and dark mode. The terminal should match the current app theme background and foreground instead of falling back to a generic gray, brown, or dark xterm palette.
+The browser reads live CSS variables where possible, then maps them into xterm/WebTUI options. Static theme presets are fallback data, not the primary source.
 
-Important files:
+This fixed the earlier gray/brown/default terminal look and makes the terminal follow Plannotator light/dark themes more closely.
+
+Relevant files:
 
 - `packages/editor/components/annotateAgentTerminalTheme.ts`
 - `packages/editor/components/annotateAgentTerminalTheme.test.ts`
 - `packages/ui/theme.css`
 
-The theme implementation prefers live CSS variables when the browser can read them. Static presets are now fallback data, not the main source of truth.
+## Ask AI And Send Annotations
 
-## Sending Ask AI To The Agent
+When a terminal agent is running and ready:
 
-Ask AI keeps the existing provider-backed path when no terminal agent is available.
+- Ask AI sends the question into the visible agent through WebTUI.
+- File-backed asks include the active file path and tell the agent to read the file from disk.
+- Selected/context text is included so the agent knows what the user asked about.
+- Send Annotations sends exported annotation feedback into the same terminal agent.
+- Duplicate sends for the same terminal session, target, and feedback body are blocked.
+- Successful in-panel sends do not show extra toast noise.
+- The comment popover closes after sending to the agent.
 
-When an annotate terminal agent is running and ready, Ask AI can send the question directly into that agent through WebTUI instead.
-
-For file-backed annotate sessions, the prompt tells the agent to read the active file from disk and includes the selected/context text. This avoids relying only on stale inline text while still giving the agent the exact part the user asked about.
+When no terminal agent is ready, existing Ask AI and feedback behavior remains in place.
 
 Important files:
 
@@ -135,35 +205,12 @@ Important files:
 - `packages/editor/agentTerminalIntegration.test.ts`
 - `packages/ui/components/CommentPopover.tsx`
 
-## Sending Annotations To The Agent
+## Draft And Feedback Hardening
 
-Send Annotations also supports the terminal-agent path when an annotate agent is open and ready.
+This work also included related cleanup that should stay with the feature:
 
-The behavior is:
-
-- If a terminal agent is ready, send the exported annotation feedback into that agent.
-- Avoid duplicate sends for the same terminal session, target, and feedback body.
-- Close the comment popover after sending to the terminal.
-- Do not show extra toast noise for successful in-panel sends.
-- Keep existing non-terminal feedback behavior available when no terminal agent path is active.
-
-This keeps the integrated experience direct: the user can annotate and then send the work to the visible agent in the same UI.
-
-## Draft Safety Fixes
-
-During the integration work, draft persistence was hardened to avoid stale autosave races.
-
-The problem:
-
-- A delayed autosave could arrive after send/delete.
-- That stale save could resurrect a draft the user already submitted.
-
-The fix:
-
-- Drafts now carry a generation value.
-- Deletes can leave a tombstone generation.
-- Older generated saves are rejected after a newer delete or newer draft exists.
-- Legacy drafts remain compatible.
+- annotation draft generations and tombstones to prevent stale autosaves from resurrecting sent drafts
+- centralized feedback template helpers shared across runtimes
 
 Important files:
 
@@ -172,80 +219,86 @@ Important files:
 - `packages/ui/hooks/useAnnotationDraft.ts`
 - `packages/ui/hooks/useCodeAnnotationDraft.ts`
 - `packages/ui/annotationDraftPersistence.test.tsx`
-- `packages/server/draft.ts`
-
-## Feedback Template Cleanup
-
-Annotate feedback formatting was centralized so multiple runtimes can share the same prompt shape.
-
-Important files:
-
 - `packages/shared/feedback-templates.ts`
 - `packages/shared/feedback-templates.test.ts`
-- `packages/server/index.ts`
-- `packages/server/review.ts`
-- `packages/server/shared-handlers.ts`
-- `apps/pi-extension/server/serverPlan.ts`
-- `apps/pi-extension/server/serverReview.ts`
 
-## What Was Not Added
+## Package State
 
-This PR does not add:
+Plannotator consumes:
 
-- A raw arbitrary terminal command box.
-- Multiple simultaneous annotate agents.
-- Terminal session persistence.
-- Terminal scrollback persistence.
-- File tree watching.
-- Git-based workspace change badges.
-- Agent attribution for disk edits.
-- A custom cloud runner.
-- Any temporary local notes.
+```json
+"@plannotator/webtui": "^0.1.0"
+```
+
+The package is published as `@plannotator/webtui@0.1.0`.
+
+React and ReactDOM remain peer dependencies of WebTUI. Plannotator owns the React runtime, avoiding duplicate-React issues.
+
+Do not reintroduce local `file:` dependencies for WebTUI.
+
+## ADR
+
+Earlier accepted ADR: `doc/adr/0002-add-webtui-agent-panel-for-annotate-mode.md`.
 
 ## Verification
 
-The final PR was verified with:
+Current verification completed locally:
 
 ```bash
-bun install
+bun test packages/shared/agent-terminal.test.ts packages/server/agent-terminal.test.ts apps/pi-extension/server/agent-terminal.test.ts scripts/install.test.ts
 bun run typecheck
-bun test packages/editor/agentTerminalIntegration.test.ts packages/editor/components/annotateAgentTerminalTheme.test.ts
-DOM_TESTS=1 bun test packages/ui/annotationDraftPersistence.test.tsx packages/shared/draft.test.ts packages/shared/feedback-templates.test.ts
 bun run build:hook
 bun run build:pi
 git diff --check
 ```
 
-Additional checks:
+Additional smoke checks completed:
 
-- Confirmed `@plannotator/webtui@0.1.0` is visible on npm.
-- Confirmed installed WebTUI package lists React/ReactDOM as peer dependencies and not dependencies.
-- Confirmed no `file:/Users/ramos/oss/webtui` dependency remains in package manifests or lockfile.
-- Confirmed no unscoped `webtui/...` imports remain.
-- Confirmed staged PR contents only included implementation files, tests, and product docs.
+- `PLANNOTATOR_SKIP_AGENT_TERMINAL_INSTALL=1 bun apps/hook/server/index.ts install-runtime agent-terminal`
+- real temp `install-runtime agent-terminal` into a temp `PLANNOTATOR_DATA_DIR`
+- compiled Bun binary smoke with installed managed runtime:
+  - install runtime
+  - start `plannotator annotate README.md`
+  - fetch `/api/plan`
+  - connect to returned tokenized terminal WebSocket
+  - send a spawn request without an agent
+  - confirm the sidecar returns WebTUI's expected protocol error
+- compiled Bun binary smoke without managed runtime:
+  - start `plannotator annotate README.md`
+  - confirm `/api/plan` reports `runtime-unavailable`
+- release workflow YAML parses successfully
 
-## Current Local Test Server
+`actionlint` was not installed locally, so the GitHub Actions-specific linter was not run.
 
-At the time this recap was written, a local annotate-folder server from this branch was running at:
+## Release Workflow
 
-```text
-http://127.0.0.1:50986
-```
+`.github/workflows/release.yml` now smoke-tests the compiled binary terminal path on Linux and Windows.
 
-It was launched from:
+The smoke test prepares a temporary managed runtime, starts annotate, fetches `/api/plan`, opens the returned tokenized WebSocket, and verifies the Node sidecar responds through WebTUI's protocol.
 
-```text
-/Users/ramos/plannotator/feat-tui-in-a-gui
-```
+This is important because the previous release smoke only proved `/api/plan` loaded. It did not prove Node could import WebTUI from a compiled install.
 
-This server is only for local testing and is not part of the committed feature.
+## Known Non-Goals
+
+This feature does not add:
+
+- arbitrary terminal command entry
+- multiple simultaneous terminal agents
+- terminal persistence or saved scrollback
+- file tree live watching
+- git changed-file badges
+- agent attribution for disk edits
+- plan review or code review terminal support
+- `annotate-last` terminal support
 
 ## Follow-Up Work
 
-Useful next work, separate from this PR:
+Useful follow-ups:
 
-- Add live file tree watching for annotate folders.
-- Add git-backed changed-file badges and lazy diffs.
-- Add editor reload/conflict UI when files change on disk.
-- Decide whether terminal sessions should ever persist scrollback.
-- Add broader browser automation around panel layout and terminal theme matching.
+- run `actionlint` or CI to validate the edited release workflow
+- decide whether to promote the ADR draft into an accepted formal ADR
+- add live file-tree invalidation for annotate folders
+- add git-backed changed-file surfacing and lazy diffs
+- add editor disk-change awareness for files modified by agents
+- consider a smaller server-only WebTUI package later if install weight matters
+- consider prebuilt platform-specific terminal runtime archives if `node-pty` installation friction appears in the field

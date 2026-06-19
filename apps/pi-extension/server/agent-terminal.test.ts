@@ -1,8 +1,85 @@
 import { describe, expect, test } from "bun:test";
-import { AGENT_TERMINAL_WS_PATH } from "../generated/agent-terminal.js";
+import { createServer } from "node:http";
+import { AGENT_TERMINAL_WS_BASE_PATH } from "../generated/agent-terminal.js";
+import { createNodeAgentTerminalBridge, normalizeSpawnOptions } from "./agent-terminal";
 import { startAnnotateServer } from "./serverAnnotate";
 
 describe("pi annotate agent terminal capability", () => {
+	test("normalizes spawn options from the server-owned agent launch plan", () => {
+		const normalized = normalizeSpawnOptions(
+			{
+				agent: "claude",
+				command: "node -e 'throw new Error(\"client command ran\")'",
+				cwd: "/client/cwd",
+				env: { CLIENT_VALUE: "must-not-pass-through" },
+				cols: 2000,
+				rows: -5,
+				startupCommandMode: "shell-command",
+				preflightTrust: "cursor",
+			},
+			"/server/cwd",
+			new Set(["claude"]),
+			(options) => {
+				expect(options).toEqual({
+					agent: "claude",
+					allowEmptyPromptLaunch: true,
+				});
+				return {
+					agent: "claude",
+					command: "claude",
+					expectedProcess: "claude",
+					env: { SERVER_VALUE: "safe" },
+					followupPrompt: null,
+					promptInjectionMode: "argv",
+					preflightTrust: "codex",
+					draftPasteReadySignal: null,
+					promptDelivery: "none",
+				};
+			},
+		);
+
+		expect(normalized).toEqual({
+			ok: true,
+			value: {
+				agent: "claude",
+				command: "claude",
+				cwd: "/server/cwd",
+				startupCommandMode: "shell-ready",
+				cols: 1000,
+				env: { SERVER_VALUE: "safe" },
+				preflightTrust: "codex",
+			},
+		});
+	});
+
+	test("reports disabled capability in remote mode without terminal opt-in", async () => {
+		const previousRemote = process.env.PLANNOTATOR_REMOTE;
+		const previousAgentRemote = process.env.PLANNOTATOR_AGENT_TERMINAL_REMOTE;
+		process.env.PLANNOTATOR_REMOTE = "1";
+		delete process.env.PLANNOTATOR_AGENT_TERMINAL_REMOTE;
+		const httpServer = createServer();
+
+		try {
+			const bridge = await createNodeAgentTerminalBridge({
+				enabled: true,
+				cwd: "/tmp/plannotator-agent-cwd",
+				server: httpServer,
+			});
+
+			expect(bridge.capability).toMatchObject({
+				enabled: false,
+				reason: "remote-disabled",
+			});
+			bridge.dispose();
+		} finally {
+			httpServer.close();
+			if (previousRemote === undefined) delete process.env.PLANNOTATOR_REMOTE;
+			else process.env.PLANNOTATOR_REMOTE = previousRemote;
+			if (previousAgentRemote === undefined) delete process.env.PLANNOTATOR_AGENT_TERMINAL_REMOTE;
+			else process.env.PLANNOTATOR_AGENT_TERMINAL_REMOTE = previousAgentRemote;
+		}
+	});
+
 	test("annotate mode mirrors the same-port WebSocket capability", async () => {
 		const server = await startAnnotateServer({
 			markdown: "# Annotate",
@@ -17,12 +94,13 @@ describe("pi annotate agent terminal capability", () => {
 			expect(plan.agentTerminal).toMatchObject({
 				enabled: true,
 				cwd: "/tmp/plannotator-agent-cwd",
-				wsPath: AGENT_TERMINAL_WS_PATH,
 			});
+			expect(plan.agentTerminal.wsPath.startsWith(`${AGENT_TERMINAL_WS_BASE_PATH}/`)).toBe(true);
+			expect(plan.agentTerminal.wsPath).not.toBe(AGENT_TERMINAL_WS_BASE_PATH);
 			expect(plan.agentTerminal.agents.length).toBeGreaterThan(0);
 
 			const message = await websocketRoundTrip(
-				server.url.replace(/^http/, "ws") + AGENT_TERMINAL_WS_PATH,
+				server.url.replace(/^http/, "ws") + plan.agentTerminal.wsPath,
 				{ type: "spawn", requestId: "missing-agent", options: {} },
 			);
 			expect(JSON.parse(message)).toEqual({
@@ -30,6 +108,13 @@ describe("pi annotate agent terminal capability", () => {
 				requestId: "missing-agent",
 				message: "Agent terminal requires a built-in WebTUI agent.",
 			});
+
+			await expect(
+				websocketRoundTrip(
+					server.url.replace(/^http/, "ws") + AGENT_TERMINAL_WS_BASE_PATH,
+					{ type: "spawn", requestId: "static-path", options: {} },
+				),
+			).rejects.toThrow("WebSocket failed");
 		} finally {
 			server.stop();
 		}

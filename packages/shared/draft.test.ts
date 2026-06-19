@@ -72,4 +72,43 @@ describe("draft generation invalidation", () => {
     expect(saveDraft(KEY, { annotations: ["fresh"], draftGeneration: 0 })).toBe(true);
     expect(loadDraft(KEY)).toEqual({ annotations: ["fresh"], draftGeneration: 0 });
   });
+
+  test("ignores stale generated deletes after a newer draft exists", () => {
+    expect(saveDraft(KEY, { annotations: ["fresh"], draftGeneration: 3 })).toBe(true);
+
+    deleteDraft(KEY, 2);
+
+    expect(getDraftGeneration(KEY)).toBe(3);
+    expect(loadDraft(KEY)).toEqual({ annotations: ["fresh"], draftGeneration: 3 });
+  });
+
+  test("ignores stale generated deletes after a newer tombstone exists", () => {
+    deleteDraft(KEY, 4);
+
+    deleteDraft(KEY, 3);
+
+    expect(getDraftGeneration(KEY)).toBe(4);
+    expect(saveDraft(KEY, { annotations: ["stale"], draftGeneration: 4 })).toBe(false);
+    expect(saveDraft(KEY, { annotations: ["fresh"], draftGeneration: 5 })).toBe(true);
+  });
+
+  test("same-generation generated delete still removes the draft", () => {
+    expect(saveDraft(KEY, { annotations: ["fresh"], draftGeneration: 3 })).toBe(true);
+
+    deleteDraft(KEY, 3);
+
+    expect(getDraftGeneration(KEY)).toBe(3);
+    expect(loadDraft(KEY)).toBeNull();
+  });
+
+  test("newer generated delete removes the draft and advances the tombstone", () => {
+    expect(saveDraft(KEY, { annotations: ["fresh"], draftGeneration: 3 })).toBe(true);
+
+    deleteDraft(KEY, 4);
+
+    expect(getDraftGeneration(KEY)).toBe(4);
+    expect(loadDraft(KEY)).toBeNull();
+    expect(saveDraft(KEY, { annotations: ["stale"], draftGeneration: 4 })).toBe(false);
+    expect(saveDraft(KEY, { annotations: ["new"], draftGeneration: 5 })).toBe(true);
+  });
 });

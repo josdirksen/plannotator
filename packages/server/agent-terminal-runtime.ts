@@ -76,8 +76,8 @@ export async function resolveAgentTerminalRuntime(): Promise<ResolvedAgentTermin
   const nodeCheck = await checkNodeVersion(nodePath);
   if (!nodeCheck.ok) return nodeCheck;
 
-  const bundledSidecarPath = fileURLToPath(new URL("./agent-terminal-node-sidecar.mjs", import.meta.url));
-  if (!isBunVirtualPath(bundledSidecarPath)) {
+  const bundledSidecarPath = resolveBundledAgentTerminalSidecarPath();
+  if (bundledSidecarPath) {
     const webtuiCoreUrl = resolveImportUrl("@plannotator/webtui/core");
     const webtuiServerUrl = resolveImportUrl("@plannotator/webtui/server");
     const preflight = await preflightNodeImports(nodePath, {
@@ -96,6 +96,18 @@ export async function resolveAgentTerminalRuntime(): Promise<ResolvedAgentTermin
     };
   }
 
+  return resolveManagedAgentTerminalRuntime(nodePath);
+}
+
+export function resolveBundledAgentTerminalSidecarPath(moduleUrl = import.meta.url): string | null {
+  const bundledSidecarPath = fileURLToPath(new URL("./agent-terminal-node-sidecar.mjs", moduleUrl));
+  if (isBunVirtualPath(bundledSidecarPath)) return null;
+  return existsSync(bundledSidecarPath) ? bundledSidecarPath : null;
+}
+
+async function resolveManagedAgentTerminalRuntime(
+  nodePath: string,
+): Promise<ResolvedAgentTerminalRuntime | UnresolvedAgentTerminalRuntime> {
   const runtimeDir = getAgentTerminalManagedRuntimeDir();
   const installedVersion = readInstalledWebTuiVersion(runtimeDir);
   if (installedVersion !== AGENT_TERMINAL_WEBTUI_VERSION) {

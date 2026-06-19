@@ -127,7 +127,7 @@ Behavior:
 - keep lazy sidecar startup when the browser opens the terminal socket
 - keep one active terminal session at a time
 
-Origin handling:
+Bun bridge origin handling:
 
 - if an `Origin` header is present, require it to match the request host
 - allow missing origin for tests and non-browser clients
@@ -159,6 +159,8 @@ Pi does not need the compiled Bun managed runtime, but it should mirror the same
 - same capability shape
 - same disabled reason for unsupported annotate modes
 - one session at a time
+
+The current Pi implementation uses WebTUI's Node WebSocket helper, which does not expose a separate `Origin` validation hook. Pi relies on the random path token and the same remote-mode opt-in gate unless WebTUI adds that hook or Plannotator replaces the helper.
 
 If shared generated files are affected, update `apps/pi-extension/vendor.sh`.
 

@@ -2507,6 +2507,10 @@ const App: React.FC = () => {
     agentTerminalDelivery,
     currentAgentFeedbackDelivery,
   );
+  const showAgentTerminalDeliveryStatus =
+    annotateMode &&
+    agentTerminalDelivery !== null &&
+    isCurrentFeedbackDeliveredToAgent;
   const hasFeedbackToSend =
     hasFeedbackContent &&
     !isCurrentFeedbackDeliveredToAgent;
@@ -3871,6 +3875,12 @@ const App: React.FC = () => {
             >
               Save
             </button>
+          </div>
+        )}
+        {showAgentTerminalDeliveryStatus && (
+          <div className="border-b border-primary/20 bg-primary/5 px-4 py-2 text-xs text-muted-foreground flex-shrink-0">
+            <span className="font-medium text-foreground">Sent to agent.</span>{" "}
+            Keep this window open while it runs. Close Plannotator when you're done.
           </div>
         )}
 

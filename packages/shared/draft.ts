@@ -140,8 +140,13 @@ export function loadDraft(key: string): object | null {
 export function deleteDraft(key: string, draftGeneration?: number): void {
   const filePath = draftPath(key);
   try {
-    if (existsSync(filePath)) unlinkSync(filePath);
     const generation = readGeneration(draftGeneration);
+    if (generation !== null) {
+      const knownGeneration = getDraftGeneration(key);
+      if (knownGeneration !== null && generation < knownGeneration) return;
+    }
+
+    if (existsSync(filePath)) unlinkSync(filePath);
     if (generation !== null) writeTombstoneGeneration(key, generation);
     else clearTombstone(key);
   } catch {

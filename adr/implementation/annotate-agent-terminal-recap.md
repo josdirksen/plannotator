@@ -121,7 +121,7 @@ Opt in explicitly:
 PLANNOTATOR_AGENT_TERMINAL_REMOTE=1
 ```
 
-Even with opt-in, the terminal still uses the tokenized WebSocket path and same-host `Origin` validation.
+Even with opt-in, the Bun terminal bridge still uses the tokenized WebSocket path and same-host `Origin` validation.
 
 ## Pi Runtime
 
@@ -129,10 +129,12 @@ The Pi extension server runs on Node, so it does not need the Bun sidecar or man
 
 It mirrors the browser-facing contract:
 
-- tokenized same-origin WebSocket path
+- tokenized WebSocket path served by the annotate server
 - same `agentTerminal` capability shape
 - one terminal session at a time
 - unsupported modes stay disabled
+
+Unlike the Bun bridge, the current Pi/WebTUI helper path does not perform a separate `Origin` check. Its practical protections are the random path token and the same remote-mode opt-in gate.
 
 Important files:
 

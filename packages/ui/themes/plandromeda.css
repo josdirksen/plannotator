@@ -1,0 +1,66 @@
+/* Plandromeda — Andromeeda's soft darkness with Plannotator's blue hue */
+.theme-plandromeda {
+  --background: oklch(0.22 0.02 260);
+  --foreground: #d5ced9;
+  --card: oklch(0.26 0.025 260);
+  --card-foreground: #d5ced9;
+  --popover: oklch(0.27 0.025 260);
+  --popover-foreground: #d5ced9;
+  --primary: oklch(0.75 0.18 280);
+  --primary-foreground: oklch(0.22 0.02 260);
+  --secondary: oklch(0.65 0.15 180);
+  --secondary-foreground: oklch(0.22 0.02 260);
+  --muted: oklch(0.30 0.025 260);
+  --muted-foreground: #7a7686;
+  --accent: #c74ded;
+  --accent-foreground: oklch(0.22 0.02 260);
+  --destructive: #fc644d;
+  --destructive-foreground: oklch(0.22 0.02 260);
+  --border: oklch(0.34 0.025 260);
+  --input: oklch(0.30 0.025 260);
+  --ring: oklch(0.75 0.18 280);
+  --success: #96e072;
+  --success-foreground: oklch(0.22 0.02 260);
+  --warning: #ffe66d;
+  --warning-foreground: oklch(0.22 0.02 260);
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --radius: 0.625rem;
+
+  --code-bg: oklch(0.27 0.025 260);
+  --focus-highlight: oklch(0.75 0.18 280);
+}
+
+.theme-plandromeda.light {
+  --background: oklch(0.97 0.005 260);
+  --foreground: oklch(0.18 0.02 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.02 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.02 260);
+  --primary: oklch(0.50 0.25 280);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.50 0.18 180);
+  --secondary-foreground: oklch(1 0 0);
+  --muted: oklch(0.92 0.01 260);
+  --muted-foreground: oklch(0.40 0.02 260);
+  --accent: oklch(0.60 0.22 50);
+  --accent-foreground: oklch(0.18 0.02 260);
+  --destructive: oklch(0.50 0.25 25);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.88 0.01 260);
+  --input: oklch(0.92 0.01 260);
+  --ring: oklch(0.50 0.25 280);
+  --success: oklch(0.45 0.20 150);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.55 0.18 85);
+  --warning-foreground: oklch(0.18 0.02 260);
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --radius: 0.625rem;
+
+  --code-bg: oklch(0.92 0.01 260);
+  --focus-highlight: oklch(0.50 0.25 280);
+}

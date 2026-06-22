@@ -33,34 +33,34 @@
 }
 
 .theme-andromeeda.light {
-  --background: #23262e;
-  --foreground: #d5ced9;
-  --card: #2b303b;
-  --card-foreground: #d5ced9;
-  --popover: #2b303b;
-  --popover-foreground: #d5ced9;
-  --primary: #00e8c6;
-  --primary-foreground: #23262e;
-  --secondary: #373941;
-  --secondary-foreground: #d5ced9;
-  --muted: #333844;
-  --muted-foreground: #746f77;
-  --accent: #c74ded;
-  --accent-foreground: #23262e;
-  --destructive: #fc644d;
-  --destructive-foreground: #23262e;
-  --border: #363c49;
-  --input: #363c49;
-  --ring: #00e8c6;
-  --success: #96e072;
-  --success-foreground: #23262e;
-  --warning: #ffe66d;
-  --warning-foreground: #23262e;
+  --background: oklch(0.97 0.005 260);
+  --foreground: oklch(0.18 0.02 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.02 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.02 260);
+  --primary: oklch(0.50 0.25 280);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.50 0.18 180);
+  --secondary-foreground: oklch(1 0 0);
+  --muted: oklch(0.92 0.01 260);
+  --muted-foreground: oklch(0.40 0.02 260);
+  --accent: oklch(0.60 0.22 50);
+  --accent-foreground: oklch(0.18 0.02 260);
+  --destructive: oklch(0.50 0.25 25);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.88 0.01 260);
+  --input: oklch(0.92 0.01 260);
+  --ring: oklch(0.50 0.25 280);
+  --success: oklch(0.45 0.20 150);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.55 0.18 85);
+  --warning-foreground: oklch(0.18 0.02 260);
 
   --font-sans: system-ui, sans-serif;
   --font-mono: 'Fira Code', ui-monospace, monospace;
   --radius: 0.625rem;
 
-  --code-bg: #2e323d;
-  --focus-highlight: #00e8c6;
+  --code-bg: oklch(0.92 0.01 260);
+  --focus-highlight: oklch(0.50 0.25 280);
 }

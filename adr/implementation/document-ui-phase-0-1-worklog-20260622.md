@@ -108,3 +108,21 @@ Three seams now share the shape `defaultX` + module-level `x` + `setX`/`resetX` 
 
 ## Phase 3 status: COMPLETE
 All 7 pieces resolved — 4 landed (editor, viewer, doc-fetch, scroll), 3 noop. Plannotator byte-unchanged throughout (shipped behavior verified; App.tsx touched only by the 3-line scroll rewire). Scroll provider (the "announcer") now ships in `@plannotator/ui`, closing the Phase-2 deferred seam.
+
+## Phase 4 — Navigation (sidebar + file tree)
+
+Teed up + multi-lens adversarially reviewed by the `phase4-navigation` workflow (tee-up → execute-in-worktree → 4 parity lenses → synthesis), then landed + verified by hand on the real tree.
+
+### Sidebar (NOOP — nothing to land)
+Confirmed transfer-as-is: SidebarContainer/SidebarTabs/CountBadge/FileBrowser/VersionBrowser/ArchiveBrowser/MessagesBrowser and `useSidebar` have **zero** backend wires — all backend interaction arrives as injected callback props, or a pre-built `fileBrowser` prop. Already reused by `packages/review-editor/App.tsx` (`useSidebar<ReviewSidebarTab>`), a second consumer with a different tab union. No edit.
+
+### Seam — File tree backend (DONE)
+- **File:** `packages/ui/hooks/useFileBrowser.ts` only. Lifted the three backend wires into an injectable `FileTreeBackend` (`loadTree`/`loadVaultTree`/`watchTrees`) with a `defaultFileTreeBackend` + `setFileTreeBackend`/`resetFileTreeBackend`, same module-level pattern as the image/storage seams.
+- **The SSE live-watch effect moved VERBATIM** into `watchTrees` — EventSource URL, 120ms debounce timers, `readyPaths` dedup, `onmessage` ready/changed dispatch, and `clearTimeout`+`source.close()` cleanup byte-identical. The only substitution is `fetchTreeRef.current(path,{quiet:true})` → injected `onChange(path)` (the hook passes exactly that). The `typeof EventSource === "undefined"` guard relocated into `watchTrees` (returns `undefined` → no cleanup), behavior-identical. `useFileBrowser()` stays zero-arg; default fetch/SSE URLs unchanged.
+- **Parity:** no `setFileTreeBackend` caller in editor/apps → Plannotator uses the default. Verified: **`useFileBrowser.test.tsx` passes 6/0 UNMODIFIED** (the strongest guardrail — it asserts the URLs, timer, and SSE behavior via fake `fetch`/`EventSource`; run with `DOM_TESTS=1`); typecheck pass; full `bun test` 1620/0; builds OK; App.tsx untouched. **Manual eyeball** (real `annotate adr/` session): tree loads, file-switching works, new file appears live via SSE without reload.
+
+### Phase 4 status: COMPLETE — sidebar noop, file-tree seam landed. Plannotator byte-unchanged.
+
+### Discovered (PRE-EXISTING, out of scope — not caused by this work)
+1. **Edit/save header state leaks across file switches** in annotate-folder mode: editing+saving file A leaves the Saved/Done/wide-focus header showing when you switch to file B without editing it. Reproduced on the **baseline with the Phase 4 change reverted** (A/B confirmed) → pre-existing App.tsx bug, not a regression. Lives in the folder file-switch handler (`handleFileBrowserSelect` / edit-session reset), unrelated to `useFileBrowser`. Worth a separate fix.
+2. **Annotating the repo root (`annotate ./`) bogs down** — the file walker + chokidar SSE watcher choke on 1.4GB of node_modules (16 dirs); the code already warns about this. Pre-existing scaling limit; use a bounded folder. Not a code defect introduced here.

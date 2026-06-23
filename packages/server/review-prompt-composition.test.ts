@@ -80,6 +80,7 @@ describe("custom review end to end — skill replaces, message is context-only",
     const prompt = composeClaudeReviewPrompt(contextMessage, skill);
 
     expect(prompt).toContain("Audit only authn and authz boundaries.");
+    expect(prompt).toContain("## Returning your findings");
     expect(prompt).toContain("git diff HEAD~1..HEAD");
     expect(prompt).not.toContain(CLAUDE_REVIEW_PROMPT);
     expect(prompt).not.toContain("Review the code changes introduced");
@@ -88,19 +89,27 @@ describe("custom review end to end — skill replaces, message is context-only",
 });
 
 describe("review prompt composition — custom skill replaces the provider prompt", () => {
-  test("Claude: prompt is the skill body, then separator, then user message", () => {
+  test("Claude: skill body, then the reporting reminder, then the user message", () => {
     const prompt = composeClaudeReviewPrompt(userMessage, security);
 
-    expect(prompt).toBe("Focus only on security-impacting issues." + "\n\n---\n\n" + userMessage);
+    expect(prompt).toStartWith("Focus only on security-impacting issues.");
+    expect(prompt).toEndWith(userMessage);
+    // Output-contract reminder is appended for custom skills.
+    expect(prompt).toContain("## Returning your findings");
     // The default methodology is gone — no provider prompt, no section wrapper.
     expect(prompt).not.toContain(CLAUDE_REVIEW_PROMPT);
     expect(prompt).not.toContain("## Custom Review Profile");
+    // Order: skill body → reporting reminder → user message.
+    expect(prompt.indexOf("## Returning your findings")).toBeGreaterThan(prompt.indexOf("Focus only"));
+    expect(prompt.indexOf(userMessage)).toBeGreaterThan(prompt.indexOf("## Returning your findings"));
   });
 
-  test("Codex: prompt is the skill body, then separator, then user message", () => {
+  test("Codex: skill body, then the reporting reminder, then the user message", () => {
     const prompt = composeCodexReviewPrompt(userMessage, security);
 
-    expect(prompt).toBe("Focus only on security-impacting issues." + "\n\n---\n\n" + userMessage);
+    expect(prompt).toStartWith("Focus only on security-impacting issues.");
+    expect(prompt).toEndWith(userMessage);
+    expect(prompt).toContain("## Returning your findings");
     expect(prompt).not.toContain(CODEX_REVIEW_SYSTEM_PROMPT);
     expect(prompt).not.toContain("## Custom Review Profile");
   });
@@ -113,7 +122,8 @@ describe("review prompt composition — custom skill replaces the provider promp
       source: "user",
     };
     const prompt = composeClaudeReviewPrompt(userMessage, profile);
-    expect(prompt).toBe("Flag N+1 queries." + "\n\n---\n\n" + userMessage);
+    expect(prompt).toStartWith("Flag N+1 queries.\n\n## Returning your findings");
+    expect(prompt).toEndWith(userMessage);
     expect(prompt).not.toContain("Profile:");
     expect(prompt).not.toContain("Source:");
   });

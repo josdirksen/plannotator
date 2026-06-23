@@ -86,22 +86,46 @@ function profileHasCustomSection(profile: ResolvedReviewProfile | undefined): bo
 }
 
 /**
+ * Output-contract reminder appended to a custom review skill's prompt. A skill
+ * carries its own review methodology but does not know how Plannotator wants
+ * results returned — without this, a verdict-style skill collapses good,
+ * line-locatable findings into one block. This covers only HOW to report, never
+ * WHAT to look for, so it never competes with the skill's own methodology.
+ */
+export const REPORTING_INSTRUCTIONS = `## Returning your findings
+
+Hand back what you found as separate findings, not as one combined report.
+
+- One finding per issue. Don't merge unrelated points into a single entry.
+- Anchor each finding where it belongs:
+  - About specific code? Give the file and the line(s), so it attaches to that spot in the diff.
+  - About a whole file? Give the file and leave the line out.
+  - A review-wide point? Leave out both the file and the line.
+- Always produce the code-specific findings first.
+- If your instructions also ask for a final verdict, summary, or overall judgment, add it as its own review-wide finding with no file and no line. The verdict is in addition to the specific findings, never a replacement for them.
+
+If the instructions above told you to produce a particular report layout or document, that was for your own reasoning. For the final result, return findings in the structure described here: the specific code findings, plus any verdict as a separate review-wide finding.`;
+
+/**
  * Compose the full review prompt deterministically.
  *
  * Custom review skill:
  *   <skill instructions>
+ *   ## Returning your findings …      (output contract, see REPORTING_INSTRUCTIONS)
  *   ---
  *   <user message>
  *
- * The skill body fully replaces the provider's system prompt. There is no
- * default methodology layered underneath — picking a review runs that review.
+ * The skill body fully replaces the provider's system prompt — picking a review
+ * runs that review. The reporting reminder is appended so the skill's findings
+ * come back in Plannotator's shape (line/file/general) instead of one block.
  *
  * Built-in default (or any instruction-less profile):
  *   <provider immutable instructions>
  *   ---
  *   <user message>
  *
- * Byte-identical to today's `systemPrompt + "\n\n---\n\n" + userMessage`.
+ * The default already states its own output contract, so it gets no reminder and
+ * stays byte-identical to today's `systemPrompt + "\n\n---\n\n" + userMessage`.
  */
 export function composeReviewPrompt(
   systemPrompt: string,
@@ -109,7 +133,11 @@ export function composeReviewPrompt(
   userMessage: string,
 ): string {
   if (profileHasCustomSection(profile)) {
-    return (profile as ResolvedReviewProfile).instructions.trim() + "\n\n---\n\n" + userMessage;
+    return (
+      (profile as ResolvedReviewProfile).instructions.trim() +
+      "\n\n" + REPORTING_INSTRUCTIONS +
+      "\n\n---\n\n" + userMessage
+    );
   }
   return systemPrompt + "\n\n---\n\n" + userMessage;
 }

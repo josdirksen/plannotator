@@ -127,12 +127,22 @@ export function useExternalAnnotations<T extends { id: string; source?: string }
   const fallbackRef = useRef(false);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const receivedSnapshotRef = useRef(false);
+  // Capture the transport once so subscribe/poll and CRUD always use the same
+  // backend instance (contract: "set once at startup"). Reading the live module
+  // global in CRUD while the effect captured at mount would split reads and
+  // writes across two backends if a host swapped the transport after mount.
+  const transportRef = useRef(externalAnnotationTransport as ExternalAnnotationTransport<T>);
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
 
-    const transport = externalAnnotationTransport as ExternalAnnotationTransport<T>;
+    // Reset fallback state on (re-)enable so a false→true toggle re-attempts SSE
+    // instead of inheriting a stale "already fell back" flag and silently stalling.
+    fallbackRef.current = false;
+    receivedSnapshotRef.current = false;
+
+    const transport = transportRef.current;
 
     // --- Reducer (applies snapshot|add|remove|clear|update), verbatim ---
     function applyEvent(parsed: ExternalAnnotationEvent<T>) {
@@ -219,7 +229,7 @@ export function useExternalAnnotations<T extends { id: string; source?: string }
     // Optimistic update
     setAnnotations((prev) => prev.filter((a) => a.id !== id));
     try {
-      await (externalAnnotationTransport as ExternalAnnotationTransport<T>).remove(id);
+      await transportRef.current.remove(id);
     } catch {
       // SSE will reconcile on next event
     }
@@ -231,7 +241,7 @@ export function useExternalAnnotations<T extends { id: string; source?: string }
       source ? prev.filter((a) => a.source !== source) : [],
     );
     try {
-      await (externalAnnotationTransport as ExternalAnnotationTransport<T>).clear(source);
+      await transportRef.current.clear(source);
     } catch {
       // SSE will reconcile on next event
     }
@@ -240,7 +250,7 @@ export function useExternalAnnotations<T extends { id: string; source?: string }
   const updateExternalAnnotation = useCallback(async (id: string, updates: Partial<T>) => {
     setAnnotations((prev) => prev.map((a) => (a.id === id ? { ...a, ...updates } : a)));
     try {
-      await (externalAnnotationTransport as ExternalAnnotationTransport<T>).update(id, updates);
+      await transportRef.current.update(id, updates);
     } catch {
       // SSE will reconcile on next event
     }

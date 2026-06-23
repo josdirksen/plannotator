@@ -75,6 +75,23 @@ class ConfigStore {
   }
 
   /**
+   * Re-hydrate all settings from the currently installed StorageBackend.
+   * ADDITIVE host hook — Plannotator never calls this (eager cookie default unchanged).
+   * Host installs a SYNCHRONOUS StorageBackend serving prefetched settings, then calls
+   * this to route the initial load through that backend. Precedence after a host call:
+   * server (init) > host backend (loadFromBackend) > cookie/default (constructor).
+   */
+  loadFromBackend(): void {
+    for (const [name, def] of Object.entries(SETTINGS)) {
+      const fromBackend = def.fromCookie();
+      if (fromBackend !== undefined) {
+        this.values.set(name, fromBackend);
+      }
+    }
+    this.notify();
+  }
+
+  /**
    * Apply server config overrides.
    * Call once after fetching /api/plan or /api/diff.
    *
@@ -125,6 +142,8 @@ class ConfigStore {
   setServerSync(fn: ServerSyncFn): void {
     this.serverSync = fn;
   }
+
+  resetServerSync(): void { this.serverSync = defaultServerSync; }
 
   private notify(): void {
     this.version++;

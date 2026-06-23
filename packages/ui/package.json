@@ -16,6 +16,7 @@
     "./hooks/*": "./hooks/*.ts",
     "./shortcuts": "./shortcuts/index.ts",
     "./config": "./config/index.ts",
+    "./configure": "./configure.ts",
     "./types": "./types.ts",
     "./theme": "./theme.css"
   },
@@ -33,6 +34,7 @@
     "sprite_package_new",
     "sprite_package_pulluphang",
     "globals.d.ts",
+    "configure.ts",
     "types.ts",
     "theme.css",
     "print.css",

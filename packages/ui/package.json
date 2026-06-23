@@ -19,6 +19,28 @@
     "./types": "./types.ts",
     "./theme": "./theme.css"
   },
+  "files": [
+    "components",
+    "config",
+    "hooks",
+    "icons",
+    "lib",
+    "shortcuts",
+    "utils",
+    "assets",
+    "themes",
+    "sprite_package_additional",
+    "sprite_package_new",
+    "sprite_package_pulluphang",
+    "globals.d.ts",
+    "types.ts",
+    "theme.css",
+    "print.css",
+    "plannotator.webp",
+    "!**/*.test.ts",
+    "!**/*.test.tsx",
+    "!test-setup"
+  ],
   "dependencies": {
     "@plannotator/atomic-editor": "^0.5.0",
     "@codemirror/autocomplete": "^6.20.3",
@@ -52,7 +74,8 @@
     "@viz-js/viz": "^3.25.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "diff": "^8.0.3",
+    "diff": "^8.0.4",
+    "dompurify": "^3.3.3",
     "highlight.js": "^11.11.1",
     "katex": "^0.16.47",
     "lucide-react": "^1.14.0",
@@ -60,18 +83,24 @@
     "mermaid": "^11.12.2",
     "motion": "^12.38.0",
     "perfect-freehand": "^1.2.2",
+    "tailwind-merge": "^3.6.0",
+    "unique-username-generator": "^1.5.1"
+  },
+  "peerDependencies": {
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
-    "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.1.18",
-    "tailwindcss-animate": "^1.0.7",
-    "unique-username-generator": "^1.5.1"
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.10.1",
     "@types/bun": "^1.2.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "tailwindcss": "^4.1.18",
+    "tailwindcss-animate": "^1.0.7",
     "typescript": "~5.8.2"
   },
   "scripts": {

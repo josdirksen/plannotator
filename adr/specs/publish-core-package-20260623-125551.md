@@ -61,7 +61,7 @@ These are small bugs/gaps the interrogation found in already-committed Phase-5 c
 1. **`useExternalAnnotations` split-transport** — the effect captures `transport` at mount for subscribe/poll, but the CRUD callbacks read the module global live → reads and writes can hit different backends if the transport is set after mount. Read consistently in both paths. (Check `useFileBrowser` for the same shape.)
 2. **`useExternalAnnotations` `fallbackRef`/`receivedSnapshotRef` not reset on effect re-run** — if `enabled` toggles false→true (Workspaces auth/loading), the hook silently stops updating. Reset both at the top of the effect.
 3. **Override path untested** — add one small test per seam that calls `setX(fake)`, drives the hook/component, asserts the contract, then `resetX()`. Makes the dead `reset*()` functions live and pins the subtle contracts (draft generation, SSE fallback).
-4. (consider) `configStore` only redirects setting *writes* via `setStorageBackend`; the initial *load* already ran against cookies at module-init. If Workspaces needs to load its own settings, add a `loadFromBackend()`. Skip if Workspaces owns its settings entirely.
+4. **(in scope — Workspaces needs it)** Complete the settings provider: `setStorageBackend` only redirects setting *writes*; the initial *load* runs against cookies at module-init. Workspaces uses the same UI settings stored in its own backend → add `loadFromBackend()`. Model: **prefetch + synchronous backend** (host fetches settings → installs a sync backend serving from that data → calls `loadFromBackend()`); no async plumbing in `configStore`; Plannotator's eager cookie default unchanged (never calls it).
 
 ## Definition of done (Phase 7)
 - `@plannotator/core` exists, browser-safe, zero deps; the universal slice lives there once; **CI typechecks it node-free** (no `@types/node`).
@@ -77,14 +77,16 @@ These are small bugs/gaps the interrogation found in already-committed Phase-5 c
 ## Parity guardrail (run after the carve, before publish)
 `bun run typecheck` · `bun test` 1620/0 · `bun run --cwd apps/review build && bun run build:hook && bun run build:opencode` · shipped-bundle hashes vs the Phase-0 baseline (should be identical) · `git diff` confined to the expected packages · Pi `vendor.sh`/typecheck still green.
 
-## Decided
-- **JS ships as source, not a build** (single internal consumer on a controlled stack). — locked
-- **Precompiled CSS required.** — locked
-- **`core` CI typecheck node-free; `ui`→`core` pinned exact.** — locked
+## Decided (locked in ADR 007)
+- **Registry: public npm.**
+- **Versions: lockstep at repo version `0.21.0`; `ui`→`core` pinned exact.**
+- **JS ships as source, not a build** (single internal consumer on a controlled stack).
+- **Precompiled CSS required.**
+- **`core` CI typecheck node-free.**
+- **`@plannotator/ai` stays unpublished-to-npm** (`private:true`; UI doesn't need it — only `AIContext`, re-exported via `core`).
+- **Settings provider completed** (`loadFromBackend()`, prefetch+sync) — in scope.
+- **CI publish job wired**, but **validate artifacts on the branch first** (`bun pm pack` + inspect + `npm publish --dry-run`) before merge; first real publish gated on explicit go.
 
-## Open questions (resolve in ADR)
-1. Registry: public npm (recommended) vs private scope.
-2. Versions: 0.1.0 (recommended) vs other; core+ui together vs independent.
-3. CI publish job now vs manual first publish.
-4. Confirm `@plannotator/ai` stays private (no ui value import) and `review-core`/`review-workspace` type handling.
+## Still to verify at implementation
+- `review-core`/`review-workspace` type handling (whether `ui`'s `@plannotator/shared/types` surfaces any node-bound review types → extract if so).
 5. In-scope or not: `configStore.loadFromBackend()` (only if Workspaces wants its own settings persistence).

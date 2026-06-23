@@ -9,6 +9,37 @@ import type { ValidationEntry } from "../hooks/useValidatedCodePaths";
 import { CodeFilePicker } from "./CodeFilePicker";
 import { normalizeMathTex, renderMathToHtml } from "./blocks/MathBlock";
 
+export interface DocPreviewResult {
+  contents?: string;
+  filepath?: string;
+}
+export type DocPreviewFetcher = (path: string, base?: string) => Promise<DocPreviewResult | null>;
+
+/**
+ * Default code-file hover-preview fetcher — Plannotator's `/api/doc` behavior, verbatim.
+ */
+const defaultDocPreviewFetcher: DocPreviewFetcher = async (path, base) => {
+  const params = new URLSearchParams({ path });
+  if (base) params.set('base', base);
+  const res = await fetch(`/api/doc?${params}`);
+  return await res.json();
+};
+
+// Module-level fetcher, stable identity. Defaults to Plannotator's `/api/doc`.
+// A host (e.g. Workspaces) calls setDocPreviewFetcher once at startup to load
+// hover previews from its own backend.
+let docPreviewFetcher: DocPreviewFetcher = defaultDocPreviewFetcher;
+
+/** Override how code-file hover previews are fetched. Call once at app startup. */
+export const setDocPreviewFetcher = (fetcher: DocPreviewFetcher): void => {
+  docPreviewFetcher = fetcher;
+};
+
+/** Reset to the default (Plannotator `/api/doc`) fetcher. Mainly for tests. */
+export const resetDocPreviewFetcher = (): void => {
+  docPreviewFetcher = defaultDocPreviewFetcher;
+};
+
 /**
  * Decide how a candidate code-file path should render based on validation state:
  *   - 'link'           → clickable, opens directly via onOpenCodeFile(resolvedOrInput)
@@ -150,11 +181,8 @@ const CodeFileLink: React.FC<{
     if (hoverPreviewRef.current) return;
     showTimerRef.current = setTimeout(async () => {
       try {
-        const params = new URLSearchParams({ path: candidate });
-        if (baseDir) params.set('base', baseDir);
-        const res = await fetch(`/api/doc?${params}`);
-        const data = await res.json();
-        if (data.contents) setHoverPreview({ contents: data.contents, filepath: data.filepath ?? candidate });
+        const data = await docPreviewFetcher(candidate, baseDir);
+        if (data?.contents) setHoverPreview({ contents: data.contents, filepath: data.filepath ?? candidate });
       } catch {}
     }, 150);
   }, [candidate, hasLineRef, gate.render, cancelHide, baseDir]);

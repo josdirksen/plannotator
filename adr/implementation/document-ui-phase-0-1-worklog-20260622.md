@@ -141,6 +141,29 @@ Researched (5-probe spike), specced, ADR-005-accepted, then teed up + multi-lens
 - **Parity:** no override caller; App.tsx untouched (both apps still call `useExternalAnnotations({enabled})`). external-annotation test green, typecheck pass, 1620/0, builds OK.
 
 ### Phase 5 status: COMPLETE (pending eyeball) — 3 seams landed, comment UI noop. Plannotator byte-unchanged.
+
+## Phase 6 — Extras: versions/diff, settings, sharing, Ask AI (ADR 006)
+
+Researched (5-probe spike), specced, ADR-006-accepted, teed up + multi-lens adversarially reviewed by the `phase6-extras` workflow (5 tee-ups + 4 worktree executes + 15 review lenses + synthesis; all 15 lenses safe). Landed + verified by hand. Already-portable pieces (planDiffEngine, all diff render components, sharing utils/useSharing/ImportModal, notes-app helpers, settings.ts, AI chat components, aiProvider/aiChatFormat) confirmed noop. Five Plannotator-only pieces (OpenInAppButton, HooksTab, useUpdateCheck, useAgents, useAgentJobs) confirmed out of scope.
+
+### Seam — Versions/diff + CSS move (DONE)
+- **Files:** `usePlanDiff.ts` (optional `fetchers?` 4th arg, default `/api/plan/version(s)`; error asymmetry kept — selectBaseVersion alerts via the existing catch, fetchVersions silent), `PlanDiffViewer.tsx` (optional `onOpenVscodeDiff?`, default `/api/plan/vscode-diff`), and the **CSS move**: `.annotation-highlight*` + `.plan-diff-added/removed/modified/unchanged/line-*` relocated **byte-identical** from `editor/index.css` (−114) into `ui/theme.css` (+114), next to `.plan-diff-word-*`.
+- **Parity:** relocated CSS **gone from index.css (0), present in shipped bundle (33×)** since Plannotator imports theme.css → pixel-identical. planDiffEngine 49/0, typecheck pass, 1620/0, builds OK, App.tsx untouched.
+
+### Seam — Settings/config (DONE)
+- **Files:** `configStore.ts` (`setServerSync(fn)` injects only the terminal `/api/config` POST; 300ms debounce + deepMerge batching + singleton + eager cookie reads verbatim), `Settings.tsx` (optional `onDetectObsidianVaults`, default `/api/obsidian/vaults`; `[obsidian.enabled]` dep + auto-select verbatim).
+- **Parity:** no override caller; ui 293/0, typecheck pass, 1620/0, builds OK, App.tsx untouched.
+
+### Seam — Sharing/save-to-notes (DONE)
+- **File:** `ExportModal.tsx` (optional `onSaveToNotes`, default = verbatim `/api/save-notes` POST; `showNotesTab = isApiMode && !!markdown` byte-for-byte). Sharing utils already parameterized (noop).
+- **Parity:** no override caller; typecheck pass, 1620/0, builds OK, App.tsx untouched.
+
+### Seam — Ask AI transport (DONE, riskiest)
+- **File:** `useAIChat.ts` (module-level `AITransport` session/query/abort/permission + setters, default = the five `/api/ai/*` fetches verbatim). The SSE reader loop, epoch/createRequest guards, and the supersede-abort position inside `createSession` stay untouched. Capabilities + provider-resolution stay host-owned (App.tsx).
+- **Parity:** no override caller; `packages/ai/ai.test.ts` 97/0, typecheck pass, 1620/0, builds OK, App.tsx untouched.
+
+### Phase 6 status: COMPLETE (pending eyeball) — 4 seams landed + diff CSS in the package, extras noop, 5 Plannotator-only pieces out of scope. Plannotator byte-unchanged.
+The document UI is now feature-complete for reuse. Remaining: Phase 7 (publish) + the parked `@plannotator/ai`/`@plannotator/shared` publish-vs-inline decision.
 Renderer-coupling contract (Workspaces must reuse BlockRenderer+InlineMarkdown+inlineTransforms for highlights) and replies/threading deferral recorded in ADR 005. Remaining: manual eyeball — author/`(me)`, draft save+restore+no-ghost, live SSE add + kill-stream→polling-takes-over.
 
 ### Discovered (PRE-EXISTING, out of scope — not caused by this work)

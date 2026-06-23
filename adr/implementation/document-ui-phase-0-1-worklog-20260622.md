@@ -69,3 +69,9 @@ Three cross-cutting seams that later phases depend on. Each: lift the backend wi
 - **Change:** extracted the body into `defaultImageSrcResolver` and a module-level `imageSrcResolver` (stable identity); added `setImageSrcResolver(fn)` for a host to override once at startup, and `resetImageSrcResolver()` for tests. `getImageSrc(path, base?)` signature unchanged; it now delegates to the active resolver, default = the verbatim old `/api/image` logic.
 - **Why no Viewer-level prop:** a prop can't reach InlineMarkdown/HtmlBlock; the module-level override is the only thing all 5 consumers share.
 - **Verified:** default output byte-identical across remote-passthrough, base-append, and absolute-path cases (URL probe); override + reset work; typecheck pass; 1620 tests pass / 0 fail; all 3 builds OK. Dev-mode eyeball N/A — the mock serves no images and this change only affects the URL string (proven identical), so there is nothing visual to regress.
+
+### Seam 2 — Storage backend (DONE)
+- **File:** `packages/ui/utils/storage.ts` (the cookie `getItem`/`setItem`/`removeItem`, sole persistence for ~24 modules: theme, layout/TOC/width prefs, identity, auto-close, etc.).
+- **Change:** moved the cookie implementation into a default `cookieBackend: StorageBackend`; added a module-level `backend` (default = cookies), `setStorageBackend(b)` for a host to swap, and `resetStorageBackend()` for tests. `getItem`/`setItem`/`removeItem` now delegate to the active backend; signatures and the `storage` object unchanged. Literal `plannotator-*` keys preserved.
+- **Consumers untouched:** the ~24 modules keep calling `getItem`/`setItem` exactly as before.
+- **Verified:** seam routes to an injected backend and `resetStorageBackend` restores cookies (in-memory probe); typecheck pass; 1620 tests pass / 0 fail (suite exercises storage through a real DOM); all 3 builds OK; manual eyeball — theme/settings persist across reload (cookie round-trip intact).

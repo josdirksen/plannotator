@@ -15,6 +15,7 @@ import {
   composeReviewPrompt,
   type ResolvedReviewProfile,
 } from "@plannotator/shared/review-profiles";
+import { classifyFindingPlacement } from "@plannotator/shared/external-annotation";
 
 // ---------------------------------------------------------------------------
 // Debug log — only active when PLANNOTATOR_DEBUG is set
@@ -68,11 +69,11 @@ const CODEX_REVIEW_SCHEMA = JSON.stringify({
                 additionalProperties: false,
               },
             },
-            required: ["absolute_file_path", "line_range"],
+            required: ["absolute_file_path"],
             additionalProperties: false,
           },
         },
-        required: ["title", "body", "confidence_score", "priority", "code_location"],
+        required: ["title", "body", "confidence_score", "priority"],
         additionalProperties: false,
       },
     },
@@ -155,6 +156,8 @@ At the beginning of the finding title, tag the bug with priority level. For exam
 
 Additionally, include a numeric priority field in the JSON output for each finding: set "priority" to 0 for P0, 1 for P1, 2 for P2, or 3 for P3. If a priority cannot be determined, omit the field or use null.
 
+Place each finding by how specific it is. For a line-level issue, set code_location with the file and a line_range. For a whole-file issue, set code_location with the file path and omit line_range. For a general, review-wide point, omit code_location entirely. Do not invent a line range you are unsure of — drop to a whole-file or general placement instead.
+
 At the end of your findings, output an "overall correctness" verdict of whether or not the patch should be considered "correct".
 Correct implies that existing code and tests will not break, and the patch is free of bugs and other blocking issues.
 Ignore non-blocking issues such as style, formatting, typos, documentation, and other nits.
@@ -234,7 +237,7 @@ export function generateOutputPath(): string {
 
 export interface CodexCodeLocation {
   absolute_file_path: string;
-  line_range: { start: number; end: number };
+  line_range?: { start: number; end: number }; // omit for a whole-file comment
 }
 
 export interface CodexFinding {
@@ -242,7 +245,7 @@ export interface CodexFinding {
   body: string;
   confidence_score: number;
   priority: number | null;
-  code_location: CodexCodeLocation;
+  code_location?: CodexCodeLocation; // omit for a general (review-level) comment
 }
 
 export interface CodexReviewOutput {
@@ -317,25 +320,27 @@ export function transformReviewFindings(
   author?: string,
   pathTransform?: (path: string) => string,
 ): ReviewAnnotationInput[] {
-  const annotations = findings
-    .filter((f) =>
-      f.code_location?.absolute_file_path &&
-      typeof f.code_location?.line_range?.start === "number" &&
-      typeof f.code_location?.line_range?.end === "number"
-    )
-    .map((f) => ({
+  // Route every finding by what it carries — nothing is dropped. No usable file
+  // becomes a general comment; a file without a line range, a whole-file comment.
+  const annotations = findings.map((f) => {
+    const loc = f.code_location;
+    const rawFile = loc && typeof loc.absolute_file_path === "string" ? loc.absolute_file_path : "";
+    const filePath = rawFile
+      ? (pathTransform ? pathTransform(toRelativePath(rawFile, cwd)) : toRelativePath(rawFile, cwd))
+      : "";
+    const placement = classifyFindingPlacement(filePath, loc?.line_range?.start, loc?.line_range?.end);
+    return {
       source,
-      filePath: pathTransform
-        ? pathTransform(toRelativePath(f.code_location.absolute_file_path, cwd))
-        : toRelativePath(f.code_location.absolute_file_path, cwd),
-      lineStart: f.code_location.line_range.start,
-      lineEnd: f.code_location.line_range.end,
+      filePath: placement.filePath,
+      lineStart: placement.lineStart,
+      lineEnd: placement.lineEnd,
       type: "comment",
       side: "new",
-      scope: "line",
+      scope: placement.scope,
       text: `${f.title}\n\n${f.body}`.trim(),
       author: author ?? "Review Agent",
-    }));
+    };
+  });
 
   debugLog("TRANSFORM_FINDINGS", {
     inputCount: findings.length,

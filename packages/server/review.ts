@@ -649,22 +649,25 @@ export async function startReviewServer(
           return;
         }
 
-        const total = output.summary.important + output.summary.nit + output.summary.pre_existing;
+        // Recompute the verdict from the findings we actually render. Nothing is
+        // dropped now (un-pinnable findings become file/general comments), so the
+        // count reflects reality and the card can never claim more than it shows.
+        const transformed = transformClaudeFindings(
+          output.findings,
+          job.source,
+          cwd,
+          workspace ? (filePath) => workspace.normalizeAnnotationPath(filePath) : undefined,
+        );
+        const counts = { important: 0, nit: 0, pre_existing: 0 };
+        for (const a of transformed) counts[a.severity]++;
+        const total = counts.important + counts.nit + counts.pre_existing;
         job.summary = {
-          correctness: output.summary.important === 0 ? "Correct" : "Issues Found",
-          explanation: `${output.summary.important} important, ${output.summary.nit} nit, ${output.summary.pre_existing} pre-existing`,
-          confidence: total === 0 ? 1.0 : Math.max(0, 1.0 - (output.summary.important * 0.2)),
+          correctness: counts.important === 0 ? "Correct" : "Issues Found",
+          explanation: `${counts.important} important, ${counts.nit} nit, ${counts.pre_existing} pre-existing`,
+          confidence: total === 0 ? 1.0 : Math.max(0, 1.0 - (counts.important * 0.2)),
         };
 
-        ingest(
-          transformClaudeFindings(
-            output.findings,
-            job.source,
-            cwd,
-            workspace ? (filePath) => workspace.normalizeAnnotationPath(filePath) : undefined,
-          ),
-          "claude-review",
-        );
+        ingest(transformed, "claude-review");
         return;
       }
 

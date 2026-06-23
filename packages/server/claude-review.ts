@@ -3,6 +3,7 @@ import {
   composeReviewPrompt,
   type ResolvedReviewProfile,
 } from "@plannotator/shared/review-profiles";
+import { classifyFindingPlacement } from "@plannotator/shared/external-annotation";
 
 /**
  * Claude Code Review Agent — prompt, command builder, and JSONL output parser.
@@ -24,9 +25,9 @@ export type ClaudeSeverity = "important" | "nit" | "pre_existing";
 
 export interface ClaudeFinding {
   severity: ClaudeSeverity;
-  file: string;
-  line: number;
-  end_line: number;
+  file?: string;      // omit for a general (review-level) comment
+  line?: number;      // omit for a whole-file or general comment
+  end_line?: number;
   description: string;
   reasoning: string;
 }
@@ -59,7 +60,7 @@ export const CLAUDE_REVIEW_SCHEMA_JSON = JSON.stringify({
           description: { type: "string" },
           reasoning: { type: "string" },
         },
-        required: ["severity", "file", "line", "end_line", "description", "reasoning"],
+        required: ["severity", "description", "reasoning"],
         additionalProperties: false,
       },
     },
@@ -165,6 +166,10 @@ Step 5: Deduplicate and rank
   - Within each severity, sort by file path and line number
 
 Step 6: Return structured JSON output matching the schema.
+  Place each finding by how specific it is: give file and line for a line-level
+  issue; give file and omit the line for a whole-file issue; omit both for a
+  general, review-level note. Never invent a line you are unsure of — drop to a
+  file or general placement instead of guessing.
   If no issues are found, return an empty findings array with zeroed summary.
 
 ## Hard constraints
@@ -317,23 +322,29 @@ export function transformClaudeFindings(
   reasoning: string;
   author: string;
 }> {
-  return findings
-    .filter(f => f.file && typeof f.line === "number")
-    .map(f => ({
+  // Route every finding by what it carries — nothing is dropped. A finding
+  // with no usable file becomes a general comment; with a file but no line, a
+  // whole-file comment; otherwise a line comment.
+  return findings.map(f => {
+    const rawFile = typeof f.file === "string" ? f.file : "";
+    const filePath = rawFile
+      ? (pathTransform ? pathTransform(toRelativePath(rawFile, cwd)) : toRelativePath(rawFile, cwd))
+      : "";
+    const placement = classifyFindingPlacement(filePath, f.line, f.end_line);
+    return {
       source,
-      filePath: pathTransform
-        ? pathTransform(toRelativePath(f.file, cwd))
-        : toRelativePath(f.file, cwd),
-      lineStart: f.line,
-      lineEnd: f.end_line ?? f.line,
+      filePath: placement.filePath,
+      lineStart: placement.lineStart,
+      lineEnd: placement.lineEnd,
       type: "comment",
       side: "new",
-      scope: "line",
+      scope: placement.scope,
       text: `[${f.severity}] ${f.description}`,
       severity: f.severity,
       reasoning: f.reasoning,
       author: "Claude Code",
-    }));
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------

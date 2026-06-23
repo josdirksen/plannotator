@@ -198,7 +198,45 @@ interface ReviewAnnotation {
 
 const VALID_REVIEW_TYPES = ["comment", "suggestion", "concern"];
 const VALID_SIDES = ["old", "new"];
-const VALID_SCOPES = ["line", "file"];
+const VALID_SCOPES = ["line", "file", "general"];
+
+/** A review finding's placement, derived from what it carries. */
+export type FindingPlacement = {
+  scope: "line" | "file" | "general";
+  filePath: string;
+  lineStart: number;
+  lineEnd: number;
+};
+
+/**
+ * Classify an agent review finding by what it carries, so nothing is dropped:
+ *   file + a usable line → a line comment
+ *   file, no line        → a whole-file comment
+ *   neither              → a general (review-level) comment
+ *
+ * For file and general placements the line is 0; for general the path is "".
+ * Consumers branch on `scope`, never on the sentinel values.
+ */
+export function classifyFindingPlacement(
+  filePath: string,
+  lineStart: number | null | undefined,
+  lineEnd: number | null | undefined,
+): FindingPlacement {
+  const hasFile = filePath.length > 0;
+  const hasLine = typeof lineStart === "number";
+  if (hasFile && hasLine) {
+    return {
+      scope: "line",
+      filePath,
+      lineStart,
+      lineEnd: typeof lineEnd === "number" ? lineEnd : lineStart,
+    };
+  }
+  if (hasFile) {
+    return { scope: "file", filePath, lineStart: 0, lineEnd: 0 };
+  }
+  return { scope: "general", filePath: "", lineStart: 0, lineEnd: 0 };
+}
 
 export function transformReviewInput(
   body: unknown,
@@ -213,14 +251,40 @@ export function transformReviewInput(
     const source = requireString(obj, "source", i);
     if (typeof source !== "string") return source;
 
-    const filePath = requireString(obj, "filePath", i);
-    if (typeof filePath !== "string") return filePath;
-
-    if (typeof obj.lineStart !== "number") {
-      return { error: `annotations[${i}] missing required "lineStart" field` };
+    // scope: optional, defaults to "line"
+    const scope = typeof obj.scope === "string" ? obj.scope : "line";
+    if (!VALID_SCOPES.includes(scope)) {
+      return {
+        error: `annotations[${i}] invalid scope "${scope}". Must be one of: ${VALID_SCOPES.join(", ")}`,
+      };
     }
-    if (typeof obj.lineEnd !== "number") {
-      return { error: `annotations[${i}] missing required "lineEnd" field` };
+
+    // Location requirements depend on scope:
+    //   line    → filePath + lineStart + lineEnd required. A finding that claims
+    //             a line must carry one, so a broken line finding is rejected
+    //             rather than quietly passing as a vaguer comment.
+    //   file    → filePath required; line ignored (defaults to 0).
+    //   general → no file, no line (review-level; defaults to "" / 0).
+    let filePath = "";
+    let lineStart = 0;
+    let lineEnd = 0;
+    if (scope !== "general") {
+      const fp = requireString(obj, "filePath", i);
+      if (typeof fp !== "string") return fp;
+      filePath = fp;
+      if (scope === "line") {
+        if (typeof obj.lineStart !== "number") {
+          return { error: `annotations[${i}] missing required "lineStart" field` };
+        }
+        if (typeof obj.lineEnd !== "number") {
+          return { error: `annotations[${i}] missing required "lineEnd" field` };
+        }
+        lineStart = obj.lineStart;
+        lineEnd = obj.lineEnd;
+      } else {
+        lineStart = typeof obj.lineStart === "number" ? obj.lineStart : 0;
+        lineEnd = typeof obj.lineEnd === "number" ? obj.lineEnd : 0;
+      }
     }
 
     // side: optional, defaults to "new"
@@ -239,14 +303,6 @@ export function transformReviewInput(
       };
     }
 
-    // scope: optional, defaults to "line"
-    const scope = typeof obj.scope === "string" ? obj.scope : "line";
-    if (!VALID_SCOPES.includes(scope)) {
-      return {
-        error: `annotations[${i}] invalid scope "${scope}". Must be one of: ${VALID_SCOPES.join(", ")}`,
-      };
-    }
-
     // Must have at least text or suggestedCode
     if (typeof obj.text !== "string" && typeof obj.suggestedCode !== "string") {
       return {
@@ -259,8 +315,8 @@ export function transformReviewInput(
       type,
       scope,
       filePath,
-      lineStart: obj.lineStart,
-      lineEnd: obj.lineEnd,
+      lineStart,
+      lineEnd,
       side,
       text: typeof obj.text === "string" ? obj.text : undefined,
       suggestedCode: typeof obj.suggestedCode === "string" ? obj.suggestedCode : undefined,

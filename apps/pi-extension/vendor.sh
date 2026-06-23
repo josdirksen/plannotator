@@ -22,6 +22,7 @@ for f in agent-review-message codex-review claude-review path-utils review-skill
     | sed 's|from "./review-skill-loader"|from "./review-skill-loader.js"|' \
     | sed 's|from "@plannotator/shared/review-workspace"|from "./review-workspace.js"|' \
     | sed 's|from "@plannotator/shared/review-profiles"|from "./review-profiles.js"|' \
+    | sed 's|from "@plannotator/shared/external-annotation"|from "./external-annotation.js"|' \
     | sed 's|from "@plannotator/shared/data-dir"|from "./data-dir"|' \
     > "generated/$f.ts"
 done

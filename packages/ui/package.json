@@ -18,7 +18,8 @@
     "./config": "./config/index.ts",
     "./configure": "./configure.ts",
     "./types": "./types.ts",
-    "./theme": "./theme.css"
+    "./theme": "./theme.css",
+    "./styles.css": "./styles.css"
   },
   "files": [
     "components",
@@ -38,6 +39,7 @@
     "types.ts",
     "theme.css",
     "print.css",
+    "styles.css",
     "plannotator.webp",
     "!**/*.test.ts",
     "!**/*.test.tsx",
@@ -95,6 +97,7 @@
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.10.1",
+    "@tailwindcss/vite": "^4.1.18",
     "@types/bun": "^1.2.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
@@ -102,9 +105,12 @@
     "react-dom": "^19.2.3",
     "tailwindcss": "^4.1.18",
     "tailwindcss-animate": "^1.0.7",
-    "typescript": "~5.8.2"
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build:css": "vite build --config vite.css.config.ts && rm -f styles.js",
+    "prepublishOnly": "bun run build:css"
   }
 }

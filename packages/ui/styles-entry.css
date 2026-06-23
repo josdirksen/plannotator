@@ -1,0 +1,11 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/geist-mono";
+@import "tailwindcss";
+
+@plugin "tailwindcss-animate";
+
+@source "./components/**/*.tsx";
+@source "./hooks/**/*.ts";
+@source "./utils/**/*.ts";
+
+@import "./theme.css";

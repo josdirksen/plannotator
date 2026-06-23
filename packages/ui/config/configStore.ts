@@ -29,6 +29,20 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
   }
 }
 
+/** Server write-back transport: posts a batch of changed server-synced settings. */
+type ServerSyncFn = (payload: Record<string, unknown>) => void;
+
+/** Default = today's inline POST /api/config (best-effort).
+    keepalive lets the request outlive page teardown (pagehide flush). */
+const defaultServerSync: ServerSyncFn = (payload) => {
+  fetch('/api/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    keepalive: true,
+  }).catch(() => {}); // best-effort
+};
+
 /** Infer the value type from a SettingDef */
 type SettingValue<K extends SettingName> = SettingsMap[K] extends { defaultValue: infer D }
   ? D extends (...args: unknown[]) => infer R ? R : D
@@ -41,6 +55,7 @@ class ConfigStore {
   private pendingServerWrites: Record<string, unknown> = {};
   private serverSyncTimer: ReturnType<typeof setTimeout> | null = null;
   private pagehideFlushRegistered = false;
+  private serverSync: ServerSyncFn = defaultServerSync;
 
   constructor() {
     // Eagerly resolve all settings from synchronous sources (cookie > default).
@@ -106,6 +121,11 @@ class ConfigStore {
     return () => this.listeners.delete(listener);
   }
 
+  /** Override the server write-back transport (default = inline POST /api/config). */
+  setServerSync(fn: ServerSyncFn): void {
+    this.serverSync = fn;
+  }
+
   private notify(): void {
     this.version++;
     for (const fn of this.listeners) fn();
@@ -132,15 +152,9 @@ class ConfigStore {
       this.serverSyncTimer = null;
     }
     if (Object.keys(this.pendingServerWrites).length === 0) return;
-    const payload = JSON.stringify(this.pendingServerWrites);
+    const payload = { ...this.pendingServerWrites };
     this.pendingServerWrites = {};
-    // keepalive lets the request outlive page teardown (pagehide flush).
-    fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: payload,
-      keepalive: true,
-    }).catch(() => {}); // best-effort
+    this.serverSync(payload);
   }
 }
 

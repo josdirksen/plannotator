@@ -64,6 +64,7 @@
     "./commit-avatars": "./commit-avatars.ts"
   },
   "dependencies": {
+    "@plannotator/core": "workspace:*",
     "@joplin/turndown-plugin-gfm": "^1.0.64",
     "parse5": "^7.3.0",
     "turndown": "^7.2.4"

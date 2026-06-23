@@ -10,24 +10,8 @@ import { getPlannotatorDataDir } from "./data-dir";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { execSync } from "child_process";
 
-export type DefaultDiffType = 'since-base' | 'uncommitted' | 'unstaged' | 'staged' | 'merge-base' | 'all';
-export type DiffLineBgIntensity = 'subtle' | 'normal' | 'strong';
-
-export interface DiffOptions {
-  diffStyle?: 'split' | 'unified';
-  overflow?: 'scroll' | 'wrap';
-  diffIndicators?: 'bars' | 'classic' | 'none';
-  lineDiffType?: 'word-alt' | 'word' | 'char' | 'none';
-  showLineNumbers?: boolean;
-  showDiffBackground?: boolean;
-  fontFamily?: string;
-  fontSize?: string;
-  tabSize?: number;
-  hideWhitespace?: boolean;
-  expandUnchanged?: boolean;
-  defaultDiffType?: DefaultDiffType;
-  lineBgIntensity?: DiffLineBgIntensity;
-}
+import type { DefaultDiffType, DiffLineBgIntensity, DiffOptions } from '@plannotator/core/config-types';
+export type { DefaultDiffType, DiffLineBgIntensity, DiffOptions };
 
 /** Single conventional comment label entry stored in config.json */
 export interface CCLabelConfig {

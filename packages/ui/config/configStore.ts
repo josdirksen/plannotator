@@ -80,6 +80,8 @@ class ConfigStore {
    * Host installs a SYNCHRONOUS StorageBackend serving prefetched settings, then calls
    * this to route the initial load through that backend. Precedence after a host call:
    * server (init) > host backend (loadFromBackend) > cookie/default (constructor).
+   * Call this BEFORE init(serverConfig): init() always wins, so calling loadFromBackend()
+   * after init() would silently overwrite server-supplied settings.
    */
   loadFromBackend(): void {
     for (const [name, def] of Object.entries(SETTINGS)) {

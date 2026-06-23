@@ -409,7 +409,7 @@ export function useAnnotationDraft({
       // explicitly threw away.
       const deletedGeneration = draftGenerationRef.current + 1;
       draftGenerationRef.current = deletedGeneration;
-      draftTransport.remove(deletedGeneration, { keepalive }).catch(() => {});
+      getDraftTransport().remove(deletedGeneration, { keepalive }).catch(() => {});
       return;
     }
 
@@ -429,11 +429,11 @@ export function useAnnotationDraft({
     // The transport moves the POST behind the seam; the keepalive retry-on-failure
     // gate stays in the hook verbatim so a host transport that resolves/rejects on
     // failure still won't resurrect a superseded save.
-    draftTransport.save(payload, { keepalive }).catch(() => {
+    getDraftTransport().save(payload, { keepalive }).catch(() => {
       // Chromium caps keepalive bodies (~64KB); retry without it. Completes
       // fine when the page was only backgrounded, best-effort on close.
       if (keepalive && canPersistRef.current && draftGenerationRef.current === draftGeneration) {
-        draftTransport.save(payload, { keepalive: false }).catch(() => {});
+        getDraftTransport().save(payload, { keepalive: false }).catch(() => {});
       }
       // Otherwise silent failure — draft is best-effort.
     });
@@ -516,7 +516,7 @@ export function useAnnotationDraft({
     setDraftBanner(null);
     draftDataRef.current = null;
 
-    draftTransport.remove(deletedGeneration, { keepalive: false }).catch(() => {});
+    getDraftTransport().remove(deletedGeneration, { keepalive: false }).catch(() => {});
   }, []);
 
   return { draftBanner, restoreDraft, scheduleDraftSave, scheduleDraftSaveAfterSubmitFailure, getDraftGeneration, dismissDraft };

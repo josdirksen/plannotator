@@ -280,8 +280,8 @@
 }
 
 @keyframes v3-shimmer {
-  0% { background-position: 0% center; }
-  100% { background-position: 200% center; }
+  0% { background-position: 200% center; }
+  100% { background-position: 0% center; }
 }
 
 .v3-cmd-desc {
@@ -413,8 +413,8 @@ body::before {
 }
 
 @keyframes v3-shimmer-blue {
-  0% { background-position: 0% center; }
-  100% { background-position: 200% center; }
+  0% { background-position: 200% center; }
+  100% { background-position: 0% center; }
 }
 
 /* ── Workspaces card gradient ── */

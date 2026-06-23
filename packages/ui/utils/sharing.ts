@@ -9,8 +9,8 @@
  */
 
 import { Annotation, AnnotationType, type ImageAttachment } from '../types';
-import { compress, decompress } from '@plannotator/shared/compress';
-import { encrypt, decrypt } from '@plannotator/shared/crypto';
+import { compress, decompress } from '@plannotator/core/compress';
+import { encrypt, decrypt } from '@plannotator/core/crypto';
 
 // Image in shareable format: plain string (old) or [path, name] tuple (new)
 type ShareableImage = string | [string, string];

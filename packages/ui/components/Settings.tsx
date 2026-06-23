@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import type { Origin } from '@plannotator/shared/agents';
-import type { DiffLineBgIntensity } from '@plannotator/shared/config';
+import type { Origin } from '@plannotator/core/agents';
+import type { DiffLineBgIntensity } from '@plannotator/core/config-types';
 import { configStore, useConfigValue, setReviewPanelView, setReviewDefaultDiffType } from '../config';
 import { loadDiffFont } from '../utils/diffFonts';
 import { TaterSpritePullup } from './TaterSpritePullup';

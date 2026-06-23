@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Check, Copy, MoreHorizontal } from 'lucide-react';
 import { AppIcon } from './icons/AppIcon';
 import { getLastOpenInApp, setLastOpenInApp } from '../utils/storage';
-import type { OpenInKind } from '@plannotator/shared/open-in-apps';
+import type { OpenInKind } from '@plannotator/core/open-in-apps';
 import {
   DropdownMenu,
   DropdownMenuTrigger,

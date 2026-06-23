@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AIContext } from '@plannotator/ai';
+import type { AIContext } from '@plannotator/core';
 import type { AIQuestion, AIResponse } from '../types';
 import { generateId } from '../utils/generateId';
 

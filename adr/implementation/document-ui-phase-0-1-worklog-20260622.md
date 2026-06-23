@@ -88,7 +88,23 @@ Teed up + adversarially reviewed by the `phase3-rendering-stack` workflow (36→
 - **Files:** `packages/ui/components/Viewer.tsx` + `packages/ui/hooks/useValidatedCodePaths.ts`. Added optional `disableCodePathValidation?` prop threaded to a new `disabled?` arg on the hook; when set, the `/api/doc/exists` probe is skipped (`ready: true`, empty map). Default undefined for Plannotator → validation stays on. Added `disabled` to the effect deps (always undefined for Plannotator → no behavior change).
 - **Parity:** no `disableCodePathValidation` caller in editor/apps → Viewer still fires `/api/doc/exists` exactly as today. Verified: typecheck pass, 1620 tests / 0 fail, builds OK, App.tsx untouched.
 
-### Remaining Phase 3
-- **scroll** (safe) — extract a render-transparent `ScrollViewportProvider` into `packages/ui/hooks/useScrollViewport.ts`; rewire App.tsx's `ScrollViewportContext.Provider` (3888/4427) to use it; keep App.tsx's own `useActiveSection` consumption and the sidebar-TOC-reads-MAIN-viewport invariant. Touches App.tsx → land isolated + manual eyeball (scroll a plan, confirm TOC active-section tracks).
-- **docfetch** (apply for real) — `InlineMarkdown.tsx` hover-preview `fetch('/api/doc')` → injectable `docPreviewFetcher` defaulting to today's literal (matching the getImageSrc/setStorageBackend pattern); keep the `useCallback` deps unchanged. Manual eyeball (hover a code-file link, preview popover appears).
-- **noops:** theme, markdown, html-viewer — nothing to land (verified already reusable).
+### Seam — Doc-fetch (code-file hover preview) (DONE)
+- **File:** `packages/ui/components/InlineMarkdown.tsx`. Added `DocPreviewResult`/`DocPreviewFetcher` + module-level `docPreviewFetcher` (default = verbatim `/api/doc` fetch) + `setDocPreviewFetcher`/`resetDocPreviewFetcher`; routed `handleMouseEnter` through it. `useCallback` deps unchanged.
+- **Parity:** no `setDocPreviewFetcher` caller → Plannotator still fetches `/api/doc?path=&base=` identically. Verified: typecheck pass, 1620 tests / 0 fail, builds OK. (Hover popover not visible in dev mock — same caveat as images; call is provably identical.)
+
+### Seam — Scroll viewport provider (DONE)
+- **Files:** `packages/ui/hooks/useScrollViewport.ts` (added render-transparent `ScrollViewportProvider` via `createElement` — kept `.ts`, no JSX; fixed the stale OverlayScrollbars doc-comment) + `packages/editor/App.tsx` (import + the two provider tags at 3888/4427: `ScrollViewportContext.Provider value=` → `ScrollViewportProvider viewport=`).
+- **Parity:** `ScrollViewportProvider` renders exactly `ScrollViewportContext.Provider value={viewport}` — identical tree/value/position; App.tsx delta is 3 lines. Sidebar TOC still resolves to the MAIN viewport. Verified: typecheck pass, 1620 tests / 0 fail, builds OK; **manual eyeball — TOC active-section tracks main-content scroll, click-to-scroll works.**
+
+### Self-review fix — viewer `disabled` path (DONE)
+- **Found:** the Phase-3 viewer seam's `disabled` branch set `ready=true` with an empty map, which makes `gateCodePath` demote every code link to **plain text** (since ready+no-entry => 'plain'). Wrong for the seam's purpose (a host disabling validation wants links to stay clickable). Did NOT affect Plannotator (never disables) but the seam was incorrect.
+- **Fix:** `useValidatedCodePaths.ts` disabled branch now just `return;` (leaves `ready=false`), so `gateCodePath`'s no-validation fallback renders code links **optimistically (clickable)**. Re-verified: typecheck pass, 1620 tests / 0 fail, builds OK.
+
+### Noops (nothing to land — verified already reusable)
+theme, markdown, html-viewer — decoupled by Phase 2 / already prop-driven.
+
+### Reusability note (intentional, not a defect)
+Three seams now share the shape `defaultX` + module-level `x` + `setX`/`resetX` (image resolver, storage backend, doc-preview fetcher). NOT abstracted into a generic helper: they live in different files, have different call ergonomics (a bare function vs. a `{getItem,setItem,removeItem}` object vs. an async fetcher), and the duplication is ~4 trivial lines each. A shared `createOverridable<T>()` would add indirection for little gain and churn three already-verified files. Revisit if a 4th/5th appears.
+
+## Phase 3 status: COMPLETE
+All 7 pieces resolved — 4 landed (editor, viewer, doc-fetch, scroll), 3 noop. Plannotator byte-unchanged throughout (shipped behavior verified; App.tsx touched only by the 3-line scroll rewire). Scroll provider (the "announcer") now ships in `@plannotator/ui`, closing the Phase-2 deferred seam.

@@ -39,10 +39,10 @@ export function useValidatedCodePaths(
 		setReady(false);
 
 		// Host opt-out (e.g. a backend with no /api/doc/exists). Default undefined
-		// for Plannotator => unchanged. When disabled, skip validation: code links
-		// render optimistically (no server probe), same as an empty candidate set.
+		// for Plannotator => unchanged. When disabled we never probe and leave
+		// ready=false, so gateCodePath's no-validation fallback renders code links
+		// optimistically (clickable) instead of demoting them to plain text.
 		if (disabled) {
-			setReady(true);
 			return;
 		}
 

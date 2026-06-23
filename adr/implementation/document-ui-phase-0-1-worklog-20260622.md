@@ -59,3 +59,13 @@ All changes are package metadata only — no source/runtime change. Files touche
 When this is decided, also revisit the `tsconfig.json` `@plannotator/shared/*` alias (currently correct for in-repo; changes if shared is published/inlined).
 
 > Note: the `@plannotator/ai` import is `import type` only (erased at compile). Most `@plannotator/shared` imports are also type-only or Web-API-only; verified no `node:*` value imports reach a bundle. So this blocker is about *package resolution for external install*, not about node code leaking into the browser.
+
+## Phase 2 — Foundation seams (in progress)
+
+Three cross-cutting seams that later phases depend on. Each: lift the backend wire to an optional override, default = today's behavior. For these *code* changes the bundle hash legitimately changes; parity is proven by behavior tests (+ eyeball where there's something visual to see).
+
+### Seam 1 — Image resolver (DONE)
+- **File:** `packages/ui/components/ImageThumbnail.tsx` (the single `getImageSrc`, shared by 5 consumers: ImageThumbnail, InlineMarkdown, HtmlBlock, AttachmentsButton, Viewer).
+- **Change:** extracted the body into `defaultImageSrcResolver` and a module-level `imageSrcResolver` (stable identity); added `setImageSrcResolver(fn)` for a host to override once at startup, and `resetImageSrcResolver()` for tests. `getImageSrc(path, base?)` signature unchanged; it now delegates to the active resolver, default = the verbatim old `/api/image` logic.
+- **Why no Viewer-level prop:** a prop can't reach InlineMarkdown/HtmlBlock; the module-level override is the only thing all 5 consumers share.
+- **Verified:** default output byte-identical across remote-passthrough, base-append, and absolute-path cases (URL probe); override + reset work; typecheck pass; 1620 tests pass / 0 fail; all 3 builds OK. Dev-mode eyeball N/A — the mock serves no images and this change only affects the URL string (proven identical), so there is nothing visual to regress.

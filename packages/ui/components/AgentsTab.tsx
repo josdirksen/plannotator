@@ -540,6 +540,10 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
   const [reviewProfiles, setReviewProfiles] = useState<Array<{ id: string; label: string; default?: boolean }>>([
     { id: 'builtin:default', label: 'Default', default: true },
   ]);
+  // Until the list has loaded we can't tell a saved custom pick from a removed
+  // one, so a launch in that window would silently fall back to Default. Gate
+  // launch on this for a custom pick (see canLaunch).
+  const [profilesLoaded, setProfilesLoaded] = useState(false);
   const [addReviewOpen, setAddReviewOpen] = useState(false);
 
   const refreshReviewProfiles = useCallback(() => {
@@ -548,7 +552,8 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
       .then((d) => {
         if (Array.isArray(d.profiles) && d.profiles.length > 0) setReviewProfiles(d.profiles);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setProfilesLoaded(true));
   }, []);
 
   useEffect(() => {
@@ -658,8 +663,12 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
       : { reasoningEffort: tourCodexReasoning, ...(tourCodexFast && { fastMode: true }) }),
   });
 
+  // For a custom pick, hold launch until the profile list has loaded — otherwise
+  // the saved id can't be found yet and the launch would quietly run Default. A
+  // Default pick has nothing to resolve, so it never waits.
+  const reviewReady = profilesLoaded || reviewProfileId === 'builtin:default';
   const canLaunch = selectedMode === 'review'
-    ? engineAvailable(reviewEngine)
+    ? engineAvailable(reviewEngine) && reviewReady
     : selectedMode === 'tour'
       ? tourAvailable && engineAvailable(tourEngine)
       : false;

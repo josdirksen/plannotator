@@ -418,6 +418,36 @@ export function discoverCuratedSkills(): DiscoveredSkill[] {
 }
 
 /**
+ * Resolve the review profile a launch requested, or throw a clear error.
+ *
+ * The client only sends a reviewProfileId when the user picked a custom review,
+ * so a non-default id that doesn't resolve is a real problem — a renamed or
+ * removed skill, a stale cookie, a malformed request — not a reason to quietly
+ * run the default against the wrong instructions. Explicit selection is
+ * authoritative here. Absent or the reserved default id → the built-in default.
+ */
+export function resolveRequestedReviewProfile(
+  requestedProfileId: string | undefined,
+): ResolvedReviewProfile {
+  if (!requestedProfileId || requestedProfileId === BUILTIN_DEFAULT_PROFILE.id) {
+    return BUILTIN_DEFAULT_PROFILE;
+  }
+  const skill = discoverCuratedSkills().find((s) => `skill:${s.name}` === requestedProfileId);
+  if (!skill) {
+    throw new Error(
+      `Review "${requestedProfileId}" is not available — it may have been renamed or removed. Pick another review.`,
+    );
+  }
+  const resolved = resolveSkillProfile(skill);
+  if (!resolved) {
+    throw new Error(
+      `Review "${skill.name}" could not be loaded — its SKILL.md is unreadable, empty, or too large. Fix the skill or pick another review.`,
+    );
+  }
+  return resolved;
+}
+
+/**
  * Load and resolve review profiles from the curated skills + the built-in
  * default. Always returns at least `builtin:default` first.
  *

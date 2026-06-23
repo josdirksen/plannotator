@@ -14,22 +14,13 @@ import {
   listAllSkills,
   loadReviewProfiles,
   readCuratedSkillNames,
-  resolveSkillProfile,
+  resolveRequestedReviewProfile,
   stripFrontmatter,
 } from "./review-skill-loader";
 
-/**
- * Mirror buildCommand's launch-time resolution (review.ts / serverReview.ts):
- * catalog curated skills, find the requested id, read only that body; absent or
- * unknown → builtin:default. Tested directly so both runtimes' resolution stays
- * pinned without standing up a full review server.
- */
-function resolveLaunchProfile(reviewProfileId: string | undefined): ResolvedReviewProfile {
-  const requested = reviewProfileId
-    ? discoverCuratedSkills().find((s) => `skill:${s.name}` === reviewProfileId)
-    : undefined;
-  return (requested ? resolveSkillProfile(requested) : null) ?? BUILTIN_DEFAULT_PROFILE;
-}
+// Launch-time resolution used by review.ts / serverReview.ts. Tested directly so
+// both runtimes' resolution stays pinned without standing up a full review server.
+const resolveLaunchProfile = resolveRequestedReviewProfile;
 
 // ---------------------------------------------------------------------------
 // Test 1 — Body extraction (no frontmatter parsing)
@@ -246,11 +237,22 @@ describe("launch resolution", () => {
     expect(resolveLaunchProfile(undefined)).toBe(BUILTIN_DEFAULT_PROFILE);
   });
 
-  test("unknown / uncurated id → builtin:default", () => {
+  test("the reserved default id → builtin:default (no throw)", () => {
+    expect(resolveLaunchProfile(BUILTIN_DEFAULT_ID)).toBe(BUILTIN_DEFAULT_PROFILE);
+  });
+
+  test("an unknown / uncurated id throws instead of silently running default", () => {
     writeSkill(join(home, ".claude", "skills"), "not-curated");
     writeCuration([]);
-    expect(resolveLaunchProfile("skill:not-curated")).toBe(BUILTIN_DEFAULT_PROFILE);
-    expect(resolveLaunchProfile("skill:does-not-exist")).toBe(BUILTIN_DEFAULT_PROFILE);
+    // Renamed/removed skill or stale cookie — fail loud, never quietly downgrade.
+    expect(() => resolveLaunchProfile("skill:not-curated")).toThrow(/not available/);
+    expect(() => resolveLaunchProfile("skill:does-not-exist")).toThrow(/not available/);
+  });
+
+  test("a curated skill with an empty body throws (could not be loaded)", () => {
+    writeSkill(join(home, ".claude", "skills"), "blank", "");
+    writeCuration(["blank"]);
+    expect(() => resolveLaunchProfile("skill:blank")).toThrow(/could not be loaded/);
   });
 });
 

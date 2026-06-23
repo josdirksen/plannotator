@@ -66,7 +66,7 @@ import { isWSL } from "./browser";
 import { handleOpenInApps, handleOpenIn } from "./open-in";
 import type { LocalWorkspaceReview, WorkspaceDiffType } from "./review-workspace";
 import { handleCodeNavResolve, extractChangedFiles } from "./code-nav";
-import { discoverCuratedSkills, resolveSkillProfile, listAllSkills, enableReviewSkill } from "./review-skill-loader";
+import { discoverCuratedSkills, resolveRequestedReviewProfile, listAllSkills, enableReviewSkill } from "./review-skill-loader";
 import {
   BUILTIN_DEFAULT_PROFILE,
   type ResolvedReviewProfile,
@@ -457,27 +457,13 @@ export async function startReviewServer(
       const launchBase = currentBase;
       const launchScope = currentPRDiffScope;
 
-      // Resolve the requested review profile. Profiles come from the user dir
-      // plus builtins. Absent or unknown id → builtin:default, so today's
-      // "Run Review" stays byte-identical.
       const requestedProfileId =
         typeof config?.reviewProfileId === "string" ? config.reviewProfileId : undefined;
-      // Catalog the curated skills (no body read), find the requested one, then
-      // read only that one skill's body. Absent/unknown/over-bound → builtin:default,
-      // so today's "Run Review" stays byte-identical.
-      const requestedSkill = requestedProfileId
-        ? discoverCuratedSkills().find((s) => `skill:${s.name}` === requestedProfileId)
-        : undefined;
-      const resolvedSkillProfile = requestedSkill ? resolveSkillProfile(requestedSkill) : null;
-      // The user picked a real curated review but its SKILL.md could not be loaded
-      // (unreadable or over the size bound). Fail loud rather than silently running
-      // the default — they'd think the custom review ran when it didn't.
-      if (requestedSkill && !resolvedSkillProfile) {
-        throw new Error(
-          `Review "${requestedSkill.name}" could not be loaded — its SKILL.md is unreadable, empty, or too large. Fix the skill or pick another review.`,
-        );
-      }
-      const reviewProfile: ResolvedReviewProfile = resolvedSkillProfile ?? BUILTIN_DEFAULT_PROFILE;
+      // Resolve the requested review, or throw a clear error. An unresolvable
+      // non-default id (renamed/removed skill, stale cookie, malformed request)
+      // never silently downgrades to the default — explicit selection is
+      // authoritative at this boundary.
+      const reviewProfile = resolveRequestedReviewProfile(requestedProfileId);
 
       // Agents run inside the PR checkout — wait out the background warmup so
       // the spawn-time getCwd() below resolves to a path that exists.

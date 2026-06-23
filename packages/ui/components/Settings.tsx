@@ -91,6 +91,8 @@ interface SettingsProps {
    *  (base ref unresolvable) — the Git tab shows a note that the Git-status
    *  preference can't take effect in THIS repo. */
   sinceBaseUnavailable?: boolean;
+  /** Override Obsidian vault detection (default = GET /api/obsidian/vaults). */
+  onDetectObsidianVaults?: () => Promise<string[]>;
 }
 
 // --- Review-mode Display tab (diff display options) ---
@@ -649,7 +651,7 @@ const CommentsTab: React.FC = () => {
   );
 };
 
-export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange, onIdentityChange, origin, mode = 'plan', onUIPreferencesChange, externalOpen, onExternalClose, aiProviders = [], gitUser, sinceBaseUnavailable }) => {
+export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange, onIdentityChange, origin, mode = 'plan', onUIPreferencesChange, externalOpen, onExternalClose, aiProviders = [], gitUser, sinceBaseUnavailable, onDetectObsidianVaults }) => {
   const [showDialog, setShowDialog] = useState(false);
   const [themePreview, setThemePreview] = useState(false);
 
@@ -784,13 +786,14 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
   useEffect(() => {
     if (obsidian.enabled && detectedVaults.length === 0 && !vaultsLoading) {
       setVaultsLoading(true);
-      fetch('/api/obsidian/vaults')
-        .then(res => res.json())
-        .then((data: { vaults: string[] }) => {
-          setDetectedVaults(data.vaults || []);
+      const detect = onDetectObsidianVaults
+        ?? (() => fetch('/api/obsidian/vaults').then(res => res.json()).then((data: { vaults: string[] }) => data.vaults || []));
+      detect()
+        .then((vaults: string[]) => {
+          setDetectedVaults(vaults || []);
           // Auto-select first vault if none set
-          if (data.vaults?.length > 0 && !obsidian.vaultPath) {
-            handleObsidianChange({ vaultPath: data.vaults[0] });
+          if (vaults?.length > 0 && !obsidian.vaultPath) {
+            handleObsidianChange({ vaultPath: vaults[0] });
           }
         })
         .catch(() => setDetectedVaults([]))

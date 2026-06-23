@@ -24,17 +24,20 @@ interface MarkdownEditorProps {
   /** Mirrors the Viewer card's outer maxWidth so toggling view<->edit doesn't jump. */
   maxWidth?: number | null;
   gridEnabled?: boolean;
+  /** Theme color mode. Defaults to the ThemeProvider's resolved mode (Plannotator
+      passes nothing); a host without ThemeProvider can supply it directly. */
+  mode?: React.ComponentProps<typeof PackagedMarkdownEditor>['mode'];
 }
 
 /* Theme-bridging shim around @plannotator/markdown-editor. App.tsx renders its
    ThemeProvider inside its own JSX, so the resolved color mode must be read
    from a component beneath the provider — here — and passed down as a prop. */
-export const MarkdownEditor: React.FC<MarkdownEditorProps> = ({ gridEnabled, ...props }) => {
+export const MarkdownEditor: React.FC<MarkdownEditorProps> = ({ gridEnabled, mode, ...props }) => {
   const { resolvedMode } = useTheme();
   return (
     <PackagedMarkdownEditor
       {...props}
-      mode={resolvedMode}
+      mode={mode ?? resolvedMode}
       cardClassName={gridEnabled ? GRID_CARD_CLASSES : undefined}
     />
   );

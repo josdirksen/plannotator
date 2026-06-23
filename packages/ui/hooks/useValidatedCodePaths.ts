@@ -29,6 +29,7 @@ export type ValidatedMap = Map<string, ValidationEntry>;
 export function useValidatedCodePaths(
 	markdown: string,
 	baseDir?: string,
+	disabled?: boolean,
 ): { validated: ValidatedMap; ready: boolean } {
 	const [validated, setValidated] = useState<ValidatedMap>(new Map());
 	const [ready, setReady] = useState<boolean>(false);
@@ -36,6 +37,14 @@ export function useValidatedCodePaths(
 	useEffect(() => {
 		setValidated(new Map());
 		setReady(false);
+
+		// Host opt-out (e.g. a backend with no /api/doc/exists). Default undefined
+		// for Plannotator => unchanged. When disabled, skip validation: code links
+		// render optimistically (no server probe), same as an empty candidate set.
+		if (disabled) {
+			setReady(true);
+			return;
+		}
 
 		const candidates = extractCandidateCodePaths(markdown);
 		if (candidates.length === 0) {
@@ -76,7 +85,7 @@ export function useValidatedCodePaths(
 		return () => {
 			cancelled = true;
 		};
-	}, [markdown, baseDir]);
+	}, [markdown, baseDir, disabled]);
 
 	// Stable reference: only changes when validated/ready actually change.
 	// Without memoization, the parent provider's value is a fresh object every

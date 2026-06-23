@@ -75,6 +75,9 @@ interface ViewerProps {
    *  so out-of-tree relative references (e.g. `../foo.ts` in a linked doc)
    *  resolve against the doc's own directory rather than only cwd. */
   codePathBaseDir?: string;
+  /** Opt out of `/api/doc/exists` code-path validation (host without that
+   *  endpoint). Default undefined for Plannotator => validation stays on. */
+  disableCodePathValidation?: boolean;
   linkedDocInfo?: LinkedDocBadgeInfo | null;
   // Plan diff props
   planDiffStats?: { additions: number; deletions: number; modifications: number } | null;
@@ -178,6 +181,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   linkedDocInfo,
   imageBaseDir,
   codePathBaseDir,
+  disableCodePathValidation,
   copyLabel,
   actionsLabelMode = 'full',
   archiveInfo,
@@ -551,7 +555,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
     setViewerCommentPopover(null);
   }, []);
 
-  const codePathValidation = useValidatedCodePaths(markdown, codePathBaseDir);
+  const codePathValidation = useValidatedCodePaths(markdown, codePathBaseDir, disableCodePathValidation);
 
   return (
     <CodePathValidationContext.Provider value={codePathValidation}>

@@ -75,3 +75,20 @@ Three cross-cutting seams that later phases depend on. Each: lift the backend wi
 - **Change:** moved the cookie implementation into a default `cookieBackend: StorageBackend`; added a module-level `backend` (default = cookies), `setStorageBackend(b)` for a host to swap, and `resetStorageBackend()` for tests. `getItem`/`setItem`/`removeItem` now delegate to the active backend; signatures and the `storage` object unchanged. Literal `plannotator-*` keys preserved.
 - **Consumers untouched:** the ~24 modules keep calling `getItem`/`setItem` exactly as before.
 - **Verified:** seam routes to an injected backend and `resetStorageBackend` restores cookies (in-memory probe); typecheck pass; 1620 tests pass / 0 fail (suite exercises storage through a real DOM); all 3 builds OK; manual eyeball — theme/settings persist across reload (cookie round-trip intact).
+
+## Phase 3 — Rendering stack (in progress)
+
+Teed up + adversarially reviewed by the `phase3-rendering-stack` workflow (36→22 agents; tee-up → execute-in-isolated-worktree → parity review → synthesis). Workflow verdicts: **3 noop** (theme, markdown, html-viewer — already decoupled by Phase 2 / already prop-driven, nothing to land), **3 safe** (editor, viewer, scroll), **1 "blocked"** (docfetch — false alarm: the execute worktrees were auto-removed, so the reviewer saw the clean real tree; the spec is sound, just needs real application). Note: the workflow's in-worktree `typecheck`/`tests` were unreliable (missing deps in throwaway worktrees) — landings are verified authoritatively on the real tree against the Phase 0 baseline. All landings done by hand on the real tree with the parity suite.
+
+### Seam — Markdown editor theme mode (DONE)
+- **File:** `packages/ui/components/MarkdownEditor.tsx`. Added optional `mode?` prop; `mode={resolvedMode}` → `mode={mode ?? resolvedMode}`; destructured `mode` out of `...props`.
+- **Parity:** Plannotator's only `<MarkdownEditor>` call (App.tsx:4261) passes no `mode` → falls to `resolvedMode` → identical. Verified: typecheck pass, 1620 tests / 0 fail, builds OK, App.tsx untouched, no `mode=` caller.
+
+### Seam — Viewer code-path validation gate (DONE)
+- **Files:** `packages/ui/components/Viewer.tsx` + `packages/ui/hooks/useValidatedCodePaths.ts`. Added optional `disableCodePathValidation?` prop threaded to a new `disabled?` arg on the hook; when set, the `/api/doc/exists` probe is skipped (`ready: true`, empty map). Default undefined for Plannotator → validation stays on. Added `disabled` to the effect deps (always undefined for Plannotator → no behavior change).
+- **Parity:** no `disableCodePathValidation` caller in editor/apps → Viewer still fires `/api/doc/exists` exactly as today. Verified: typecheck pass, 1620 tests / 0 fail, builds OK, App.tsx untouched.
+
+### Remaining Phase 3
+- **scroll** (safe) — extract a render-transparent `ScrollViewportProvider` into `packages/ui/hooks/useScrollViewport.ts`; rewire App.tsx's `ScrollViewportContext.Provider` (3888/4427) to use it; keep App.tsx's own `useActiveSection` consumption and the sidebar-TOC-reads-MAIN-viewport invariant. Touches App.tsx → land isolated + manual eyeball (scroll a plan, confirm TOC active-section tracks).
+- **docfetch** (apply for real) — `InlineMarkdown.tsx` hover-preview `fetch('/api/doc')` → injectable `docPreviewFetcher` defaulting to today's literal (matching the getImageSrc/setStorageBackend pattern); keep the `useCallback` deps unchanged. Manual eyeball (hover a code-file link, preview popover appears).
+- **noops:** theme, markdown, html-viewer — nothing to land (verified already reusable).

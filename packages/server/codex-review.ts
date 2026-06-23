@@ -11,6 +11,10 @@ import { appendFile, mkdir, unlink, writeFile, readFile } from "node:fs/promises
 import { existsSync } from "node:fs";
 import { toRelativePath } from "./path-utils";
 import { getPlannotatorDataDir } from "@plannotator/shared/data-dir";
+import {
+  composeReviewPrompt,
+  type ResolvedReviewProfile,
+} from "@plannotator/shared/review-profiles";
 
 // ---------------------------------------------------------------------------
 // Debug log — only active when PLANNOTATOR_DEBUG is set
@@ -157,6 +161,24 @@ Ignore non-blocking issues such as style, formatting, typos, documentation, and 
 
 FORMATTING GUIDELINES:
 The finding description should be one paragraph.`;
+
+// ---------------------------------------------------------------------------
+// Prompt composition
+// ---------------------------------------------------------------------------
+
+/**
+ * Compose Codex's review prompt: the immutable system prompt, the resolved
+ * profile's Custom Review Profile section (omitted for builtin:default), then
+ * the user review message. For builtin:default / no profile the output is
+ * byte-identical to today's
+ * `CODEX_REVIEW_SYSTEM_PROMPT + "\n\n---\n\n" + userMessage`.
+ */
+export function composeCodexReviewPrompt(
+  userMessage: string,
+  reviewProfile?: ResolvedReviewProfile,
+): string {
+  return composeReviewPrompt(CODEX_REVIEW_SYSTEM_PROMPT, reviewProfile, userMessage);
+}
 
 // ---------------------------------------------------------------------------
 // Command builder

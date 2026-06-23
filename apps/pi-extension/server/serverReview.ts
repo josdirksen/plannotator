@@ -46,7 +46,7 @@ import type { WorktreePool } from "../generated/worktree-pool.js";
 
 import { createEditorAnnotationHandler } from "./annotations.js";
 import { createAgentJobHandler } from "./agent-jobs.js";
-import type { AgentJobInfo } from "../generated/agent-jobs.js";
+import { type AgentJobInfo, REVIEW_OUTPUT_FAILED, markJobReviewFailed } from "../generated/agent-jobs.js";
 import { createExternalAnnotationHandler } from "./external-annotations.js";
 import {
 	handleDraftRequest,
@@ -76,7 +76,7 @@ import {
 } from "./pr.js";
 import { getRepoInfo } from "./project.js";
 import {
-	CODEX_REVIEW_SYSTEM_PROMPT,
+	composeCodexReviewPrompt,
 	buildCodexCommand,
 	generateOutputPath,
 	parseCodexOutput,
@@ -84,7 +84,7 @@ import {
 } from "../generated/codex-review.js";
 import { buildAgentReviewUserMessage, buildAgentReviewUserMessageForTarget, type WorkspaceReviewPromptContext } from "../generated/agent-review-message.js";
 import {
-	CLAUDE_REVIEW_PROMPT,
+	composeClaudeReviewPrompt,
 	buildClaudeCommand,
 	parseClaudeStreamOutput,
 	transformClaudeFindings,
@@ -111,6 +111,12 @@ import {
 	SemanticDiffResponseCache,
 } from "../generated/semantic-diff.js";
 import type { SemanticDiffAvailability, SemanticDiffResponse } from "../generated/semantic-diff-types.js";
+import { discoverCuratedSkills, resolveSkillProfile, listAllSkills, enableReviewSkill } from "../generated/review-skill-loader.js";
+import {
+	BUILTIN_DEFAULT_PROFILE,
+	type ResolvedReviewProfile,
+	type ReviewProfilesResponse,
+} from "../generated/review-profiles.js";
 import {
 	canStageFiles,
 	detectRemoteDefaultCompareTarget,
@@ -154,6 +160,9 @@ const piCodeNavRuntime: CodeNavRuntime = {
 		});
 	},
 };
+
+// Review ingestion completion semantics (REVIEW_OUTPUT_FAILED,
+// markJobReviewFailed) now live in the shared agent-jobs module.
 
 /** Detect if running inside WSL (Windows Subsystem for Linux) */
 function detectWSL(): boolean {
@@ -518,6 +527,29 @@ export async function startReviewServer(options: {
 				: null;
 			const launchPrUrl = prMeta?.url;
 			const launchDiffScope = isPRMode ? currentPRDiffScope : undefined;
+
+			// Resolve the requested review profile. Profiles come from the user
+			// dir plus builtins. Absent or unknown id → builtin:default, so
+			// today's "Run Review" stays byte-identical.
+			const requestedProfileId =
+				typeof config?.reviewProfileId === "string" ? config.reviewProfileId : undefined;
+			// Catalog the curated skills (no body read), find the requested one, then
+			// read only that one skill's body. Absent/unknown/over-bound → builtin:default,
+			// so today's "Run Review" stays byte-identical.
+			const requestedSkill = requestedProfileId
+				? discoverCuratedSkills().find((s) => `skill:${s.name}` === requestedProfileId)
+				: undefined;
+			const resolvedSkillProfile = requestedSkill ? resolveSkillProfile(requestedSkill) : null;
+			// The user picked a real curated review but its SKILL.md could not be loaded
+			// (unreadable or over the size bound). Fail loud rather than silently running
+			// the default — they'd think the custom review ran when it didn't.
+			if (requestedSkill && !resolvedSkillProfile) {
+				throw new Error(
+					`Review "${requestedSkill.name}" could not be loaded — its SKILL.md is unreadable or too large. Fix the skill or pick another review.`,
+				);
+			}
+			const reviewProfile: ResolvedReviewProfile = resolvedSkillProfile ?? BUILTIN_DEFAULT_PROFILE;
+
 			const diffContext: AgentJobInfo["diffContext"] | undefined = workspacePrompt
 				? { mode: String(currentDiffType), worktreePath: null }
 				: prMeta
@@ -537,7 +569,7 @@ export async function startReviewServer(options: {
 					prMetadata: prMeta,
 					config,
 				});
-				return built ? { ...built, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext } : built;
+				return built ? { ...built, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label } : built;
 			}
 
 			const userMessage = workspacePrompt
@@ -554,17 +586,17 @@ export async function startReviewServer(options: {
 				const reasoningEffort = typeof config?.reasoningEffort === "string" && config.reasoningEffort ? config.reasoningEffort : undefined;
 				const fastMode = config?.fastMode === true;
 				const outputPath = generateOutputPath();
-				const prompt = CODEX_REVIEW_SYSTEM_PROMPT + "\n\n---\n\n" + userMessage;
+				const prompt = composeCodexReviewPrompt(userMessage, reviewProfile);
 				const command = await buildCodexCommand({ cwd, outputPath, prompt, model, reasoningEffort, fastMode });
-				return { command, outputPath, prompt, cwd, label: jobLabel, model, reasoningEffort, fastMode: fastMode || undefined, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext };
+				return { command, outputPath, prompt, cwd, label: jobLabel, model, reasoningEffort, fastMode: fastMode || undefined, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label };
 			}
 
 			if (provider === "claude") {
 				const model = typeof config?.model === "string" && config.model ? config.model : undefined;
 				const effort = typeof config?.effort === "string" && config.effort ? config.effort : undefined;
-				const prompt = CLAUDE_REVIEW_PROMPT + "\n\n---\n\n" + userMessage;
+				const prompt = composeClaudeReviewPrompt(userMessage, reviewProfile);
 				const { command, stdinPrompt } = buildClaudeCommand(prompt, model, effort);
-				return { command, stdinPrompt, prompt, cwd, label: jobLabel, captureStdout: true, model, effort, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext };
+				return { command, stdinPrompt, prompt, cwd, label: jobLabel, captureStdout: true, model, effort, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label };
 			}
 
 			return null;
@@ -582,9 +614,33 @@ export async function startReviewServer(options: {
 				prRepo: getDisplayRepo(jobPrMeta),
 			} : jobPrUrl ? { prUrl: jobPrUrl } : {};
 
-			if (job.provider === "codex" && meta.outputPath) {
-				const output = await parseCodexOutput(meta.outputPath);
-				if (!output) return;
+			// Only tag annotations with a *custom* profile — the default review needs no tag.
+			const profileLabel =
+				job.reviewProfileId && job.reviewProfileId !== BUILTIN_DEFAULT_PROFILE.id
+					? job.reviewProfileLabel
+					: undefined;
+
+			// Map findings onto annotations and ingest. Shared by both engine branches;
+			// no-ops on an empty set so a clean (zero-finding) review stays "done".
+			const ingest = <T extends object>(transformed: readonly T[], logTag: string) => {
+				if (transformed.length === 0) return;
+				const annotations = transformed.map((a) => ({
+					...a,
+					...jobPrContext,
+					...(jobDiffScope && { diffScope: jobDiffScope }),
+					...(profileLabel && { reviewProfileLabel: profileLabel }),
+				}));
+				const result = externalAnnotations.addAnnotations({ annotations });
+				if ("error" in result) console.error(`[${logTag}] addAnnotations error:`, result.error);
+			};
+
+			if (job.provider === "codex") {
+				const output = meta.outputPath ? await parseCodexOutput(meta.outputPath) : null;
+				if (!output) {
+					// Process exited 0 but output is missing/unparseable — not a green run.
+					markJobReviewFailed(job, REVIEW_OUTPUT_FAILED);
+					return;
+				}
 
 				const hasBlockingFindings = output.findings.some(f => f.priority !== null && f.priority <= 1);
 				job.summary = {
@@ -593,25 +649,25 @@ export async function startReviewServer(options: {
 					confidence: output.overall_confidence_score,
 				};
 
-				if (output.findings.length > 0) {
-					const annotations = transformReviewFindings(
+				ingest(
+					transformReviewFindings(
 						output.findings,
 						job.source,
 						cwd,
 						"Codex",
 						workspace ? (filePath) => workspace.normalizeAnnotationPath(filePath) : undefined,
-					)
-						.map(a => ({ ...a, ...jobPrContext, ...(jobDiffScope && { diffScope: jobDiffScope }) }));
-					const result = externalAnnotations.addAnnotations({ annotations });
-					if ("error" in result) console.error(`[codex-review] addAnnotations error:`, result.error);
-				}
+					),
+					"codex-review",
+				);
 				return;
 			}
 
-			if (job.provider === "claude" && meta.stdout) {
-				const output = parseClaudeStreamOutput(meta.stdout);
+			if (job.provider === "claude") {
+				const stdout = meta.stdout ?? "";
+				const output = parseClaudeStreamOutput(stdout);
 				if (!output) {
-					console.error(`[claude-review] Failed to parse output (${meta.stdout.length} bytes, last 200: ${meta.stdout.slice(-200)})`);
+					console.error(`[claude-review] Failed to parse output (${stdout.length} bytes, last 200: ${stdout.slice(-200)})`);
+					markJobReviewFailed(job, REVIEW_OUTPUT_FAILED);
 					return;
 				}
 
@@ -622,17 +678,15 @@ export async function startReviewServer(options: {
 					confidence: total === 0 ? 1.0 : Math.max(0, 1.0 - (output.summary.important * 0.2)),
 				};
 
-				if (output.findings.length > 0) {
-					const annotations = transformClaudeFindings(
+				ingest(
+					transformClaudeFindings(
 						output.findings,
 						job.source,
 						cwd,
 						workspace ? (filePath) => workspace.normalizeAnnotationPath(filePath) : undefined,
-					)
-						.map(a => ({ ...a, ...jobPrContext, ...(jobDiffScope && { diffScope: jobDiffScope }) }));
-					const result = externalAnnotations.addAnnotations({ annotations });
-					if ("error" in result) console.error(`[claude-review] addAnnotations error:`, result.error);
-				}
+					),
+					"claude-review",
+				);
 				return;
 			}
 
@@ -1343,6 +1397,53 @@ export async function startReviewServer(options: {
 			await handleUploadRequest(req, res);
 		} else if (url.pathname === "/api/agents" && req.method === "GET") {
 			json(res, { agents: [] });
+		} else if (
+			url.pathname === "/api/agents/review-profiles" &&
+			req.method === "GET"
+		) {
+			// Custom reviews discovery. Reloaded per request, no file watching.
+			// Catalog only — directory listing, no SKILL.md bodies read here.
+			// Bodies are read at launch, for the one selected skill.
+			const body: ReviewProfilesResponse = {
+				profiles: [
+					{
+						id: BUILTIN_DEFAULT_PROFILE.id,
+						label: BUILTIN_DEFAULT_PROFILE.label,
+						source: BUILTIN_DEFAULT_PROFILE.source,
+						default: BUILTIN_DEFAULT_PROFILE.default,
+					},
+					...discoverCuratedSkills().map((s) => ({
+						id: `skill:${s.name}`,
+						label: s.name,
+						source: "user" as const,
+						sourcePath: s.sourcePath,
+					})),
+				],
+			};
+			json(res, body);
+		} else if (url.pathname === "/api/agents/skills" && req.method === "GET") {
+			// All discovered skills for the "add a review" picker, each flagged
+			// with whether it is already enabled.
+			json(res, { skills: listAllSkills() });
+		} else if (url.pathname === "/api/agents/review-skills" && req.method === "POST") {
+			// Enable a skill as a review (curation write to review-skills.json).
+			let name: unknown;
+			try {
+				const body = await parseBody(req);
+				name = body.name;
+			} catch {
+				json(res, { error: "Invalid JSON" }, 400);
+				return;
+			}
+			if (typeof name !== "string" || name.length === 0) {
+				json(res, { error: "`name` is required." }, 400);
+				return;
+			}
+			try {
+				json(res, enableReviewSkill(name));
+			} catch (err) {
+				json(res, { error: err instanceof Error ? err.message : "Could not enable review." }, 400);
+			}
 		} else if (url.pathname === "/api/git-add" && req.method === "POST") {
 			try {
 				const body = await parseBody(req);

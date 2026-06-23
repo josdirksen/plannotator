@@ -1,4 +1,8 @@
 import { toRelativePath } from "./path-utils";
+import {
+  composeReviewPrompt,
+  type ResolvedReviewProfile,
+} from "@plannotator/shared/review-profiles";
 
 /**
  * Claude Code Review Agent — prompt, command builder, and JSONL output parser.
@@ -174,6 +178,23 @@ Step 6: Return structured JSON output matching the schema.
 - Do NOT post any comments to GitHub or GitLab
 - Do NOT use gh pr comment or any commenting tool
 - Your only output is the structured JSON findings`;
+
+// ---------------------------------------------------------------------------
+// Prompt composition
+// ---------------------------------------------------------------------------
+
+/**
+ * Compose Claude's review prompt: the immutable system prompt, the resolved
+ * profile's Custom Review Profile section (omitted for builtin:default), then
+ * the user review message. For builtin:default / no profile the output is
+ * byte-identical to today's `CLAUDE_REVIEW_PROMPT + "\n\n---\n\n" + userMessage`.
+ */
+export function composeClaudeReviewPrompt(
+  userMessage: string,
+  reviewProfile?: ResolvedReviewProfile,
+): string {
+  return composeReviewPrompt(CLAUDE_REVIEW_PROMPT, reviewProfile, userMessage);
+}
 
 // ---------------------------------------------------------------------------
 // Command builder

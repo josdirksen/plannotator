@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Bot,
   Play,
@@ -11,6 +11,8 @@ import {
   ExternalLink,
   ChevronDown,
   Zap,
+  Plus,
+  Search,
 } from 'lucide-react';
 import type { AgentJobInfo, AgentCapabilities } from '../types';
 import { isTerminalStatus } from '@plannotator/shared/agent-jobs';
@@ -81,7 +83,7 @@ const ENGINE_LABEL: Record<AgentEngine, string> = {
 interface AgentsTabProps {
   jobs: AgentJobInfo[];
   capabilities: AgentCapabilities | null;
-  onLaunch: (params: { provider?: string; command?: string[]; label?: string; engine?: string; model?: string; reasoningEffort?: string; effort?: string; fastMode?: boolean }) => void;
+  onLaunch: (params: { provider?: string; command?: string[]; label?: string; engine?: string; model?: string; reasoningEffort?: string; effort?: string; fastMode?: boolean; reviewProfileId?: string }) => void;
   onKillJob: (id: string) => void;
   onKillAll: () => void;
   externalAnnotations: Array<{ source?: string }>;
@@ -226,7 +228,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 // model picker (whose 7–9 options rule out a segmented control). The popover
 // opens downward (`top-full`) because the launch panel is pinned to the top of
 // the tab.
-function SelectMenu({ value, options, onChange, icon, placeholder }: { value: string; options: Array<{ value: string; label: string }>; onChange: (v: string) => void; icon?: React.ReactNode; placeholder?: string }) {
+function SelectMenu({ value, options, onChange, icon, placeholder, footerAction }: { value: string; options: Array<{ value: string; label: string }>; onChange: (v: string) => void; icon?: React.ReactNode; placeholder?: string; footerAction?: { label: string; onClick: () => void } }) {
   const [open, setOpen] = useState(false);
   const current = options.find((o) => o.value === value);
   return (
@@ -262,9 +264,144 @@ function SelectMenu({ value, options, onChange, icon, placeholder }: { value: st
                 {o.label}
               </button>
             ))}
+            {footerAction && (
+              <>
+                <div className="my-1 border-t border-border/20" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    footerAction.onClick();
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-surface-1/50 hover:text-foreground"
+                >
+                  <Plus className="shrink-0" size={11} />
+                  {footerAction.label}
+                </button>
+              </>
+            )}
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// --- Add-a-review dialog: a type-ahead picker over every discovered skill ---
+
+interface CatalogSkill {
+  name: string;
+  root: string;
+  sourcePath: string;
+  enabled: boolean;
+}
+
+function AddReviewDialog({
+  onClose,
+  onEnabled,
+}: {
+  onClose: () => void;
+  onEnabled: (name: string) => void;
+}) {
+  const [skills, setSkills] = useState<CatalogSkill[] | null>(null);
+  const [query, setQuery] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/agents/skills')
+      .then((r) => r.json())
+      .then((d) => {
+        if (alive) setSkills(Array.isArray(d.skills) ? d.skills : []);
+      })
+      .catch(() => {
+        if (alive) setSkills([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const candidates = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (skills ?? [])
+      .filter((s) => !s.enabled)
+      .filter((s) => (q ? s.name.toLowerCase().includes(q) : true));
+  }, [skills, query]);
+
+  const enable = async (name: string) => {
+    setBusy(name);
+    setError(null);
+    try {
+      const res = await fetch('/api/agents/review-skills', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error ?? 'Could not add review.');
+      }
+      onEnabled(name);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not add review.');
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative z-10 flex max-h-[70vh] w-full max-w-sm flex-col overflow-hidden rounded-xl bg-card shadow-[var(--card-shadow)] ring-1 ring-border/20">
+        <div className="flex items-center justify-between border-b border-border/40 px-3 py-2.5">
+          <span className="text-[12px] font-medium text-foreground">Add a review</span>
+          <button type="button" onClick={onClose} className="text-muted-foreground/50 hover:text-foreground">
+            <X size={13} />
+          </button>
+        </div>
+
+        <div className="border-b border-border/40 p-2">
+          <div className="flex items-center gap-2 rounded-lg border border-border/30 bg-surface-1/30 px-2.5 py-1.5">
+            <Search className="shrink-0 text-muted-foreground/40" size={12} />
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Filter your skills"
+              className="min-w-0 flex-1 bg-transparent text-[12px] text-foreground/90 outline-none placeholder:text-muted-foreground/40"
+            />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-1.5">
+          {skills === null ? (
+            <div className="flex items-center justify-center py-8 text-muted-foreground/40">
+              <Loader2 className="animate-spin" size={14} />
+            </div>
+          ) : candidates.length === 0 ? (
+            <p className="px-2 py-8 text-center text-[11px] text-muted-foreground/40">
+              {query ? 'No matching skills.' : 'No skills left to add.'}
+            </p>
+          ) : (
+            candidates.map((s) => (
+              <button
+                key={`${s.root}:${s.name}`}
+                type="button"
+                disabled={busy !== null}
+                onClick={() => enable(s.name)}
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-surface-1/50 disabled:opacity-50"
+              >
+                <span className="min-w-0 flex-1 truncate text-[12px] text-foreground/90">{s.name}</span>
+                <span className="shrink-0 text-[9px] uppercase tracking-wide text-muted-foreground/40">{s.root}</span>
+                {busy === s.name ? <Loader2 className="shrink-0 animate-spin" size={11} /> : <Plus className="shrink-0 text-muted-foreground/40" size={11} />}
+              </button>
+            ))
+          )}
+        </div>
+
+        {error && <p className="border-t border-border/40 px-3 py-2 text-[10px] text-red-500">{error}</p>}
+      </div>
     </div>
   );
 }
@@ -370,6 +507,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
   const {
     selectedMode,
     reviewEngine,
+    reviewProfileId,
     tourEngine,
     claudeModel,
     claudeEffort,
@@ -383,6 +521,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
     tourCodexFast,
     setSelectedMode,
     setReviewEngine,
+    setReviewProfileId,
     setTourEngine,
     setClaudeModel,
     setClaudeEffort,
@@ -395,6 +534,26 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
     setTourCodexReasoning,
     setTourCodexFast,
   } = settings;
+
+  // Review profiles (built-in default plus the user's enabled skills). Loaded
+  // from the discovery endpoint and refreshed after a skill is added.
+  const [reviewProfiles, setReviewProfiles] = useState<Array<{ id: string; label: string; default?: boolean }>>([
+    { id: 'builtin:default', label: 'Default', default: true },
+  ]);
+  const [addReviewOpen, setAddReviewOpen] = useState(false);
+
+  const refreshReviewProfiles = useCallback(() => {
+    fetch('/api/agents/review-profiles')
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d.profiles) && d.profiles.length > 0) setReviewProfiles(d.profiles);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshReviewProfiles();
+  }, [refreshReviewProfiles]);
 
   const claudeAvailable = capabilities?.providers.some((p) => p.id === 'claude' && p.available) ?? false;
   const codexAvailable = capabilities?.providers.some((p) => p.id === 'codex' && p.available) ?? false;
@@ -465,10 +624,20 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
     [jobs],
   );
 
+  // A persisted review id can point at something not in the current list: the
+  // profiles may not be loaded yet, or the skill was removed by hand. Treat
+  // anything not in the list as Default, for both the dropdown and the launch.
+  const effectiveReviewProfileId = reviewProfiles.some((p) => p.id === reviewProfileId)
+    ? reviewProfileId
+    : 'builtin:default';
+
   type LaunchParams = Parameters<typeof onLaunch>[0];
   const buildReviewLaunch = (engine: AgentEngine): LaunchParams => {
+    // Carry the chosen review only when it is a custom one. Absent → the server
+    // resolves to the built-in default.
+    const review = effectiveReviewProfileId !== 'builtin:default' ? { reviewProfileId: effectiveReviewProfileId } : {};
     if (engine === 'claude') {
-      return { provider: 'claude', label: 'Code Review', model: claudeModel, effort: claudeEffort };
+      return { provider: 'claude', label: 'Code Review', model: claudeModel, effort: claudeEffort, ...review };
     }
     return {
       provider: 'codex',
@@ -476,6 +645,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
       model: codexModel,
       reasoningEffort: codexReasoning,
       ...(codexFast && { fastMode: true }),
+      ...review,
     };
   };
   const buildTourLaunch = (): LaunchParams => ({
@@ -549,6 +719,14 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
 
             {selectedMode === 'review' && (
               <>
+                <ConfigRow label="Review" stacked>
+                  <SelectMenu
+                    value={effectiveReviewProfileId}
+                    options={reviewProfiles.map((p) => ({ value: p.id, label: p.label }))}
+                    onChange={setReviewProfileId}
+                    footerAction={{ label: 'Add new review', onClick: () => setAddReviewOpen(true) }}
+                  />
+                </ConfigRow>
                 {renderEngineSelect(reviewEngine, setReviewEngine)}
                 {reviewEngine === 'claude' && (
                   <>
@@ -656,6 +834,21 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
             Kill all ({runningCount})
           </button>
         </div>
+      )}
+
+      {addReviewOpen && (
+        <AddReviewDialog
+          onClose={() => setAddReviewOpen(false)}
+          onEnabled={(name) => {
+            const id = `skill:${name}`;
+            // Add optimistically so the dropdown can select it immediately; the
+            // refresh below reconciles against the server.
+            setReviewProfiles((prev) => (prev.some((p) => p.id === id) ? prev : [...prev, { id, label: name }]));
+            setReviewProfileId(id);
+            setAddReviewOpen(false);
+            refreshReviewProfiles();
+          }}
+        />
       )}
     </div>
   );

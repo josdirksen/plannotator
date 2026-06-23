@@ -190,9 +190,10 @@ interface ReviewAnnotation {
   createdAt: number;
   author?: string;
   source?: string;
-  // Agent review metadata (optional — only set by Claude review findings)
+  // Agent review metadata (optional — only set by agent review findings)
   severity?: string; // "important" | "nit" | "pre_existing"
   reasoning?: string; // Validation chain explaining how the issue was confirmed
+  reviewProfileLabel?: string; // Custom review profile that produced this finding
 }
 
 const VALID_REVIEW_TYPES = ["comment", "suggestion", "concern"];
@@ -267,9 +268,10 @@ export function transformReviewInput(
       createdAt: Date.now(),
       author: typeof obj.author === "string" ? obj.author : undefined,
       source,
-      // Agent review metadata (optional — only set by Claude review findings)
+      // Agent review metadata (optional — only set by agent review findings)
       ...(typeof obj.severity === "string" && { severity: obj.severity }),
       ...(typeof obj.reasoning === "string" && { reasoning: obj.reasoning }),
+      ...(typeof obj.reviewProfileLabel === "string" && { reviewProfileLabel: obj.reviewProfileLabel }),
     });
   }
 

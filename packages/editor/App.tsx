@@ -48,7 +48,7 @@ import { usePrintMode } from '@plannotator/ui/hooks/usePrintMode';
 import { useResizablePanel } from '@plannotator/ui/hooks/useResizablePanel';
 import { ResizeHandle } from '@plannotator/ui/components/ResizeHandle';
 import { OverlayScrollArea } from '@plannotator/ui/components/OverlayScrollArea';
-import { ScrollViewportContext } from '@plannotator/ui/hooks/useScrollViewport';
+import { ScrollViewportProvider } from '@plannotator/ui/hooks/useScrollViewport';
 import { useOverlayViewport } from '@plannotator/ui/hooks/useOverlayViewport';
 import { useIsMobile } from '@plannotator/ui/hooks/useIsMobile';
 import {
@@ -3864,7 +3864,7 @@ const App: React.FC = () => {
         )}
 
         {/* Main Content */}
-        <ScrollViewportContext.Provider value={scrollViewport}>
+        <ScrollViewportProvider viewport={scrollViewport}>
         <div data-print-region="content" className={`flex-1 flex overflow-hidden relative z-0 ${isResizing ? 'select-none' : ''}`}>
           {/* Tater sprites — inside content wrapper so z-0 stacking context applies */}
           {taterMode && <TaterSpriteRunning />}
@@ -4404,7 +4404,7 @@ const App: React.FC = () => {
           )}
           </div>
         </div>
-        </ScrollViewportContext.Provider>
+        </ScrollViewportProvider>
 
         {/* Code File Popout */}
         {codeFilePopout.popoutProps && (

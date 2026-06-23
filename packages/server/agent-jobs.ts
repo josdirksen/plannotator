@@ -105,31 +105,6 @@ export interface AgentJobHandlerOptions {
   onJobComplete?: (job: AgentJobInfo, meta: { outputPath?: string; stdout?: string; cwd?: string }) => void | Promise<void>;
 }
 
-/**
- * `agent` is a very generic binary name — other tools ship binaries called
- * `agent` too, so finding one on PATH does not prove it is Cursor. Confirm its
- * identity before offering Cursor as a provider; otherwise selecting Cursor
- * could spawn an unrelated tool with review content as an argument.
- *
- * Cheap one-time probe: `agent about --format json` is fast, works
- * unauthenticated, and only the Cursor CLI emits a JSON object with a
- * `cliVersion` field. Any failure/timeout/mismatch → treat as not Cursor.
- */
-function isCursorAgentAvailable(): boolean {
-  if (!Bun.which("agent")) return false;
-  try {
-    const res = Bun.spawnSync(["agent", "about", "--format", "json"], {
-      stdout: "pipe",
-      stderr: "ignore",
-      timeout: 3000,
-    });
-    if (!res.success) return false;
-    const parsed = JSON.parse(new TextDecoder().decode(res.stdout)) as { cliVersion?: unknown };
-    return parsed != null && typeof parsed.cliVersion === "string";
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Best-effort Cursor model catalog from `agent models`, parsed once and cached.
@@ -161,10 +136,9 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
   let version = 0;
 
   // --- Capability detection (run once) ---
-  // Cursor CLI's binary is literally named `agent` (NOT `cursor`), so verify
-  // identity rather than trusting the name alone. When present, also discover
-  // its account-specific model catalog so the UI doesn't hardcode model ids.
-  const cursorAvailable = mode === "review" && isCursorAgentAvailable();
+  // Cursor CLI's binary is literally named `agent` (NOT `cursor`). When present,
+  // discover its account-specific model catalog so the UI doesn't hardcode ids.
+  const cursorAvailable = mode === "review" && !!Bun.which("agent");
   const capabilities: AgentCapability[] = [
     { id: "claude", name: "Claude Code", available: !!Bun.which("claude") },
     { id: "codex", name: "Codex CLI", available: !!Bun.which("codex") },

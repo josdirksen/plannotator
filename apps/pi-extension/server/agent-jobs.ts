@@ -95,28 +95,6 @@ export interface AgentJobHandlerOptions {
 }
 
 /**
- * `agent` is a very generic binary name — other tools ship binaries called
- * `agent` too, so finding one on PATH does not prove it is Cursor. Verify its
- * identity before offering Cursor as a provider. Cheap one-time probe: `agent
- * about --format json` is fast, works unauthenticated, and only the Cursor CLI
- * emits a JSON object with a `cliVersion` field. Any failure → not Cursor.
- */
-function isCursorAgentAvailable(): boolean {
-	if (!whichCmd("agent")) return false;
-	try {
-		const out = execFileSync("agent", ["about", "--format", "json"], {
-			timeout: 3000,
-			stdio: ["ignore", "pipe", "ignore"],
-			encoding: "utf8",
-		});
-		const parsed = JSON.parse(out) as { cliVersion?: unknown };
-		return parsed != null && typeof parsed.cliVersion === "string";
-	} catch {
-		return false;
-	}
-}
-
-/**
  * Best-effort Cursor model catalog from `agent models`, parsed once. Empty when
  * discovery fails or the CLI is unauthenticated — the UI falls back to an
  * `auto`-only picker. Account-specific, so never hardcoded.
@@ -144,10 +122,9 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 	let version = 0;
 
 	// --- Capability detection (run once) ---
-	// Cursor CLI's binary is literally named `agent` (NOT `cursor`), so verify
-	// identity rather than trusting the name alone. When present, also discover
-	// its account-specific model catalog so the UI doesn't hardcode model ids.
-	const cursorAvailable = mode === "review" && isCursorAgentAvailable();
+	// Cursor CLI's binary is literally named `agent` (NOT `cursor`). When present,
+	// discover its account-specific model catalog so the UI doesn't hardcode ids.
+	const cursorAvailable = mode === "review" && whichCmd("agent");
 	const capabilities: AgentCapability[] = [
 		{ id: "claude", name: "Claude Code", available: whichCmd("claude") },
 		{ id: "codex", name: "Codex CLI", available: whichCmd("codex") },

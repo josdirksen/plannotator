@@ -116,6 +116,70 @@ function createAbortError(message: string): Error {
   return err;
 }
 
+/**
+ * Transport for the AI chat wire. Each method maps to one Plannotator
+ * `/api/ai/*` endpoint. The default reproduces today's fetches verbatim;
+ * a host (e.g. Workspaces) calls `setAITransport` once at startup to route
+ * AI traffic through its own backend. The SSE reader loop, epoch guards, and
+ * supersede-abort position in the hook are unaffected — only the wire is swapped.
+ */
+export interface AITransport {
+  /** POST /api/ai/session — create or fork a session. */
+  session(body: unknown, signal: AbortSignal): Promise<Response>;
+  /** POST /api/ai/query — send a message; returns the streaming SSE response. */
+  query(body: unknown, signal: AbortSignal): Promise<Response>;
+  /** POST /api/ai/abort — abort a session (supersede + standalone). Resolves once
+      the server acknowledges so a following query can await it (best-effort, never rejects). */
+  abort(body: unknown): Promise<unknown>;
+  /** POST /api/ai/permission — respond to a permission request. Fire-and-forget. */
+  permission(body: unknown): void;
+}
+
+/** Default transport — Plannotator's local `/api/ai/*` fetches, verbatim. */
+const defaultAITransport: AITransport = {
+  session: (body, signal) =>
+    fetch('/api/ai/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal,
+    }),
+  query: (body, signal) =>
+    fetch('/api/ai/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal,
+    }),
+  abort: (body) =>
+    fetch('/api/ai/abort', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).catch(() => {}),
+  permission: (body) => {
+    fetch('/api/ai/permission', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).catch(() => {});
+  },
+};
+
+// Module-level transport, stable identity. Defaults to Plannotator's behavior so
+// the hook and its callers are unchanged. A host overrides it once at startup.
+let aiTransport: AITransport = defaultAITransport;
+
+/** Override the AI chat transport. Call once at app startup. */
+export const setAITransport = (transport: AITransport): void => {
+  aiTransport = transport;
+};
+
+/** Reset to the default (Plannotator local `/api/ai/*`) transport. Mainly for tests. */
+export const resetAITransport = (): void => {
+  aiTransport = defaultAITransport;
+};
+
 export function useAIChat({
   context,
   providerId,
@@ -158,17 +222,12 @@ export function useAIChat({
     const requestId = ++createRequestRef.current;
     setIsCreatingSession(true);
     try {
-      const res = await fetch('/api/ai/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          context,
-          ...(providerId && { providerId }),
-          ...(model && { model }),
-          ...(reasoningEffort && { reasoningEffort }),
-        }),
-        signal,
-      });
+      const res = await aiTransport.session({
+        context,
+        ...(providerId && { providerId }),
+        ...(model && { model }),
+        ...(reasoningEffort && { reasoningEffort }),
+      }, signal);
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({ error: 'Failed to create AI session' }));
@@ -177,11 +236,7 @@ export function useAIChat({
 
       const data = await res.json() as { sessionId: string };
       if (signal.aborted || epoch !== sessionEpochRef.current) {
-        fetch('/api/ai/abort', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId: data.sessionId }),
-        }).catch(() => {});
+        aiTransport.abort({ sessionId: data.sessionId });
         throw createAbortError('AI session creation was superseded');
       }
       setSessionId(data.sessionId);
@@ -201,11 +256,7 @@ export function useAIChat({
   // into a session_busy error. Best-effort (never rejects).
   const postServerAbort = useCallback((): Promise<unknown> => {
     if (!sessionIdRef.current) return Promise.resolve();
-    return fetch('/api/ai/abort', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId: sessionIdRef.current }),
-    }).catch(() => {});
+    return aiTransport.abort({ sessionId: sessionIdRef.current });
   }, []);
 
   const ask = useCallback(async (params: AskAIParams) => {
@@ -262,16 +313,11 @@ export function useAIChat({
       }
 
       const fullPrompt = buildPrompt(params);
-      const res = await fetch('/api/ai/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: sid,
-          prompt: fullPrompt,
-          ...(params.contextUpdate && { contextUpdate: params.contextUpdate }),
-        }),
-        signal: controller.signal,
-      });
+      const res = await aiTransport.query({
+        sessionId: sid,
+        prompt: fullPrompt,
+        ...(params.contextUpdate && { contextUpdate: params.contextUpdate }),
+      }, controller.signal);
 
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => ({ error: 'Query failed' }));
@@ -413,15 +459,11 @@ export function useAIChat({
       prev.map(p => p.requestId === requestId ? { ...p, decided: allow ? 'allow' : 'deny' } : p)
     );
 
-    fetch('/api/ai/permission', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId: sessionIdRef.current,
-        requestId,
-        allow,
-      }),
-    }).catch(() => {});
+    aiTransport.permission({
+      sessionId: sessionIdRef.current,
+      requestId,
+      allow,
+    });
   }, [updatePermissions]);
 
   const resetSession = useCallback(() => {

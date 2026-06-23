@@ -6,9 +6,10 @@
  * and maps each curated Agent Skill into a ResolvedReviewProfile that this
  * module's composer renders. Vendored to Pi.
  *
- * A review profile is a named bundle of review intent. For the built-in default
- * the prompt composer omits the Custom Review Profile section entirely, so the
- * default review stays byte-for-byte today's prompt.
+ * A review profile is a named bundle of review intent. A custom review skill
+ * fully replaces the provider's system prompt — picking a review runs that
+ * review. The built-in default carries no instructions, so the composer falls
+ * back to the provider prompt and the default review stays byte-for-byte today's.
  *
  * See docs/custom-reviews.md.
  */
@@ -56,9 +57,8 @@ export const BUILTIN_DEFAULT_ID = "builtin:default";
 
 /**
  * The built-in default review — today's review, preserved. It carries no
- * custom instructions; the prompt composer omits the Custom Review Profile
- * section entirely for this id, so the default prompt stays byte-for-byte
- * today's prompt.
+ * custom instructions, so the composer falls back to the provider prompt and
+ * the default prompt stays byte-for-byte today's.
  */
 export const BUILTIN_DEFAULT_PROFILE: ResolvedReviewProfile = {
   id: BUILTIN_DEFAULT_ID,
@@ -73,9 +73,9 @@ export const BUILTIN_DEFAULT_PROFILE: ResolvedReviewProfile = {
 // ---------------------------------------------------------------------------
 
 /**
- * A profile contributes a custom section only when it carries instructions and
+ * A profile replaces the provider prompt only when it carries instructions and
  * isn't the reserved built-in default. The default (or any instruction-less
- * profile) yields no section, keeping the prompt byte-for-byte today's prompt.
+ * profile) falls back to the provider prompt, keeping it byte-for-byte today's.
  */
 function profileHasCustomSection(profile: ResolvedReviewProfile | undefined): boolean {
   return (
@@ -86,43 +86,30 @@ function profileHasCustomSection(profile: ResolvedReviewProfile | undefined): bo
 }
 
 /**
- * Render the "## Custom Review Profile" section for a profile, or `null` when
- * the profile contributes none (built-in default / no instructions).
- */
-export function renderReviewProfileSection(
-  profile: ResolvedReviewProfile | undefined,
-): string | null {
-  if (!profileHasCustomSection(profile)) return null;
-  const p = profile as ResolvedReviewProfile;
-  return [
-    "## Custom Review Profile",
-    "",
-    `Profile: ${p.label}`,
-    `Source: ${p.source}`,
-    "",
-    p.instructions.trim(),
-  ].join("\n");
-}
-
-/**
- * Compose the full review prompt deterministically:
+ * Compose the full review prompt deterministically.
  *
- *   <provider immutable instructions>
- *   [## Custom Review Profile … ---]   (omitted for builtin:default)
+ * Custom review skill:
+ *   <skill instructions>
+ *   ---
  *   <user message>
  *
- * For the built-in default (or any instruction-less profile) the section is
- * omitted and the output is byte-identical to
- * `systemPrompt + "\n\n---\n\n" + userMessage` — today's prompt.
+ * The skill body fully replaces the provider's system prompt. There is no
+ * default methodology layered underneath — picking a review runs that review.
+ *
+ * Built-in default (or any instruction-less profile):
+ *   <provider immutable instructions>
+ *   ---
+ *   <user message>
+ *
+ * Byte-identical to today's `systemPrompt + "\n\n---\n\n" + userMessage`.
  */
 export function composeReviewPrompt(
   systemPrompt: string,
   profile: ResolvedReviewProfile | undefined,
   userMessage: string,
 ): string {
-  const section = renderReviewProfileSection(profile);
-  if (section === null) {
-    return systemPrompt + "\n\n---\n\n" + userMessage;
+  if (profileHasCustomSection(profile)) {
+    return (profile as ResolvedReviewProfile).instructions.trim() + "\n\n---\n\n" + userMessage;
   }
-  return systemPrompt + "\n\n" + section + "\n\n---\n\n" + userMessage;
+  return systemPrompt + "\n\n---\n\n" + userMessage;
 }

@@ -474,7 +474,7 @@ export async function startReviewServer(
       // the default — they'd think the custom review ran when it didn't.
       if (requestedSkill && !resolvedSkillProfile) {
         throw new Error(
-          `Review "${requestedSkill.name}" could not be loaded — its SKILL.md is unreadable or too large. Fix the skill or pick another review.`,
+          `Review "${requestedSkill.name}" could not be loaded — its SKILL.md is unreadable, empty, or too large. Fix the skill or pick another review.`,
         );
       }
       const reviewProfile: ResolvedReviewProfile = resolvedSkillProfile ?? BUILTIN_DEFAULT_PROFILE;
@@ -542,13 +542,17 @@ export async function startReviewServer(
         return built ? { ...built, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label } : built;
       }
 
+      // A custom review skill carries its own instructions and becomes the whole
+      // prompt; strip the default framing prose from the user message so only the
+      // git/PR context remains. The default review keeps today's message verbatim.
+      const isCustomReview = reviewProfile.source === "user";
       const userMessage = workspacePrompt
         ? buildAgentReviewUserMessageForTarget({
             kind: "workspace",
             patch: launchPatch,
             workspace: workspacePrompt,
-          })
-        : buildAgentReviewUserMessage(launchPatch, launchDiffType as DiffType, userMessageOptions, launchMetadata);
+          }, isCustomReview)
+        : buildAgentReviewUserMessage(launchPatch, launchDiffType as DiffType, userMessageOptions, launchMetadata, isCustomReview);
       const jobLabel = workspacePrompt ? "Workspace Review" : "Code Review";
 
       if (provider === "codex") {

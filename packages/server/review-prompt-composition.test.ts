@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { composeClaudeReviewPrompt, CLAUDE_REVIEW_PROMPT } from "./claude-review";
 import { composeCodexReviewPrompt, CODEX_REVIEW_SYSTEM_PROMPT } from "./codex-review";
+import { buildAgentReviewUserMessage } from "./agent-review-message";
 import {
   BUILTIN_DEFAULT_PROFILE,
+  BUILTIN_DEFAULT_ID,
   type ResolvedReviewProfile,
 } from "@plannotator/shared/review-profiles";
 
@@ -43,50 +45,76 @@ describe("review prompt composition — default is byte-identical", () => {
     expect(composeClaudeReviewPrompt(userMessage, blank)).toBe(claudeDefault);
     expect(composeCodexReviewPrompt(userMessage, blank)).toBe(codexDefault);
   });
+
+  test("the reserved default id wins even if a profile claims source=user", () => {
+    // A malformed profile that should never exist. The id guard must take
+    // precedence so the reserved default can never be replaced.
+    const reserved: ResolvedReviewProfile = {
+      id: BUILTIN_DEFAULT_ID,
+      label: "Reserved",
+      instructions: "Custom instructions that must not be used.",
+      source: "user",
+    };
+    expect(composeClaudeReviewPrompt(userMessage, reserved)).toBe(claudeDefault);
+    expect(composeCodexReviewPrompt(userMessage, reserved)).toBe(codexDefault);
+  });
 });
 
-describe("review prompt composition — custom section placement", () => {
-  test("Claude: section sits between system prompt and user message", () => {
+describe("custom review end to end — skill replaces, message is context-only", () => {
+  test("custom skill prompt is the skill body plus the stripped context message", () => {
+    const skill: ResolvedReviewProfile = {
+      id: "skill:security",
+      label: "Security",
+      instructions: "Audit only authn and authz boundaries.",
+      source: "user",
+    };
+    // review.ts wires isCustomReview === true to both the context-only message
+    // and the replacing composer. This locks that combined contract.
+    const contextMessage = buildAgentReviewUserMessage(
+      "diff --git a/x b/x\n+x\n",
+      "last-commit",
+      { defaultBranch: "origin/main" },
+      undefined,
+      true,
+    );
+    const prompt = composeClaudeReviewPrompt(contextMessage, skill);
+
+    expect(prompt).toContain("Audit only authn and authz boundaries.");
+    expect(prompt).toContain("git diff HEAD~1..HEAD");
+    expect(prompt).not.toContain(CLAUDE_REVIEW_PROMPT);
+    expect(prompt).not.toContain("Review the code changes introduced");
+    expect(prompt).not.toContain("Provide prioritized, actionable findings.");
+  });
+});
+
+describe("review prompt composition — custom skill replaces the provider prompt", () => {
+  test("Claude: prompt is the skill body, then separator, then user message", () => {
     const prompt = composeClaudeReviewPrompt(userMessage, security);
 
-    const expected =
-      CLAUDE_REVIEW_PROMPT +
-      "\n\n" +
-      "## Custom Review Profile\n\nProfile: Security\nSource: user\n\nFocus only on security-impacting issues." +
-      "\n\n---\n\n" +
-      userMessage;
-
-    expect(prompt).toBe(expected);
-    // Ordering invariant: system prompt → section → separator → user message.
-    expect(prompt.indexOf("## Custom Review Profile")).toBeGreaterThan(
-      prompt.indexOf(CLAUDE_REVIEW_PROMPT),
-    );
-    expect(prompt.indexOf(userMessage)).toBeGreaterThan(
-      prompt.indexOf("## Custom Review Profile"),
-    );
+    expect(prompt).toBe("Focus only on security-impacting issues." + "\n\n---\n\n" + userMessage);
+    // The default methodology is gone — no provider prompt, no section wrapper.
+    expect(prompt).not.toContain(CLAUDE_REVIEW_PROMPT);
+    expect(prompt).not.toContain("## Custom Review Profile");
   });
 
-  test("Codex: section sits between system prompt and user message", () => {
+  test("Codex: prompt is the skill body, then separator, then user message", () => {
     const prompt = composeCodexReviewPrompt(userMessage, security);
 
-    const expected =
-      CODEX_REVIEW_SYSTEM_PROMPT +
-      "\n\n" +
-      "## Custom Review Profile\n\nProfile: Security\nSource: user\n\nFocus only on security-impacting issues." +
-      "\n\n---\n\n" +
-      userMessage;
-
-    expect(prompt).toBe(expected);
+    expect(prompt).toBe("Focus only on security-impacting issues." + "\n\n---\n\n" + userMessage);
+    expect(prompt).not.toContain(CODEX_REVIEW_SYSTEM_PROMPT);
+    expect(prompt).not.toContain("## Custom Review Profile");
   });
 
-  test("section carries the profile's label and source verbatim", () => {
+  test("the skill body is used verbatim, trimmed, with no label or source added", () => {
     const profile: ResolvedReviewProfile = {
-      id: "user:perf",
+      id: "skill:perf",
       label: "Performance",
-      instructions: "Flag N+1 queries.",
+      instructions: "  Flag N+1 queries.  ",
       source: "user",
     };
     const prompt = composeClaudeReviewPrompt(userMessage, profile);
-    expect(prompt).toContain("Profile: Performance\nSource: user\n\nFlag N+1 queries.");
+    expect(prompt).toBe("Flag N+1 queries." + "\n\n---\n\n" + userMessage);
+    expect(prompt).not.toContain("Profile:");
+    expect(prompt).not.toContain("Source:");
   });
 });

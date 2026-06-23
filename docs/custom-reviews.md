@@ -1,8 +1,8 @@
 # Custom Reviews
 
 A custom review is an Agent Skill. Point Plannotator at a skill and it runs the
-review using that skill's instructions. Same pipeline as the default review,
-with a different focus.
+review using that skill's instructions. The skill becomes the review. The
+default review instructions are not added, and findings come back the same way.
 
 ## Turn one on
 
@@ -22,8 +22,10 @@ No `review-skills.json`? You get the default review, unchanged.
 ## How it works
 
 Plannotator reads the skill's `SKILL.md` body at launch and uses it as the
-review's focus. The read is live. Edit the skill the normal way and the next
-review picks it up. Nothing is copied.
+review prompt. The skill defines the review; the default review prompt is
+dropped, and the user message is trimmed to the git or PR context the agent
+needs to find the changes. The read is live. Edit the skill the normal way and
+the next review picks it up. Nothing is copied.
 
 Some skills carry `references/`, `scripts/`, or `assets/`. For those, Plannotator
 tells the agent where the skill folder is, and the agent opens those files on

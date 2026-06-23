@@ -360,6 +360,12 @@ export function resolveSkillProfile(skill: DiscoveredSkill): ResolvedReviewProfi
   }
 
   const body = stripFrontmatter(raw);
+  if (!body.trim()) {
+    console.error(
+      `[plannotator] Skipping review skill ${skill.name}: SKILL.md body is empty.`,
+    );
+    return null;
+  }
   if (body.length > MAX_SKILL_BODY_LEN) {
     console.error(
       `[plannotator] Skipping review skill ${skill.name}: SKILL.md body exceeds ${MAX_SKILL_BODY_LEN} chars.`,

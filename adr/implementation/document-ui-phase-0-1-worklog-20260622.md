@@ -123,6 +123,26 @@ Confirmed transfer-as-is: SidebarContainer/SidebarTabs/CountBadge/FileBrowser/Ve
 
 ### Phase 4 status: COMPLETE — sidebar noop, file-tree seam landed. Plannotator byte-unchanged.
 
+## Phase 5 — Comments / annotations / drafts (ADR 005)
+
+Researched (5-probe spike), specced, ADR-005-accepted, then teed up + multi-lens adversarially reviewed by the `phase5-comments` workflow (4 tee-ups + 3 worktree executes + 12 review lenses + synthesis; all 12 lenses returned safe). Landed + verified by hand on the real tree, lowest-risk first. The already-portable comment UI (panel, popover, toolbar, highlighter, exporters) confirmed noop.
+
+### Seam 1 — Identity provider (DONE)
+- **File:** `packages/ui/utils/identity.ts`. Added `IdentityProvider` + `setIdentityProvider`/`resetIdentityProvider`; `getIdentity`/`isCurrentUser` delegate to a module-level provider defaulting to today's ConfigStore tater behavior. The ~9 author-stamp sites and 2 `(me)`-badge sites delegate with **zero call-site edits**.
+- **Parity:** no override caller → tater nickname + `(me)` badge identical. typecheck pass, 1620/0, builds OK. (+46/-5, identity.ts only.)
+
+### Seam 2 — Draft transport (DONE)
+- **Files:** `packages/ui/hooks/useAnnotationDraft.ts` (+ `useCodeAnnotationDraft.ts` reads `getDraftTransport()` live). Added `DraftTransport` (load/save/remove) + setters, default = today's `/api/draft` fetches verbatim; `save` rejects-on-failure so the **keepalive retry-gate stays in the hook**. The generation pre-increment, 500ms debounce, and pagehide/visibilitychange flush stay verbatim; `getDraftGeneration()` still escapes to the host.
+- **Landing note:** the workflow diff carried one phantom hunk (a delete-on-clear branch the real code-draft hook never had — it early-returns on empty). `patch` correctly rejected it; the real tree is correct without it. Caught by landing-on-real-tree verification.
+- **Parity:** no override caller; App.tsx + `shared/draft.ts` untouched. `shared/draft.test.ts` 10/0, `annotationDraftPersistence` 13/0 (incl. pagehide-flush parity), typecheck pass, 1620/0, builds OK.
+
+### Seam 3 — External-annotation transport (DONE, riskiest)
+- **File:** `packages/ui/hooks/useExternalAnnotations.ts`. Added `ExternalAnnotationTransport<T>` (`subscribe`/`getSnapshot`/CRUD) + setters; default = the SSE→polling wire moved verbatim into `createDefaultTransport`. The reducer (`applyEvent`, byte-identical cases), fallback-once gate, 500ms poll, version-scoping, optimistic-before-await, and the `[enabled]` gate **stay in the hook**. Two micro-divergences (parse-then-cancelled-check; snapshot `[]`/`0` defaults) are provably unreachable for Plannotator (server always returns well-formed `{annotations, version}`; parse-then-discard is side-effect-free).
+- **Parity:** no override caller; App.tsx untouched (both apps still call `useExternalAnnotations({enabled})`). external-annotation test green, typecheck pass, 1620/0, builds OK.
+
+### Phase 5 status: COMPLETE (pending eyeball) — 3 seams landed, comment UI noop. Plannotator byte-unchanged.
+Renderer-coupling contract (Workspaces must reuse BlockRenderer+InlineMarkdown+inlineTransforms for highlights) and replies/threading deferral recorded in ADR 005. Remaining: manual eyeball — author/`(me)`, draft save+restore+no-ghost, live SSE add + kill-stream→polling-takes-over.
+
 ### Discovered (PRE-EXISTING, out of scope — not caused by this work)
 1. **Edit/save header state leaks across file switches** in annotate-folder mode: editing+saving file A leaves the Saved/Done/wide-focus header showing when you switch to file B without editing it. Reproduced on the **baseline with the Phase 4 change reverted** (A/B confirmed) → pre-existing App.tsx bug, not a regression. Lives in the folder file-switch handler (`handleFileBrowserSelect` / edit-session reset), unrelated to `useFileBrowser`. Worth a separate fix.
 2. **Annotating the repo root (`annotate ./`) bogs down** — the file walker + chokidar SSE watcher choke on 1.4GB of node_modules (16 dirs); the code already warns about this. Pre-existing scaling limit; use a bounded folder. Not a code defect introduced here.

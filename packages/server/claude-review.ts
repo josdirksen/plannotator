@@ -25,9 +25,9 @@ export type ClaudeSeverity = "important" | "nit" | "pre_existing";
 
 export interface ClaudeFinding {
   severity: ClaudeSeverity;
-  file?: string;      // omit for a general (review-level) comment
-  line?: number;      // omit for a whole-file or general comment
-  end_line?: number;
+  file?: string | null;      // null for a general (review-level) comment
+  line?: number | null;      // null for a whole-file or general comment
+  end_line?: number | null;
   description: string;
   reasoning: string;
 }
@@ -54,13 +54,17 @@ export const CLAUDE_REVIEW_SCHEMA_JSON = JSON.stringify({
         type: "object",
         properties: {
           severity: { type: "string", enum: ["important", "nit", "pre_existing"] },
-          file: { type: "string" },
-          line: { type: "integer" },
-          end_line: { type: "integer" },
+          // Nullable, not omitted: keep every property in `required` so the
+          // schema is valid under strict structured-output validators too. A
+          // whole-file finding sets line/end_line null; a general finding also
+          // sets file null.
+          file: { type: ["string", "null"] },
+          line: { type: ["integer", "null"] },
+          end_line: { type: ["integer", "null"] },
           description: { type: "string" },
           reasoning: { type: "string" },
         },
-        required: ["severity", "description", "reasoning"],
+        required: ["severity", "file", "line", "end_line", "description", "reasoning"],
         additionalProperties: false,
       },
     },
@@ -167,9 +171,9 @@ Step 5: Deduplicate and rank
 
 Step 6: Return structured JSON output matching the schema.
   Place each finding by how specific it is: give file and line for a line-level
-  issue; give file and omit the line for a whole-file issue; omit both for a
-  general, review-level note. Never invent a line you are unsure of — drop to a
-  file or general placement instead of guessing.
+  issue; give file and set line null for a whole-file issue; set file and line
+  null for a general, review-level note. Never invent a line you are unsure of —
+  drop to a file or general placement instead of guessing.
   If no issues are found, return an empty findings array with zeroed summary.
 
 ## Hard constraints

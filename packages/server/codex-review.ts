@@ -43,7 +43,7 @@ async function debugLog(label: string, data?: unknown): Promise<void> {
 // can't read, so we materialize the schema to a real file.
 // ---------------------------------------------------------------------------
 
-const CODEX_REVIEW_SCHEMA = JSON.stringify({
+export const CODEX_REVIEW_SCHEMA = JSON.stringify({
   type: "object",
   properties: {
     findings: {
@@ -55,12 +55,15 @@ const CODEX_REVIEW_SCHEMA = JSON.stringify({
           body: { type: "string" },
           confidence_score: { type: "number" },
           priority: { type: ["integer", "null"] },
+          // Nullable, not omittable: OpenAI strict structured output requires
+          // every property to appear in `required`. A whole-file finding sets
+          // line_range to null; a general finding sets code_location to null.
           code_location: {
-            type: "object",
+            type: ["object", "null"],
             properties: {
               absolute_file_path: { type: "string" },
               line_range: {
-                type: "object",
+                type: ["object", "null"],
                 properties: {
                   start: { type: "integer" },
                   end: { type: "integer" },
@@ -69,11 +72,11 @@ const CODEX_REVIEW_SCHEMA = JSON.stringify({
                 additionalProperties: false,
               },
             },
-            required: ["absolute_file_path"],
+            required: ["absolute_file_path", "line_range"],
             additionalProperties: false,
           },
         },
-        required: ["title", "body", "confidence_score", "priority"],
+        required: ["title", "body", "confidence_score", "priority", "code_location"],
         additionalProperties: false,
       },
     },
@@ -156,7 +159,7 @@ At the beginning of the finding title, tag the bug with priority level. For exam
 
 Additionally, include a numeric priority field in the JSON output for each finding: set "priority" to 0 for P0, 1 for P1, 2 for P2, or 3 for P3. If a priority cannot be determined, omit the field or use null.
 
-Place each finding by how specific it is. For a line-level issue, set code_location with the file and a line_range. For a whole-file issue, set code_location with the file path and omit line_range. For a general, review-wide point, omit code_location entirely. Do not invent a line range you are unsure of — drop to a whole-file or general placement instead.
+Place each finding by how specific it is. For a line-level issue, set code_location with the file and a line_range. For a whole-file issue, set code_location with the file path and line_range null. For a general, review-wide point, set code_location null. Do not invent a line range you are unsure of — drop to a whole-file or general placement instead.
 
 At the end of your findings, output an "overall correctness" verdict of whether or not the patch should be considered "correct".
 Correct implies that existing code and tests will not break, and the patch is free of bugs and other blocking issues.
@@ -237,7 +240,7 @@ export function generateOutputPath(): string {
 
 export interface CodexCodeLocation {
   absolute_file_path: string;
-  line_range?: { start: number; end: number }; // omit for a whole-file comment
+  line_range?: { start: number; end: number } | null; // null for a whole-file comment
 }
 
 export interface CodexFinding {
@@ -245,7 +248,7 @@ export interface CodexFinding {
   body: string;
   confidence_score: number;
   priority: number | null;
-  code_location?: CodexCodeLocation; // omit for a general (review-level) comment
+  code_location?: CodexCodeLocation | null; // null for a general (review-level) comment
 }
 
 export interface CodexReviewOutput {

@@ -37,33 +37,54 @@ The reuse surface currently has **9 global host-override switches** scattered ac
 - **Later (optional):** migrate the render-time seams to a `<PlannotatorUIProvider>` (React context) if Workspaces wants per-instance config / SSR. The `configure()` facade is the 80/20 now; the Provider is the door it leaves open.
 - **Verify:** typecheck; a tiny test that `configurePlannotatorUI({...})` routes to each setter; Plannotator behavior unchanged (it never calls it).
 
-## Step 6 — Precompiled CSS bundle (optional friction-reducer)
-Sharing Tailwind-utility components forces the consumer to either scan our source (`@source`) or get a ready-made stylesheet. Ship the stylesheet to smooth the worst integration wrinkle.
-- Add a build that emits a single precompiled CSS file for `@plannotator/ui` (theme tokens + the component utility classes), exported as e.g. `@plannotator/ui/styles.css`. The consumer imports one stylesheet instead of wiring Tailwind `@source` to ui internals.
-- **Additive:** keep the `@source` glob path documented as the alternative; the source-ships-TS model is unchanged. This is the heavier of the two polish items (needs a small CSS build pipeline) — optional; the `@source` approach already works for the first Workspaces integration.
+## Decisions locked (post-interrogation, 2026-06-23)
+- **Ship TS source for the JS, NOT a compiled build.** Rationale: the only consumer (Workspaces) is internal and on a controlled stack (Vite/Cloudflare). A `tsup`/lib build exists only to insulate unknown/arbitrary-toolchain consumers — that insulation buys ~nothing here, and shipping source avoids a build pipeline to maintain and avoids a `dist` artifact that can drift from what Plannotator actually runs. Door stays open: add a build later if/when an external consumer appears. (Contested in review — one reviewer assumed a public lib; this is the deliberate call for the internal case.)
+- **Precompiled CSS is REQUIRED, not optional** (Step 6). Even internally, the `@source` glob into `node_modules/@plannotator/ui/**/*.tsx` is fragile (pnpm symlinks break it) and a per-build perf cost. Ship the stylesheet.
+- **`@plannotator/core` gets a node-free CI typecheck** (Step 1) so a stray `node:*` import fails the build — turns "confirm node-free by hand" into an enforced invariant.
+- **Pin `@plannotator/ui` → `@plannotator/core` to an EXACT version** (not a range) during 0.x, so a consumer can't end up with mismatched copies (and silently diverge the annotation serializers).
+
+## Step 6 — Precompiled CSS bundle (REQUIRED)
+Tailwind-utility components force the consumer to either scan our source (`@source`) or get a ready-made stylesheet. Ship the stylesheet — the `@source` route is fragile (pnpm symlinks) and costs every consumer build time.
+- Add a CSS-only build that emits a single precompiled `@plannotator/ui/styles.css` (theme tokens + the component utility classes). This is a CSS pipeline only — the JS still ships as source (per the decision above).
+- Keep the `@source` glob documented as the fallback for a consumer who wants to scan source, but the stylesheet is the supported default.
 - **Verify:** the precompiled CSS renders Plannotator-identical visuals in a bare consumer; Plannotator's own build/styling untouched.
 
 ## Step 7 — Publish (OUTWARD-FACING — confirm first)
-- Decide registry (recommend **public npm**, matching existing flow), versions (recommend **0.1.0**, core+ui together).
-- Write/READMEs documenting the consumer requirements: `moduleResolution: bundler`, `allowImportingTsExtensions`, `isolatedModules`, `jsx: react-jsx`, React 19 + Tailwind v4 (`@tailwindcss/vite`), Tailwind `@source` over `node_modules/@plannotator/ui/**/*.tsx`, import `@plannotator/ui/theme`.
+- JS ships as **source** (no build); CSS ships **precompiled** (Step 6). `core` + `ui` `exports` stay source-only for `.ts`/`.tsx`, plus the `styles.css` entry.
+- Decide registry (recommend **public npm**, matching existing flow), versions (recommend **0.1.0**, core+ui together), with `ui`→`core` pinned **exact**.
+- Write/READMEs documenting consumer requirements: `moduleResolution: bundler`, `allowImportingTsExtensions`, `isolatedModules`, `jsx: react-jsx`, React 19, and **import `@plannotator/ui/styles.css`** (the `@source` glob is the documented fallback, not the default).
 - Add a publish job to `.github/workflows/release.yml` for `core` + `ui` (or publish manually the first time: `bun pm pack` each, `npm publish *.tgz --access public`). bun resolves `workspace:*` → real versions at pack time.
 - **Do not run the publish until the user explicitly approves** the registry + version + go.
 
+## Carried-over review fixes (do before publish; NOT Phase-7 architecture)
+These are small bugs/gaps the interrogation found in already-committed Phase-5 code. None affect Plannotator (override-path only); fix before a real consumer wires the seams:
+1. **`useExternalAnnotations` split-transport** — the effect captures `transport` at mount for subscribe/poll, but the CRUD callbacks read the module global live → reads and writes can hit different backends if the transport is set after mount. Read consistently in both paths. (Check `useFileBrowser` for the same shape.)
+2. **`useExternalAnnotations` `fallbackRef`/`receivedSnapshotRef` not reset on effect re-run** — if `enabled` toggles false→true (Workspaces auth/loading), the hook silently stops updating. Reset both at the top of the effect.
+3. **Override path untested** — add one small test per seam that calls `setX(fake)`, drives the hook/component, asserts the contract, then `resetX()`. Makes the dead `reset*()` functions live and pins the subtle contracts (draft generation, SSE fallback).
+4. (consider) `configStore` only redirects setting *writes* via `setStorageBackend`; the initial *load* already ran against cookies at module-init. If Workspaces needs to load its own settings, add a `loadFromBackend()`. Skip if Workspaces owns its settings entirely.
+
 ## Definition of done (Phase 7)
-- `@plannotator/core` exists, browser-safe, zero deps; the universal slice lives there once.
+- `@plannotator/core` exists, browser-safe, zero deps; the universal slice lives there once; **CI typechecks it node-free** (no `@types/node`).
 - `@plannotator/shared` re-exports from core; Plannotator byte-unchanged (full `bun test` 1620/0, typecheck, builds, shipped-bundle hashes identical; `git diff` limited to core/shared/ui/editor packaging + import re-points).
-- `@plannotator/ui` depends only on `@plannotator/core` internally; installs standalone (with `core`).
+- `@plannotator/ui` depends only on `@plannotator/core` internally, **pinned exact**; JS ships as source; installs standalone (with `core`).
 - `wideMode.ts` relocated.
 - **`configurePlannotatorUI()` exists** as the single typed front door over the 9 global setters; Plannotator unchanged (never calls it).
-- **(Optional) precompiled CSS** shipped so a consumer can import one stylesheet instead of wiring Tailwind `@source`.
+- **Precompiled CSS (`@plannotator/ui/styles.css`) shipped** (required).
+- The carried-over review fixes (split-transport, fallbackRef reset, per-seam override tests) are done.
 - Consumer requirements documented; publish job ready.
 - (On explicit go) `core` + `ui` published; Workspaces can `npm install @plannotator/ui @plannotator/core`, call `configurePlannotatorUI({...})` once, import `@plannotator/ui/styles.css`, and build.
 
 ## Parity guardrail (run after the carve, before publish)
 `bun run typecheck` · `bun test` 1620/0 · `bun run --cwd apps/review build && bun run build:hook && bun run build:opencode` · shipped-bundle hashes vs the Phase-0 baseline (should be identical) · `git diff` confined to the expected packages · Pi `vendor.sh`/typecheck still green.
 
+## Decided
+- **JS ships as source, not a build** (single internal consumer on a controlled stack). — locked
+- **Precompiled CSS required.** — locked
+- **`core` CI typecheck node-free; `ui`→`core` pinned exact.** — locked
+
 ## Open questions (resolve in ADR)
 1. Registry: public npm (recommended) vs private scope.
 2. Versions: 0.1.0 (recommended) vs other; core+ui together vs independent.
 3. CI publish job now vs manual first publish.
 4. Confirm `@plannotator/ai` stays private (no ui value import) and `review-core`/`review-workspace` type handling.
+5. In-scope or not: `configStore.loadFromBackend()` (only if Workspaces wants its own settings persistence).

@@ -3,6 +3,7 @@ import { CodeAnnotation, type CodeAnnotationScope, type EditorAnnotation } from 
 import { isCurrentUser } from '@plannotator/ui/utils/identity';
 import { EditorAnnotationCard } from '@plannotator/ui/components/EditorAnnotationCard';
 import { CopyButton } from './CopyButton';
+import { copyLocationPrefix } from '../utils/annotationDisplay';
 import { ConventionalLabelBadge } from './ConventionalLabelPicker';
 import { HighlightedCode } from './HighlightedCode';
 import { detectLanguage } from '../utils/detectLanguage';
@@ -103,17 +104,6 @@ function compareCodeAnnotations(a: CodeAnnotation, b: CodeAnnotation): number {
   return aScope === 'line'
     ? a.lineStart - b.lineStart
     : b.createdAt - a.createdAt;
-}
-
-/**
- * The location prefix for an annotation's copied text. General comments belong
- * to no file, so they carry no prefix; file comments carry just the path; line
- * comments carry path + line range. Never leaks the "" / 0 sentinels.
- */
-function copyLocationPrefix(a: CodeAnnotation, scope: CodeAnnotationScope): string {
-  if (scope === 'general') return '';
-  if (scope === 'file') return `${a.filePath}\n`;
-  return `${a.filePath}:${a.lineStart}${a.lineEnd !== a.lineStart ? `-${a.lineEnd}` : ''}\n`;
 }
 
 

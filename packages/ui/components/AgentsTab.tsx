@@ -14,7 +14,7 @@ import {
   Search,
 } from 'lucide-react';
 import type { AgentJobInfo, AgentCapabilities } from '../types';
-import { isTerminalStatus } from '@plannotator/shared/agent-jobs';
+import { isTerminalStatus } from '@plannotator/core/agent-jobs';
 import { cn } from '../lib/utils';
 import { ReviewAgentsIcon } from './ReviewAgentsIcon';
 import { ClaudeIcon, CodexIcon, CopilotIcon, CursorIcon, OpenCodeIcon, PiIcon } from './icons/AgentIcons';

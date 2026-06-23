@@ -9,7 +9,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import type { VaultNode } from "../types";
-import type { WorkspaceStatusPayload } from "@plannotator/shared/workspace-status";
+import type { WorkspaceStatusPayload } from "@plannotator/core/workspace-status-types";
 
 export interface DirState {
   path: string;

@@ -143,11 +143,11 @@ describe("parseModels: cursor", () => {
 });
 
 describe("parseModels: opencode", () => {
-  test("parses provider/model lines, dedupes, skips junk", () => {
-    const out = ["opencode/big-pickle", "opencode-go/glm-5.1", "opencode/big-pickle", "", "Some header", "a/b/c"].join("\n");
+  test("parses provider/model lines (incl. nested slashes), dedupes, skips junk", () => {
+    const out = ["opencode/big-pickle", "openrouter/deepseek/deepseek-chat-v3", "opencode/big-pickle", "", "Some header line"].join("\n");
     expect(opencode.parseModels(out)).toEqual([
       { id: "opencode/big-pickle", label: "opencode/big-pickle" },
-      { id: "opencode-go/glm-5.1", label: "opencode-go/glm-5.1" },
+      { id: "openrouter/deepseek/deepseek-chat-v3", label: "openrouter/deepseek/deepseek-chat-v3" },
     ]);
   });
 
@@ -234,6 +234,15 @@ describe("parseMarkerStreamOutput: failure modes → null", () => {
     expect(parseMarkerStreamOutput(cursorDelta(markerBlock(badSeverity)), cursor)).toBeNull();
     expect(parseMarkerStreamOutput("", cursor)).toBeNull();
     expect(parseMarkerStreamOutput("   \n  ", cursor)).toBeNull();
+  });
+
+  test("cursor: a complete block followed by a truncated block fails closed (no stale fallback)", () => {
+    // Model emitted a draft block, then started a replacement that got cut off.
+    // We must NOT silently return the earlier block.
+    const stdout = cursorDelta(
+      "Draft:\n" + markerBlock(validReview) + "\nFinal:\n" + `${MARKER_OPEN}\n{"findings":[`,
+    );
+    expect(parseMarkerStreamOutput(stdout, cursor)).toBeNull();
   });
 
   test("opencode: missing summary field → null; valid empty findings accepted", () => {

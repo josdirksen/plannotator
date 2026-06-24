@@ -2,7 +2,12 @@ import {
   profileHasCustomSection,
   type ResolvedReviewProfile,
 } from "@plannotator/shared/review-profiles";
-import { transformSeverityFindings } from "./review-findings";
+import {
+  transformSeverityFindings,
+  type ReviewSeverity,
+  type ReviewFinding,
+  type ReviewAnnotationInput,
+} from "./review-findings";
 
 /**
  * Marker Review Engines — the shared machinery for review CLIs that expose NO
@@ -41,16 +46,11 @@ export const MARKER_CLOSE = "</plannotator-review-json>";
 // null), or a general review-level note (both null). Nothing is dropped.
 // ---------------------------------------------------------------------------
 
-export type MarkerSeverity = "important" | "nit" | "pre_existing";
-
-export interface MarkerFinding {
-  severity: MarkerSeverity;
-  file?: string | null; // null for a general (review-level) comment
-  line?: number | null; // null for a whole-file or general comment
-  end_line?: number | null;
-  description: string;
-  reasoning: string;
-}
+// Marker findings ARE review findings — reuse the one shared shape from
+// review-findings.ts (this module already imports its transform) rather than
+// keeping a byte-identical copy that could silently diverge.
+export type MarkerSeverity = ReviewSeverity;
+export type MarkerFinding = ReviewFinding;
 
 export interface MarkerReviewSummary {
   correctness: string;
@@ -375,8 +375,10 @@ function opencodeParseModels(stdout: string): MarkerModel[] {
   const seen = new Set<string>();
   for (const rawLine of stdout.split("\n")) {
     const id = rawLine.trim();
-    // A model id is `provider/model`: no whitespace, exactly the slash form.
-    if (!id || /\s/.test(id) || !/^[^/\s]+\/[^/\s]+$/.test(id)) continue;
+    // A model id is `provider/model` and may carry extra `/` segments (e.g.
+    // OpenRouter's `openrouter/deepseek/deepseek-chat-v3`): a leading provider,
+    // a slash, then a non-empty remainder, all whitespace-free.
+    if (!id || /\s/.test(id) || !/^[^/\s]+\/\S+$/.test(id)) continue;
     if (seen.has(id)) continue;
     seen.add(id);
     models.push({ id, label: id });
@@ -530,7 +532,11 @@ export function extractLastMarkerBlock(text: string): string | null {
     if (open === -1) break;
     const contentStart = open + MARKER_OPEN.length;
     const close = text.indexOf(MARKER_CLOSE, contentStart);
-    if (close === -1) break; // no matching close — block is incomplete
+    // A dangling opener (no matching close) almost always means the model's
+    // final block was truncated mid-stream. Fail closed — return null — rather
+    // than silently falling back to an earlier (draft, or echoed prompt-example)
+    // block, which would mark a truncated review green with the wrong findings.
+    if (close === -1) return null;
     result = text.slice(contentStart, close);
     searchFrom = close + MARKER_CLOSE.length;
   }
@@ -756,19 +762,7 @@ export function buildMarkerCommand(
 // the author differs, supplied by the engine descriptor.
 // ---------------------------------------------------------------------------
 
-export interface MarkerReviewAnnotationInput {
-  source: string;
-  filePath: string;
-  lineStart: number;
-  lineEnd: number;
-  type: string;
-  side: string;
-  scope: string;
-  text: string;
-  severity: MarkerSeverity;
-  reasoning: string;
-  author: string;
-}
+export type MarkerReviewAnnotationInput = ReviewAnnotationInput;
 
 /** Transform marker findings into the external annotation format. */
 export function transformMarkerFindings(

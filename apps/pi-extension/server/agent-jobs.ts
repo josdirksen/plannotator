@@ -70,7 +70,7 @@ export interface AgentJobHandlerOptions {
 	mode: "plan" | "review" | "annotate";
 	getServerUrl: () => string;
 	getCwd: () => string;
-	/** Server-side command builder for known providers (codex, claude, tour, cursor). */
+	/** Build the command server-side for a given provider. */
 	buildCommand?: (provider: string, config?: Record<string, unknown>) => Promise<{
 		command: string[];
 		outputPath?: string;
@@ -346,10 +346,10 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 							cwd: jobCwd,
 						});
 					} catch (err) {
-						// Claude/Codex are fail-open; Cursor is fail-closed — an unexpected
-						// throw during prompt-enforced ingestion must fail the job, not pass
-						// it. (The Cursor handler normally fails by mutation and never throws;
-						// this guards future refactors.)
+						// Claude/Codex are fail-open; Cursor and OpenCode are fail-closed — an
+						// unexpected throw during prompt-enforced ingestion must fail the job,
+						// not pass it. (Their handlers normally fail by mutation and never
+						// throw; this guards future refactors.)
 						if (MARKER_ENGINES[provider as "cursor" | "opencode"]) {
 							entry.info.status = "failed";
 							entry.info.error = err instanceof Error ? err.message : `${provider} result ingestion failed`;

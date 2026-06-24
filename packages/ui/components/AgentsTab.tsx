@@ -18,6 +18,7 @@ import type { AgentJobInfo, AgentCapabilities } from '../types';
 import { isTerminalStatus } from '@plannotator/shared/agent-jobs';
 import { cn } from '../lib/utils';
 import { ReviewAgentsIcon } from './ReviewAgentsIcon';
+import { ClaudeIcon, CodexIcon } from './icons/AgentIcons';
 import { useAgentSettings } from '../hooks/useAgentSettings';
 import type { AgentEngine, AgentMode } from '../hooks/useAgentSettings';
 
@@ -78,6 +79,11 @@ const MODE_LABEL: Record<AgentMode, string> = {
 const ENGINE_LABEL: Record<AgentEngine, string> = {
   claude: 'Claude',
   codex: 'Codex',
+};
+
+const ENGINE_ICON: Record<AgentEngine, React.FC<{ className?: string }>> = {
+  claude: ClaudeIcon,
+  codex: CodexIcon,
 };
 
 interface AgentsTabProps {
@@ -679,7 +685,6 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
   };
 
   const modeOptions = availableModes.map((mode) => ({ value: mode, label: MODE_LABEL[mode] }));
-  const engineOptions = availableEngines.map((engine) => ({ value: engine, label: ENGINE_LABEL[engine] }));
   const renderStaticChoice = (label: string, icon?: React.ReactNode) => (
     <div className="flex items-center gap-2 rounded-lg border border-border/30 bg-surface-1/30 px-2.5 py-1.5">
       {icon}
@@ -687,19 +692,42 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
     </div>
   );
 
-  const renderEngineSelect = (value: AgentEngine, onChange: (engine: AgentEngine) => void) => (
-    <ConfigRow label="Engine" stacked>
-      {availableEngines.length > 1 ? (
-        <SelectMenu
-          value={value}
-          options={engineOptions}
-          onChange={(next) => onChange(next as AgentEngine)}
-        />
-      ) : (
-        renderStaticChoice(engineOptions[0]?.label ?? ENGINE_LABEL[value])
-      )}
-    </ConfigRow>
-  );
+  const renderEngineSelect = (value: AgentEngine, onChange: (engine: AgentEngine) => void) => {
+    const StaticIcon = ENGINE_ICON[value];
+    return (
+      <ConfigRow label="Engine" stacked>
+        {availableEngines.length > 1 ? (
+          // Tap an agent's mark to pick it — no dropdown.
+          <div className="flex items-center gap-1.5">
+            {availableEngines.map((engine) => {
+              const Icon = ENGINE_ICON[engine];
+              const selected = value === engine;
+              return (
+                <button
+                  key={engine}
+                  type="button"
+                  onClick={() => onChange(engine)}
+                  title={ENGINE_LABEL[engine]}
+                  aria-label={ENGINE_LABEL[engine]}
+                  aria-pressed={selected}
+                  className={cn(
+                    'flex h-9 w-9 items-center justify-center rounded-lg border transition-all',
+                    selected
+                      ? 'border-primary/40 bg-primary/5'
+                      : 'border-border/30 bg-surface-1/30 opacity-40 hover:opacity-100',
+                  )}
+                >
+                  <Icon className="h-5 w-5" />
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          renderStaticChoice(ENGINE_LABEL[value], <StaticIcon className="h-4 w-4" />)
+        )}
+      </ConfigRow>
+    );
+  };
 
   return (
     <div className="flex flex-col h-full">

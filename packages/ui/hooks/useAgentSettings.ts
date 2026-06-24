@@ -13,6 +13,13 @@ export const DEFAULT_TOUR_CLAUDE_EFFORT = 'medium';
 export const DEFAULT_TOUR_CODEX_MODEL = 'gpt-5.3-codex';
 export const DEFAULT_TOUR_CODEX_REASONING = 'medium';
 export const DEFAULT_TOUR_CODEX_FAST = false;
+// `auto` is Cursor's own default model id (from `agent models`); lowercase so it
+// matches the discovered catalog and the buildCursorCommand omit-`--model` check.
+export const DEFAULT_CURSOR_MODEL = 'auto';
+
+// OpenCode has no `auto` pseudo-model; empty string means "use OpenCode's
+// configured default" and buildOpencodeCommand omits `--model` for it.
+export const DEFAULT_OPENCODE_MODEL = '';
 
 interface ClaudeSection {
   model: string;
@@ -24,16 +31,31 @@ interface CodexSection {
   perModel: Record<string, { reasoning: string; fast: boolean }>;
 }
 
+// Cursor/OpenCode have no per-model sub-settings (no effort/reasoning), so a
+// flat { model } section is enough — deliberately simpler than Claude/Codex.
+interface CursorSection {
+  model: string; // 'auto' or a discovered model id
+}
+
+interface OpencodeSection {
+  model: string; // '' (default) or a discovered provider/model id
+}
+
 export type AgentMode = 'review' | 'tour';
 export type AgentEngine = 'claude' | 'codex';
+// Review-only engine union. Tour stays on the narrow AgentEngine so its
+// exhaustive Record<AgentEngine, ...> maps remain valid without change.
+export type ReviewEngine = AgentEngine | 'cursor' | 'opencode';
 
 interface AgentSettingsState {
   selectedMode?: AgentMode;
-  reviewEngine: AgentEngine;
+  reviewEngine: ReviewEngine;
   reviewProfileId: string;
   tourEngine: AgentEngine;
   claude: ClaudeSection;
   codex: CodexSection;
+  cursor: CursorSection;
+  opencode: OpencodeSection;
   tourClaude: ClaudeSection;
   tourCodex: CodexSection;
 }
@@ -45,6 +67,8 @@ const initialState: AgentSettingsState = {
   tourEngine: 'claude',
   claude: { model: DEFAULT_CLAUDE_MODEL, perModel: {} },
   codex: { model: DEFAULT_CODEX_MODEL, perModel: {} },
+  cursor: { model: DEFAULT_CURSOR_MODEL },
+  opencode: { model: DEFAULT_OPENCODE_MODEL },
   tourClaude: { model: DEFAULT_TOUR_CLAUDE_MODEL, perModel: {} },
   tourCodex: { model: DEFAULT_TOUR_CODEX_MODEL, perModel: {} },
 };
@@ -72,6 +96,12 @@ function parseEngine(value: unknown): AgentEngine {
   return value === 'codex' ? 'codex' : 'claude';
 }
 
+function parseReviewEngine(value: unknown): ReviewEngine {
+  if (value === 'cursor') return 'cursor';
+  if (value === 'opencode') return 'opencode';
+  return parseEngine(value);
+}
+
 function parseMode(value: unknown): AgentMode | undefined {
   if (value === 'review' || value === 'tour') return value;
   return undefined;
@@ -84,7 +114,7 @@ function readCookie(): AgentSettingsState {
     const parsed = JSON.parse(raw);
     return {
       selectedMode: parseMode(parsed.selectedMode) ?? initialState.selectedMode,
-      reviewEngine: parseEngine(parsed.reviewEngine),
+      reviewEngine: parseReviewEngine(parsed.reviewEngine),
       reviewProfileId: typeof parsed.reviewProfileId === 'string' ? parsed.reviewProfileId : 'builtin:default',
       tourEngine: parseEngine(parsed.tourEngine),
       claude: {
@@ -94,6 +124,12 @@ function readCookie(): AgentSettingsState {
       codex: {
         model: typeof parsed.codex?.model === 'string' ? parsed.codex.model : DEFAULT_CODEX_MODEL,
         perModel: sanitizeCodexPerModel(parsed.codex?.perModel),
+      },
+      cursor: {
+        model: typeof parsed.cursor?.model === 'string' ? parsed.cursor.model : DEFAULT_CURSOR_MODEL,
+      },
+      opencode: {
+        model: typeof parsed.opencode?.model === 'string' ? parsed.opencode.model : DEFAULT_OPENCODE_MODEL,
       },
       tourClaude: {
         model: typeof parsed.tourClaude?.model === 'string' ? parsed.tourClaude.model : DEFAULT_TOUR_CLAUDE_MODEL,
@@ -120,7 +156,7 @@ export function useAgentSettings() {
     setState((s) => ({ ...s, selectedMode: mode }));
   }, []);
 
-  const setReviewEngine = useCallback((engine: AgentEngine) => {
+  const setReviewEngine = useCallback((engine: ReviewEngine) => {
     setState((s) => ({ ...s, reviewEngine: engine }));
   }, []);
 
@@ -160,6 +196,14 @@ export function useAgentSettings() {
 
   const setCodexModel = useCallback((model: string) => {
     setState((s) => ({ ...s, codex: { ...s.codex, model } }));
+  }, []);
+
+  const setCursorModel = useCallback((model: string) => {
+    setState((s) => ({ ...s, cursor: { ...s.cursor, model } }));
+  }, []);
+
+  const setOpencodeModel = useCallback((model: string) => {
+    setState((s) => ({ ...s, opencode: { ...s.opencode, model } }));
   }, []);
 
   const patchCodex = useCallback(
@@ -231,6 +275,8 @@ export function useAgentSettings() {
     codexModel: state.codex.model,
     codexReasoning,
     codexFast,
+    cursorModel: state.cursor.model,
+    opencodeModel: state.opencode.model,
     tourClaudeModel: state.tourClaude.model,
     tourClaudeEffort,
     tourCodexModel: state.tourCodex.model,
@@ -245,6 +291,8 @@ export function useAgentSettings() {
     setCodexModel,
     setCodexReasoning,
     setCodexFast,
+    setCursorModel,
+    setOpencodeModel,
     setTourClaudeModel,
     setTourClaudeEffort,
     setTourCodexModel,

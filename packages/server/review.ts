@@ -58,6 +58,18 @@ import {
   transformClaudeFindings,
 } from "./claude-review";
 import { createTourSession, TOUR_EMPTY_OUTPUT_ERROR } from "./tour/tour-review";
+import {
+  CURSOR_REVIEW_PROMPT,
+  buildCursorCommand,
+  parseCursorStreamOutput,
+  transformCursorFindings,
+} from "./cursor-review";
+import {
+  OPENCODE_REVIEW_PROMPT,
+  buildOpencodeCommand,
+  parseOpencodeStreamOutput,
+  transformOpencodeFindings,
+} from "./opencode-review";
 import { loadConfig, saveConfig, detectGitUser, getServerConfig } from "./config";
 import { type PRMetadata, type PRReviewFileComment, type PRStackTree, type PRListItem, fetchPR, fetchPRFileContent, fetchPRContext, submitPRReview, fetchPRViewedFiles, markPRFilesViewed, fetchPRStack, fetchPRList, getPRUser, parsePRUrl, prRefFromMetadata, isSameProject, getDisplayRepo, getMRLabel, getMRNumberLabel } from "./pr";
 import { AI_QUERY_ENDPOINT, createAIRuntime } from "./ai-runtime";
@@ -558,6 +570,28 @@ export async function startReviewServer(
         return { command, stdinPrompt, prompt, cwd, label: jobLabel, captureStdout: true, model, effort, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label };
       }
 
+      if (provider === "cursor") {
+        // Cursor has no schema flag — its marker-block output contract lives in
+        // CURSOR_REVIEW_PROMPT. captureStdout is required (the marker block comes
+        // back on stdout, like Claude). buildCursorCommand passes the prompt as
+        // the trailing argv arg and threads --workspace=cwd to match the spawn cwd.
+        const model = typeof config?.model === "string" && config.model ? config.model : undefined;
+        const prompt = CURSOR_REVIEW_PROMPT + "\n\n---\n\n" + userMessage;
+        const { command } = buildCursorCommand(prompt, model, cwd);
+        return { command, prompt, cwd, label: jobLabel, captureStdout: true, model, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext };
+      }
+
+      if (provider === "opencode") {
+        // OpenCode has no schema flag — its marker-block output contract lives in
+        // OPENCODE_REVIEW_PROMPT. captureStdout is required (the marker block
+        // comes back on stdout NDJSON). buildOpencodeCommand passes the prompt as
+        // the trailing message arg and threads --dir=cwd to match the spawn cwd.
+        const model = typeof config?.model === "string" && config.model ? config.model : undefined;
+        const prompt = OPENCODE_REVIEW_PROMPT + "\n\n---\n\n" + userMessage;
+        const { command } = buildOpencodeCommand(prompt, model, cwd);
+        return { command, prompt, cwd, label: jobLabel, captureStdout: true, model, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext };
+      }
+
       return null;
     },
 
@@ -653,6 +687,88 @@ export async function startReviewServer(
         };
 
         ingest(transformed, "claude-review");
+        return;
+      }
+
+      // --- Cursor path ---
+      // FAIL-CLOSED: Cursor output is prompt-enforced (no schema flag), so any
+      // missing/malformed/schema/transform/insertion failure must MUTATE the job
+      // to failed — NEVER throw (agent-jobs.ts swallows throws, silently leaving
+      // an exit-0 job marked done). Mirrors the Tour fail-closed pattern below.
+      if (job.provider === "cursor") {
+        const output = meta.stdout ? parseCursorStreamOutput(meta.stdout) : null;
+        if (!output) {
+          job.status = "failed";
+          job.error = "Cursor review output missing or unparseable (no valid marker JSON).";
+          return;
+        }
+
+        // Derive the verdict from finding severities (like Claude) rather than
+        // trusting Cursor's free-form `correctness` string. Cursor has no schema
+        // flag, so a model value like "not correct" would be stored verbatim and
+        // the detail panel (any string containing "correct" except "incorrect" →
+        // green) would invert the displayed result.
+        const hasImportant = output.findings.some((f) => f.severity === "important");
+        job.summary = {
+          correctness: hasImportant ? "Issues Found" : "Correct",
+          explanation: output.summary.explanation,
+          confidence: output.summary.confidence,
+        };
+
+        if (output.findings.length > 0) {
+          const annotations = transformCursorFindings(
+            output.findings,
+            job.source,
+            cwd,
+            workspace ? (filePath) => workspace.normalizeAnnotationPath(filePath) : undefined,
+          )
+            .map(a => ({ ...a, ...jobPrContext, ...(jobDiffScope && { diffScope: jobDiffScope }) }));
+          const result = externalAnnotations.addAnnotations({ annotations });
+          if ("error" in result) {
+            job.status = "failed";
+            job.error = `Cursor annotation insertion failed: ${result.error}`;
+            return;
+          }
+        }
+        return;
+      }
+
+      // --- OpenCode path ---
+      // FAIL-CLOSED, same as Cursor: prompt-enforced output (no schema flag), so
+      // any missing/malformed/transform/insertion failure MUTATES the job to
+      // failed — never throws.
+      if (job.provider === "opencode") {
+        const output = meta.stdout ? parseOpencodeStreamOutput(meta.stdout) : null;
+        if (!output) {
+          job.status = "failed";
+          job.error = "OpenCode review output missing or unparseable (no valid marker JSON).";
+          return;
+        }
+
+        // Derive the verdict from finding severities (like Claude/Cursor) rather
+        // than trusting the model's free-form `correctness` string.
+        const hasImportant = output.findings.some((f) => f.severity === "important");
+        job.summary = {
+          correctness: hasImportant ? "Issues Found" : "Correct",
+          explanation: output.summary.explanation,
+          confidence: output.summary.confidence,
+        };
+
+        if (output.findings.length > 0) {
+          const annotations = transformOpencodeFindings(
+            output.findings,
+            job.source,
+            cwd,
+            workspace ? (filePath) => workspace.normalizeAnnotationPath(filePath) : undefined,
+          )
+            .map(a => ({ ...a, ...jobPrContext, ...(jobDiffScope && { diffScope: jobDiffScope }) }));
+          const result = externalAnnotations.addAnnotations({ annotations });
+          if ("error" in result) {
+            job.status = "failed";
+            job.error = `OpenCode annotation insertion failed: ${result.error}`;
+            return;
+          }
+        }
         return;
       }
 

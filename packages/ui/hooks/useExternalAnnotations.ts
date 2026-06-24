@@ -177,7 +177,11 @@ export function useExternalAnnotations<T extends { id: string; source?: string }
     }
 
     // --- SSE primary transport ---
-    const unsubscribe = transport.subscribe(
+    // `let` (not `const`) so onError firing synchronously during subscribe — a host
+    // transport may do this when its channel is immediately unavailable — reads a
+    // declared-but-undefined binding (no-op) instead of hitting the TDZ and throwing.
+    let unsubscribe: (() => void) | undefined;
+    unsubscribe = transport.subscribe(
       (parsed) => {
         if (cancelled) return;
         applyEvent(parsed);
@@ -186,7 +190,7 @@ export function useExternalAnnotations<T extends { id: string; source?: string }
         // If we never received a snapshot, SSE isn't working — fall back to polling
         if (!receivedSnapshotRef.current && !fallbackRef.current) {
           fallbackRef.current = true;
-          unsubscribe();
+          unsubscribe?.();
           startPolling();
         }
         // Otherwise, EventSource will auto-reconnect and we'll get a fresh snapshot
@@ -219,7 +223,7 @@ export function useExternalAnnotations<T extends { id: string; source?: string }
 
     return () => {
       cancelled = true;
-      unsubscribe();
+      unsubscribe?.();
       if (pollTimerRef.current) {
         clearInterval(pollTimerRef.current);
         pollTimerRef.current = null;

@@ -1,5 +1,3 @@
-import React from 'react';
-
 /**
  * Agent brand marks, inlined as components so the single-file review bundle has
  * no external asset dependency. Claude is a vector path; Codex ships only as a

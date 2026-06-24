@@ -69,7 +69,6 @@ import { handleCodeNavResolve, extractChangedFiles } from "./code-nav";
 import { discoverCuratedSkills, resolveRequestedReviewProfile, listAllSkills, enableReviewSkill } from "./review-skill-loader";
 import {
   BUILTIN_DEFAULT_PROFILE,
-  type ResolvedReviewProfile,
   type ReviewProfilesResponse,
 } from "@plannotator/shared/review-profiles";
 

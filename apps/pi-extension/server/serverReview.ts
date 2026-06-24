@@ -114,7 +114,6 @@ import type { SemanticDiffAvailability, SemanticDiffResponse } from "../generate
 import { discoverCuratedSkills, resolveRequestedReviewProfile, listAllSkills, enableReviewSkill } from "../generated/review-skill-loader.js";
 import {
 	BUILTIN_DEFAULT_PROFILE,
-	type ResolvedReviewProfile,
 	type ReviewProfilesResponse,
 } from "../generated/review-profiles.js";
 import {

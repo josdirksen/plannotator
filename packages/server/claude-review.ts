@@ -2,7 +2,12 @@ import {
   composeReviewPrompt,
   type ResolvedReviewProfile,
 } from "@plannotator/shared/review-profiles";
-import { transformSeverityFindings, type ReviewAnnotationInput } from "./review-findings";
+import {
+  transformSeverityFindings,
+  type ReviewSeverity,
+  type ReviewFinding,
+  type ReviewAnnotationInput,
+} from "./review-findings";
 
 /**
  * Claude Code Review Agent — prompt, command builder, and JSONL output parser.
@@ -20,16 +25,10 @@ import { transformSeverityFindings, type ReviewAnnotationInput } from "./review-
 // Types
 // ---------------------------------------------------------------------------
 
-export type ClaudeSeverity = "important" | "nit" | "pre_existing";
-
-export interface ClaudeFinding {
-  severity: ClaudeSeverity;
-  file?: string | null;      // null for a general (review-level) comment
-  line?: number | null;      // null for a whole-file or general comment
-  end_line?: number | null;
-  description: string;
-  reasoning: string;
-}
+// Claude findings ARE review findings — reuse the one shared shape from
+// review-findings.ts rather than keeping a byte-identical copy that can drift.
+export type ClaudeSeverity = ReviewSeverity;
+export type ClaudeFinding = ReviewFinding;
 
 export interface ClaudeReviewOutput {
   findings: ClaudeFinding[];

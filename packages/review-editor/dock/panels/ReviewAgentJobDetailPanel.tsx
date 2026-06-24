@@ -442,6 +442,11 @@ function AnnotationRow({ annotation: ann, dismissed, onClick }: {
             )}
           </>
         )}
+        {ann.reviewProfileLabel && (
+          <span className="px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider bg-accent/10 text-accent/90 flex-shrink-0">
+            {ann.reviewProfileLabel}
+          </span>
+        )}
         {dismissed && (
           <span className="px-1 py-0.5 rounded text-[10px] uppercase tracking-wider bg-muted text-muted-foreground/60">dismissed</span>
         )}

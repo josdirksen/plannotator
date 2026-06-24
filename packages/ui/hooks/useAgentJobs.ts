@@ -168,6 +168,7 @@ export function useAgentJobs(
       reasoningEffort?: string;
       effort?: string;
       fastMode?: boolean;
+      reviewProfileId?: string;
     }): Promise<AgentJobInfo | null> => {
       try {
         const res = await fetch(JOBS_URL, {

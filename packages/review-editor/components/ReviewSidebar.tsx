@@ -243,6 +243,11 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
             {annotation.conventionalLabel && (
               <ConventionalLabelBadge label={annotation.conventionalLabel} decorations={annotation.decorations} />
             )}
+            {annotation.reviewProfileLabel && (
+              <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-accent/10 text-accent/90">
+                {annotation.reviewProfileLabel}
+              </span>
+            )}
             {annotation.author && (
               <span className={`text-[10px] truncate max-w-[100px] ${isCurrentUser(annotation.author) ? 'text-muted-foreground/50' : 'text-muted-foreground/70'}`}>
                 {annotation.author}{isCurrentUser(annotation.author) && ' (me)'}

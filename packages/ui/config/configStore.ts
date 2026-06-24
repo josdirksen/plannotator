@@ -30,7 +30,7 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
 }
 
 /** Server write-back transport: posts a batch of changed server-synced settings. */
-type ServerSyncFn = (payload: Record<string, unknown>) => void;
+export type ServerSyncFn = (payload: Record<string, unknown>) => void;
 
 /** Default = today's inline POST /api/config (best-effort).
     keepalive lets the request outlive page teardown (pagehide flush). */

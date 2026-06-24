@@ -7,9 +7,9 @@ import { setDraftTransport, type DraftTransport } from './hooks/useAnnotationDra
 import { setExternalAnnotationTransport, type ExternalAnnotationTransport } from './hooks/useExternalAnnotations';
 import { setAITransport, type AITransport } from './hooks/useAIChat';
 import { configStore } from './config';
+import type { ServerSyncFn } from './config/configStore';
 
 type ExternalAnnotationBase = { id: string; source?: string };
-type ServerSyncFn = (payload: Record<string, unknown>) => void;
 
 export interface PlannotatorUIConfig {
   imageSrcResolver?: ImageSrcResolver;

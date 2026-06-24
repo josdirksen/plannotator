@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { VaultNode } from "../../types";
-import type { WorkspaceFileChange, WorkspaceStatusPayload } from "@plannotator/shared/workspace-status";
+import type { WorkspaceFileChange, WorkspaceStatusPayload } from "@plannotator/core/workspace-status-types";
 import { getAggregateWorkspaceChange, getFileEditStatus, getWorkspaceChange, isFileTreeSelectionDisabled, normalizePathForLookup } from "./FileBrowser";
 
 describe("FileBrowser workspace status lookup", () => {

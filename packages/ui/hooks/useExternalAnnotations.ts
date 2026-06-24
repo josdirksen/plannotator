@@ -127,10 +127,10 @@ export function useExternalAnnotations<T extends { id: string; source?: string }
   const fallbackRef = useRef(false);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const receivedSnapshotRef = useRef(false);
-  // Capture the transport once so subscribe/poll and CRUD always use the same
-  // backend instance (contract: "set once at startup"). Reading the live module
-  // global in CRUD while the effect captured at mount would split reads and
-  // writes across two backends if a host swapped the transport after mount.
+  // Holds the active transport, shared by subscribe/poll AND the CRUD callbacks so
+  // reads and writes never split across backends. (Re-)captured from the module
+  // global when the effect runs on enable (below), so a host that installs a
+  // transport before enabling annotations is honored, not the stale default.
   const transportRef = useRef(externalAnnotationTransport as ExternalAnnotationTransport<T>);
 
   useEffect(() => {
@@ -142,6 +142,8 @@ export function useExternalAnnotations<T extends { id: string; source?: string }
     fallbackRef.current = false;
     receivedSnapshotRef.current = false;
 
+    // Capture the active transport at (re-)enable so a late host override is used.
+    transportRef.current = externalAnnotationTransport as ExternalAnnotationTransport<T>;
     const transport = transportRef.current;
 
     // --- Reducer (applies snapshot|add|remove|clear|update), verbatim ---

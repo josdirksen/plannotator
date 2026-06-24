@@ -733,6 +733,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
         provider: 'cursor',
         label: 'Code Review',
         ...(cursorModel && cursorModel.toLowerCase() !== 'auto' ? { model: cursorModel } : {}),
+        ...review,
       };
     }
     if (engine === 'opencode') {
@@ -741,6 +742,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
         provider: 'opencode',
         label: 'Code Review',
         ...(opencodeModel ? { model: opencodeModel } : {}),
+        ...review,
       };
     }
     return {

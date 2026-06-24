@@ -139,10 +139,9 @@ export function useCodeAnnotationDraft({
       if (isEmpty) {
         // The user cleared everything (#948). Delete the draft with a generation
         // tombstone so it can't resurface on refresh and a late save can't revive
-        // it. Mirrors useAnnotationDraft.persistNow.
-        fetch(`/api/draft?generation=${draftGeneration}`, { method: 'DELETE' }).catch(() => {
-          // Silent failure
-        });
+        // it. Mirrors useAnnotationDraft.persistNow — routed through the draft
+        // transport seam so a host backend tombstones its own stored draft too.
+        getDraftTransport().remove(draftGeneration, { keepalive: false }).catch(() => {});
         return;
       }
 

@@ -1,0 +1,53 @@
+# @plannotator/ui
+
+Plannotator's document UI — markdown rendering, themes, the annotation editor, settings, comments, and layout — as installable building blocks. Published so a separate app (the commercial Workspaces app) can reuse the exact same experience, while Plannotator itself stays unchanged.
+
+Ships with **`@plannotator/core`**: a small, browser-safe, zero-dependency package of the pure utilities and types `ui` builds on (carved out so `ui` can be installed standalone without Plannotator's server code).
+
+## Why this exists
+
+Workspaces needs the same document experience Plannotator has — render docs, annotate, comment, theme, edit — but backed by its own infrastructure (its own storage, auth, realtime, AI). Rather than fork or rebuild, it **installs these packages and plugs in its own backend.** Plannotator passes nothing and behaves exactly as before.
+
+## How it works: host-override seams
+
+Every place the UI talks to a backend (loading a doc preview, saving settings, persisting drafts, streaming comments, listing files, calling AI, etc.) is an **optional seam** that defaults to Plannotator's behavior. A host swaps in its own implementations through **one call at startup**:
+
+```ts
+import { configurePlannotatorUI } from "@plannotator/ui/configure";
+
+configurePlannotatorUI({
+  storage,          // where settings persist
+  identity,         // who the current user is
+  imageResolver,    // how image paths resolve to URLs
+  docPreviewFetcher,
+  fileTreeBackend,
+  draftTransport,
+  externalAnnotations, // live/agent comments
+  aiTransport,
+  serverSync,
+});
+```
+
+Anything you don't pass keeps Plannotator's default. A few component-specific overrides (e.g. an "open in editor" diff action) are passed as props where you render that component.
+
+## Consuming it (e.g. from Workspaces)
+
+```bash
+npm install @plannotator/ui @plannotator/core
+```
+
+1. Call `configurePlannotatorUI({ ... })` once at startup with your backend.
+2. Import the stylesheet: `import "@plannotator/ui/styles.css";` (precompiled — no Tailwind wiring needed; the `@source` glob is the fallback if you'd rather scan source).
+3. Import components: `import { Viewer } from "@plannotator/ui/components/Viewer";`
+4. Build with a bundler that compiles TS/TSX (Vite + React 19 + Tailwind v4). The packages ship **source**, so your bundler compiles them — set `moduleResolution: "bundler"`, `allowImportingTsExtensions`, `jsx: "react-jsx"`.
+
+## Packages & publishing
+
+- `@plannotator/core` — pure utils + types, zero deps, browser-safe (CI enforces no `node:` imports). Published.
+- `@plannotator/ui` — React components/hooks + theme + `configure()`. Depends on `@plannotator/core` (exact-version lockstep). Published.
+- `@plannotator/shared`, `@plannotator/ai` — stay private to the monorepo; `shared` re-exports `core`'s modules via shims so Plannotator's internals are untouched.
+- Versioned in lockstep with the repo. Publish `core` then `ui` together with **`bun publish`** (not `npm` — bun resolves `workspace:*` to the exact version at pack time).
+
+## The one rule
+
+**Do not reimplement the document UI from scratch.** A prior from-scratch rewrite broke the app and was reverted. The supported path is always: keep these components as-is and add a seam where a host needs different backend behavior. Never delete working Plannotator code until a human has confirmed parity in the browser.

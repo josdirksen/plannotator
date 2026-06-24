@@ -8,7 +8,10 @@
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { spawn, execFileSync, type ChildProcess } from "node:child_process";
+import { spawn, execFileSync, execFile, type ChildProcess } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 import {
 	type AgentJobInfo,
 	type AgentJobEvent,
@@ -106,19 +109,20 @@ export interface AgentJobHandlerOptions {
 
 /**
  * Best-effort model catalog for a marker engine, spawned once. The spawn lives
- * HERE (per-runtime — execFileSync) rather than in marker-review.ts, which must
- * stay Bun-free for the Pi vendor build. Empty when discovery fails or the CLI
- * is unauthenticated / has no providers configured — the UI falls back to the
- * engine's default picker. Account/config-specific, so never hardcoded.
+ * HERE (per-runtime — child_process execFile) rather than in marker-review.ts,
+ * which must stay Bun-free for the Pi vendor build. ASYNC so it never blocks the
+ * event loop on the /capabilities request path (a slow/hanging CLI would otherwise
+ * freeze every other in-flight request for up to the timeout). Empty when discovery
+ * fails or the CLI is unauthenticated / has no providers configured — the UI falls
+ * back to the engine's default picker. Account/config-specific, so never hardcoded.
  */
-function discoverMarkerModels(engine: MarkerEngine): MarkerModel[] {
+async function discoverMarkerModels(engine: MarkerEngine): Promise<MarkerModel[]> {
 	try {
-		const out = execFileSync(engine.binary, engine.modelsArgv, {
+		const { stdout } = await execFileAsync(engine.binary, engine.modelsArgv, {
 			timeout: 5000,
-			stdio: ["ignore", "pipe", "ignore"],
 			encoding: "utf8",
 		});
-		return engine.parseModels(out);
+		return engine.parseModels(stdout);
 	} catch {
 		return [];
 	}
@@ -152,17 +156,17 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 	}
 
 	const markerModelsCache = new Map<string, MarkerModel[]>();
-	function buildCapabilitiesResponse(): AgentCapabilities {
-		const providers = capabilities.map((c) => {
+	async function buildCapabilitiesResponse(): Promise<AgentCapabilities> {
+		const providers = await Promise.all(capabilities.map(async (c) => {
 			const engine = MARKER_ENGINES[c.id as "cursor" | "opencode"];
 			if (!engine || !c.available) return c;
 			let models = markerModelsCache.get(engine.id);
 			if (!models) {
-				models = discoverMarkerModels(engine);
+				models = await discoverMarkerModels(engine);
 				markerModelsCache.set(engine.id, models);
 			}
 			return { ...c, models };
-		});
+		}));
 		return { mode, providers, available: providers.some((p) => p.available) };
 	}
 
@@ -430,7 +434,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 		): Promise<boolean> {
 			// --- GET /api/agents/capabilities ---
 			if (url.pathname === CAPABILITIES && req.method === "GET") {
-				json(res, buildCapabilitiesResponse());
+				json(res, await buildCapabilitiesResponse());
 				return true;
 			}
 

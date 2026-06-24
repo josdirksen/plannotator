@@ -118,20 +118,24 @@ export interface AgentJobHandlerOptions {
 
 /**
  * Best-effort model catalog for a marker engine, spawned once. The spawn lives
- * HERE (per-runtime — Bun.spawnSync) rather than in marker-review.ts, which must
- * stay Bun-free for the Pi vendor build. Empty when discovery fails or the CLI
- * is unauthenticated / has no providers configured — the UI falls back to the
- * engine's default picker. Account/config-specific, so never hardcoded.
+ * HERE (per-runtime — Bun.spawn) rather than in marker-review.ts, which must stay
+ * Bun-free for the Pi vendor build. ASYNC so it never blocks the event loop on
+ * the /capabilities request path (a slow/hanging CLI would otherwise freeze every
+ * other in-flight request for up to the timeout). Empty when discovery fails or
+ * the CLI is unauthenticated / has no providers configured — the UI falls back to
+ * the engine's default picker. Account/config-specific, so never hardcoded.
  */
-function discoverMarkerModels(engine: MarkerEngine): MarkerModel[] {
+async function discoverMarkerModels(engine: MarkerEngine): Promise<MarkerModel[]> {
   try {
-    const res = Bun.spawnSync([engine.binary, ...engine.modelsArgv], {
+    const proc = Bun.spawn([engine.binary, ...engine.modelsArgv], {
       stdout: "pipe",
       stderr: "ignore",
       timeout: 5000,
     });
-    if (!res.success) return [];
-    return engine.parseModels(new TextDecoder().decode(res.stdout));
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) return [];
+    return engine.parseModels(stdout);
   } catch {
     return [];
   }
@@ -167,17 +171,17 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
   }
 
   const markerModelsCache = new Map<string, MarkerModel[]>();
-  function buildCapabilitiesResponse(): AgentCapabilities {
-    const providers = capabilities.map((c) => {
+  async function buildCapabilitiesResponse(): Promise<AgentCapabilities> {
+    const providers = await Promise.all(capabilities.map(async (c) => {
       const engine = MARKER_ENGINES[c.id as "cursor" | "opencode"];
       if (!engine || !c.available) return c;
       let models = markerModelsCache.get(engine.id);
       if (!models) {
-        models = discoverMarkerModels(engine);
+        models = await discoverMarkerModels(engine);
         markerModelsCache.set(engine.id, models);
       }
       return { ...c, models };
-    });
+    }));
     return { mode, providers, available: providers.some((p) => p.available) };
   }
 
@@ -453,7 +457,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
     ): Promise<Response | null> {
       // --- GET /api/agents/capabilities ---
       if (url.pathname === CAPABILITIES && req.method === "GET") {
-        return Response.json(buildCapabilitiesResponse());
+        return Response.json(await buildCapabilitiesResponse());
       }
 
       // --- SSE stream ---

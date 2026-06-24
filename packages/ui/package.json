@@ -112,6 +112,6 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build:css": "vite build --config vite.css.config.ts && rm -f styles.js",
-    "prepublishOnly": "bun run build:css"
+    "prepack": "bun run build:css"
   }
 }

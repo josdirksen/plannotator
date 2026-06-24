@@ -91,17 +91,12 @@ import {
 } from "../generated/claude-review.js";
 import { createTourSession, TOUR_EMPTY_OUTPUT_ERROR } from "../generated/tour-review.js";
 import {
-	CURSOR_REVIEW_PROMPT,
-	buildCursorCommand,
-	parseCursorStreamOutput,
-	transformCursorFindings,
-} from "../generated/cursor-review.js";
-import {
-	OPENCODE_REVIEW_PROMPT,
-	buildOpencodeCommand,
-	parseOpencodeStreamOutput,
-	transformOpencodeFindings,
-} from "../generated/opencode-review.js";
+	MARKER_ENGINES,
+	composeMarkerReviewPrompt,
+	buildMarkerCommand,
+	parseMarkerStreamOutput,
+	transformMarkerFindings,
+} from "../generated/marker-review.js";
 import {
 	WorkspaceReviewSession,
 	type WorkspaceDiffType,
@@ -600,25 +595,19 @@ export async function startReviewServer(options: {
 				return { command, stdinPrompt, prompt, cwd, label: jobLabel, captureStdout: true, model, effort, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label };
 			}
 
-			if (provider === "cursor") {
-				// Cursor has no schema flag — its marker-block output contract lives in
-				// CURSOR_REVIEW_PROMPT. captureStdout is required (the marker block comes
-				// back on stdout, like Claude). buildCursorCommand passes the prompt as
-				// the trailing argv arg and threads --workspace=cwd to match the spawn cwd.
+			// Marker engines (Cursor, OpenCode) — one branch, same shape as Claude.
+			// Neither CLI has a schema flag, so composeMarkerReviewPrompt ALWAYS
+			// appends the marker-block output contract (even for a custom profile —
+			// it's the only thing that makes their prose output parseable). The
+			// engine's buildArgv passes the prompt as the trailing positional arg and
+			// threads the spawn cwd (--workspace for Cursor, --dir for OpenCode).
+			// captureStdout is required: the marker block comes back on stdout NDJSON.
+			const markerEngine = MARKER_ENGINES[provider as "cursor" | "opencode"];
+			if (markerEngine) {
 				const model = typeof config?.model === "string" && config.model ? config.model : undefined;
-				const prompt = CURSOR_REVIEW_PROMPT + "\n\n---\n\n" + userMessage;
-				const { command } = buildCursorCommand(prompt, model, cwd);
-				return { command, prompt, cwd, label: jobLabel, captureStdout: true, model, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext };
-			}
-
-			if (provider === "opencode") {
-				// OpenCode mirrors Cursor: no schema flag, marker-block output contract in
-				// OPENCODE_REVIEW_PROMPT. captureStdout captures the NDJSON; prompt is the
-				// trailing message arg and --dir=cwd matches the spawn cwd.
-				const model = typeof config?.model === "string" && config.model ? config.model : undefined;
-				const prompt = OPENCODE_REVIEW_PROMPT + "\n\n---\n\n" + userMessage;
-				const { command } = buildOpencodeCommand(prompt, model, cwd);
-				return { command, prompt, cwd, label: jobLabel, captureStdout: true, model, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext };
+				const prompt = composeMarkerReviewPrompt(reviewProfile, userMessage);
+				const { command } = buildMarkerCommand(markerEngine, prompt, model, cwd);
+				return { command, prompt, cwd, label: jobLabel, captureStdout: true, model, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label };
 			}
 
 			return null;
@@ -715,24 +704,27 @@ export async function startReviewServer(options: {
 				return;
 			}
 
-			// --- Cursor path ---
-			// FAIL-CLOSED: Cursor output is prompt-enforced (no schema flag), so any
+			// --- Marker path (Cursor, OpenCode) ---
+			// FAIL-CLOSED: marker output is prompt-enforced (no schema flag), so any
 			// missing/malformed/schema/transform/insertion failure must MUTATE the job
 			// to failed — NEVER throw (agent-jobs.ts swallows throws, silently leaving
 			// an exit-0 job marked done). Mirrors the Tour fail-closed pattern below.
-			if (job.provider === "cursor") {
-				const output = meta.stdout ? parseCursorStreamOutput(meta.stdout) : null;
+			// Findings carry nullable file/line, classified into line/whole-file/
+			// general by transformMarkerFindings — nothing is dropped (same as Claude).
+			const markerEngine = MARKER_ENGINES[job.provider as "cursor" | "opencode"];
+			if (markerEngine) {
+				const output = meta.stdout ? parseMarkerStreamOutput(meta.stdout, markerEngine) : null;
 				if (!output) {
 					job.status = "failed";
-					job.error = "Cursor review output missing or unparseable (no valid marker JSON).";
+					job.error = `${markerEngine.author} review output missing or unparseable (no valid marker JSON).`;
 					return;
 				}
 
 				// Derive the verdict from finding severities (like Claude) rather than
-				// trusting Cursor's free-form `correctness` string. Cursor has no schema
-				// flag, so a model value like "not correct" would be stored verbatim and
-				// the detail panel (any string containing "correct" except "incorrect" →
-				// green) would invert the displayed result.
+				// trusting the model's free-form `correctness` string. Marker engines
+				// have no schema flag, so a model value like "not correct" would be
+				// stored verbatim and the detail panel (any string containing "correct"
+				// except "incorrect" → green) would invert the displayed result.
 				const hasImportant = output.findings.some((f) => f.severity === "important");
 				job.summary = {
 					correctness: hasImportant ? "Issues Found" : "Correct",
@@ -741,51 +733,23 @@ export async function startReviewServer(options: {
 				};
 
 				if (output.findings.length > 0) {
-					const annotations = transformCursorFindings(
+					const annotations = transformMarkerFindings(
 						output.findings,
 						job.source,
+						markerEngine.author,
 						cwd,
 						workspace ? (filePath) => workspace.normalizeAnnotationPath(filePath) : undefined,
 					)
-						.map(a => ({ ...a, ...jobPrContext, ...(jobDiffScope && { diffScope: jobDiffScope }) }));
+						.map(a => ({
+							...a,
+							...jobPrContext,
+							...(jobDiffScope && { diffScope: jobDiffScope }),
+							...(profileLabel && { reviewProfileLabel: profileLabel }),
+						}));
 					const result = externalAnnotations.addAnnotations({ annotations });
 					if ("error" in result) {
 						job.status = "failed";
-						job.error = `Cursor annotation insertion failed: ${result.error}`;
-						return;
-					}
-				}
-				return;
-			}
-
-			// --- OpenCode path (fail-closed, same as Cursor) ---
-			if (job.provider === "opencode") {
-				const output = meta.stdout ? parseOpencodeStreamOutput(meta.stdout) : null;
-				if (!output) {
-					job.status = "failed";
-					job.error = "OpenCode review output missing or unparseable (no valid marker JSON).";
-					return;
-				}
-
-				const hasImportant = output.findings.some((f) => f.severity === "important");
-				job.summary = {
-					correctness: hasImportant ? "Issues Found" : "Correct",
-					explanation: output.summary.explanation,
-					confidence: output.summary.confidence,
-				};
-
-				if (output.findings.length > 0) {
-					const annotations = transformOpencodeFindings(
-						output.findings,
-						job.source,
-						cwd,
-						workspace ? (filePath) => workspace.normalizeAnnotationPath(filePath) : undefined,
-					)
-						.map(a => ({ ...a, ...jobPrContext, ...(jobDiffScope && { diffScope: jobDiffScope }) }));
-					const result = externalAnnotations.addAnnotations({ annotations });
-					if ("error" in result) {
-						job.status = "failed";
-						job.error = `OpenCode annotation insertion failed: ${result.error}`;
+						job.error = `${markerEngine.author} annotation insertion failed: ${result.error}`;
 						return;
 					}
 				}

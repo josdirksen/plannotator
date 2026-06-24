@@ -18,7 +18,7 @@ import type { AgentJobInfo, AgentCapabilities } from '../types';
 import { isTerminalStatus } from '@plannotator/shared/agent-jobs';
 import { cn } from '../lib/utils';
 import { ReviewAgentsIcon } from './ReviewAgentsIcon';
-import { ClaudeIcon, CodexIcon } from './icons/AgentIcons';
+import { ClaudeIcon, CodexIcon, CursorIcon, OpenCodeIcon } from './icons/AgentIcons';
 import { useAgentSettings } from '../hooks/useAgentSettings';
 import type { AgentEngine, AgentMode, ReviewEngine } from '../hooks/useAgentSettings';
 
@@ -109,6 +109,14 @@ const REVIEW_ENGINE_LABEL: Record<ReviewEngine, string> = {
   codex: 'Codex',
   cursor: 'Cursor',
   opencode: 'OpenCode',
+};
+
+// Review-only icon map — the wide set. Tour keeps the narrow ENGINE_ICON.
+const REVIEW_ENGINE_ICON: Record<ReviewEngine, React.FC<{ className?: string }>> = {
+  claude: ClaudeIcon,
+  codex: CodexIcon,
+  cursor: CursorIcon,
+  opencode: OpenCodeIcon,
 };
 
 interface AgentsTabProps {
@@ -770,7 +778,6 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
   };
 
   const modeOptions = availableModes.map((mode) => ({ value: mode, label: MODE_LABEL[mode] }));
-  const reviewEngineOptions = availableReviewEngines.map((engine) => ({ value: engine, label: REVIEW_ENGINE_LABEL[engine] }));
   const renderStaticChoice = (label: string, icon?: React.ReactNode) => (
     <div className="flex items-center gap-2 rounded-lg border border-border/30 bg-surface-1/30 px-2.5 py-1.5">
       {icon}
@@ -778,23 +785,33 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
     </div>
   );
 
-  const renderEngineSelect = (value: AgentEngine, onChange: (engine: AgentEngine) => void) => {
-    const StaticIcon = ENGINE_ICON[value];
+  // Icon-button engine row, shared by Tour (narrow claude/codex set) and Review
+  // (wide claude/codex/cursor/opencode set). The caller passes the engine list
+  // plus its icon/label maps so the same control renders four equal options for
+  // Review exactly as it renders two for Tour.
+  function renderEngineSelect<E extends string>(
+    value: E,
+    onChange: (engine: E) => void,
+    engines: E[],
+    iconMap: Record<E, React.FC<{ className?: string }>>,
+    labelMap: Record<E, string>,
+  ) {
+    const StaticIcon: React.FC<{ className?: string }> = iconMap[value];
     return (
       <ConfigRow label="Engine" stacked>
-        {availableEngines.length > 1 ? (
+        {engines.length > 1 ? (
           // Tap an agent's mark to pick it — no dropdown.
           <div className="flex items-center gap-1.5">
-            {availableEngines.map((engine) => {
-              const Icon = ENGINE_ICON[engine];
+            {engines.map((engine) => {
+              const Icon: React.FC<{ className?: string }> = iconMap[engine];
               const selected = value === engine;
               return (
                 <button
                   key={engine}
                   type="button"
                   onClick={() => onChange(engine)}
-                  title={ENGINE_LABEL[engine]}
-                  aria-label={ENGINE_LABEL[engine]}
+                  title={labelMap[engine]}
+                  aria-label={labelMap[engine]}
                   aria-pressed={selected}
                   className={cn(
                     'flex h-9 w-9 items-center justify-center rounded-lg border transition-all',
@@ -809,11 +826,11 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
             })}
           </div>
         ) : (
-          renderStaticChoice(ENGINE_LABEL[value], <StaticIcon className="h-4 w-4" />)
+          renderStaticChoice(labelMap[value], <StaticIcon className="h-4 w-4" />)
         )}
       </ConfigRow>
     );
-  };
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -850,19 +867,15 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
                     footerAction={{ label: 'Add new review', onClick: () => setAddReviewOpen(true) }}
                   />
                 </ConfigRow>
-                {/* Review supports the wide engine set (claude/codex/cursor/opencode),
-                    so it uses a dropdown rather than Tour's claude/codex icon buttons. */}
-                <ConfigRow label="Engine" stacked>
-                  {reviewEngineOptions.length > 1 ? (
-                    <SelectMenu
-                      value={reviewEngine}
-                      options={reviewEngineOptions}
-                      onChange={(next) => setReviewEngine(next as ReviewEngine)}
-                    />
-                  ) : (
-                    renderStaticChoice(REVIEW_ENGINE_LABEL[reviewEngine])
-                  )}
-                </ConfigRow>
+                {/* Review uses the same icon-button row as Tour, just over the
+                    wide engine set (claude/codex/cursor/opencode). */}
+                {renderEngineSelect(
+                  reviewEngine,
+                  setReviewEngine,
+                  availableReviewEngines,
+                  REVIEW_ENGINE_ICON,
+                  REVIEW_ENGINE_LABEL,
+                )}
                 {reviewEngine === 'claude' && (
                   <>
                     <ConfigRow label="Model" stacked>
@@ -921,7 +934,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
 
             {selectedMode === 'tour' && (
               <>
-                {renderEngineSelect(tourEngine, setTourEngine, engineOptions, ENGINE_LABEL[tourEngine])}
+                {renderEngineSelect(tourEngine, setTourEngine, availableEngines, ENGINE_ICON, ENGINE_LABEL)}
                 <ConfigRow label="Model" stacked>
                   <SelectMenu
                     value={tourEngine === 'claude' ? tourClaudeModel : tourCodexModel}

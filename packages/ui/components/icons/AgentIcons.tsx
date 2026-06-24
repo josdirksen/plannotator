@@ -18,3 +18,39 @@ const CODEX_DATA_URI =
 export function CodexIcon({ className }: { className?: string }) {
   return <img src={CODEX_DATA_URI} className={className} alt="" aria-hidden="true" draggable={false} />;
 }
+
+// Cursor + OpenCode ship no public single-color vector marks, so these are
+// clean inline-SVG stand-ins drawn to match the ClaudeIcon style (single svg,
+// `currentColor` so they inherit the engine-button text color). Tasteful,
+// recognizable geometric marks — the real brand SVGs can be swapped in later.
+
+export function CursorIcon({ className }: { className?: string }) {
+  // Cursor's mark is a chevron-cut cube; this renders the same upward-pointing
+  // angular silhouette with a folded inner facet for depth.
+  return (
+    <svg viewBox="0 0 32 32" className={className} xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+      <path d="M16 2 4 9v14l12 7 12-7V9L16 2Zm0 2.6 9.3 5.4-9.3 5.4-9.3-5.4L16 4.6ZM6 11.9l9 5.2v10.3L6 22.2V11.9Zm20 0v10.3l-9 5.2V17.1l9-5.2Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function OpenCodeIcon({ className }: { className?: string }) {
+  // OpenCode reads as an open terminal: a rounded square frame with a prompt
+  // chevron and caret bar, the universal "code shell" glyph.
+  return (
+    <svg viewBox="0 0 32 32" className={className} xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+      <path
+        d="M6 4h20a4 4 0 0 1 4 4v16a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8a4 4 0 0 1 4-4Zm0 2.5A1.5 1.5 0 0 0 4.5 8v16A1.5 1.5 0 0 0 6 25.5h20a1.5 1.5 0 0 0 1.5-1.5V8A1.5 1.5 0 0 0 26 6.5H6Z"
+        fill="currentColor"
+      />
+      <path
+        d="m10 12 4 4-4 4M16.5 20.5h6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

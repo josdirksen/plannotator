@@ -21,8 +21,12 @@ import {
 	AGENT_HEARTBEAT_INTERVAL_MS,
 } from "../generated/agent-jobs.js";
 import { formatClaudeLogEvent } from "../generated/claude-review.js";
-import { formatCursorLogEvent, parseCursorModelsOutput, type CursorModel } from "../generated/cursor-review.js";
-import { formatOpencodeLogEvent, parseOpencodeModelsOutput, type OpencodeModel } from "../generated/opencode-review.js";
+import {
+	MARKER_ENGINES,
+	formatMarkerLogEvent,
+	type MarkerEngine,
+	type MarkerModel,
+} from "../generated/marker-review.js";
 import { json, parseBody } from "./helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -101,35 +105,20 @@ export interface AgentJobHandlerOptions {
 }
 
 /**
- * Best-effort Cursor model catalog from `agent models`, parsed once. Empty when
- * discovery fails or the CLI is unauthenticated — the UI falls back to an
- * `auto`-only picker. Account-specific, so never hardcoded.
+ * Best-effort model catalog for a marker engine, spawned once. The spawn lives
+ * HERE (per-runtime — execFileSync) rather than in marker-review.ts, which must
+ * stay Bun-free for the Pi vendor build. Empty when discovery fails or the CLI
+ * is unauthenticated / has no providers configured — the UI falls back to the
+ * engine's default picker. Account/config-specific, so never hardcoded.
  */
-function discoverCursorModels(): CursorModel[] {
+function discoverMarkerModels(engine: MarkerEngine): MarkerModel[] {
 	try {
-		const out = execFileSync("agent", ["models"], {
+		const out = execFileSync(engine.binary, engine.modelsArgv, {
 			timeout: 5000,
 			stdio: ["ignore", "pipe", "ignore"],
 			encoding: "utf8",
 		});
-		return parseCursorModelsOutput(out);
-	} catch {
-		return [];
-	}
-}
-
-/**
- * Best-effort OpenCode model catalog from `opencode models`, parsed once. Empty
- * when discovery fails or no providers are configured. Never hardcoded.
- */
-function discoverOpencodeModels(): OpencodeModel[] {
-	try {
-		const out = execFileSync("opencode", ["models"], {
-			timeout: 5000,
-			stdio: ["ignore", "pipe", "ignore"],
-			encoding: "utf8",
-		});
-		return parseOpencodeModelsOutput(out);
+		return engine.parseModels(out);
 	} catch {
 		return [];
 	}
@@ -145,27 +134,28 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 	let version = 0;
 
 	// --- Capability detection (run once) ---
-	// Cursor CLI's binary is literally named `agent` (NOT `cursor`). When present,
-	// discover its account-specific model catalog so the UI doesn't hardcode ids.
-	const cursorAvailable = mode === "review" && whichCmd("agent");
-	const opencodeAvailable = mode === "review" && whichCmd("opencode");
 	const capabilities: AgentCapability[] = [
 		{ id: "claude", name: "Claude Code", available: whichCmd("claude") },
 		{ id: "codex", name: "Codex CLI", available: whichCmd("codex") },
 		{ id: "tour", name: "Code Tour", available: whichCmd("claude") || whichCmd("codex") },
-		{
-			id: "cursor",
-			name: "Cursor CLI",
-			available: cursorAvailable,
-			...(cursorAvailable ? { models: discoverCursorModels() } : {}),
-		},
-		{
-			id: "opencode",
-			name: "OpenCode",
-			available: opencodeAvailable,
-			...(opencodeAvailable ? { models: discoverOpencodeModels() } : {}),
-		},
 	];
+	// Marker engines (Cursor, OpenCode) — same shape, one loop. Each is available
+	// only in review mode when its binary is on PATH (NOTE: Cursor's binary is
+	// literally named `agent`). When present, discover its account-specific model
+	// catalog so the UI doesn't hardcode ids.
+	const MARKER_ENGINE_NAMES: Record<"cursor" | "opencode", string> = {
+		cursor: "Cursor CLI",
+		opencode: "OpenCode",
+	};
+	for (const engine of Object.values(MARKER_ENGINES)) {
+		const available = mode === "review" && whichCmd(engine.binary);
+		capabilities.push({
+			id: engine.id,
+			name: MARKER_ENGINE_NAMES[engine.id],
+			available,
+			...(available ? { models: discoverMarkerModels(engine) } : {}),
+		});
+	}
 	const capabilitiesResponse: AgentCapabilities = {
 		mode,
 		providers: capabilities,
@@ -266,16 +256,12 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 						if (formatted !== null) broadcast({ type: "job:log", jobId: id, delta: formatted + '\n' });
 						return;
 					}
-					// Cursor: map stream-json events (init/assistant/tool_call/result)
-					// into readable log deltas, applying the partial-output dedup rule.
-					if (provider === "cursor") {
-						const formatted = formatCursorLogEvent(line);
-						if (formatted !== null) broadcast({ type: "job:log", jobId: id, delta: formatted + '\n' });
-						return;
-					}
-					// OpenCode: map `opencode run --format json` events into log deltas.
-					if (provider === "opencode") {
-						const formatted = formatOpencodeLogEvent(line);
+					// Marker engines (Cursor, OpenCode): map their NDJSON stream events
+					// into readable log deltas via the engine's own formatter (Cursor
+					// applies the partial-output dedup rule; OpenCode reads text parts).
+					const markerEngine = MARKER_ENGINES[provider as "cursor" | "opencode"];
+					if (markerEngine) {
+						const formatted = formatMarkerLogEvent(line, markerEngine);
 						if (formatted !== null) broadcast({ type: "job:log", jobId: id, delta: formatted + '\n' });
 						return;
 					}

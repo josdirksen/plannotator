@@ -1,5 +1,7 @@
-@import "@fontsource-variable/inter";
-@import "@fontsource-variable/geist-mono";
+/* Fonts are NOT bundled here. The published styles.css ships only theme + component
+   styles; the consuming app loads the fonts (see README). The theme defines the
+   font-family tokens (--font-sans / --font-mono); the app makes those families
+   available. This keeps styles.css small and avoids shipping font binaries. */
 @import "tailwindcss";
 
 @plugin "tailwindcss-animate";

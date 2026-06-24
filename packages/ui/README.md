@@ -38,8 +38,14 @@ npm install @plannotator/ui @plannotator/core
 
 1. Call `configurePlannotatorUI({ ... })` once at startup with your backend.
 2. Import the stylesheet: `import "@plannotator/ui/styles.css";` (precompiled — no Tailwind wiring needed; the `@source` glob is the fallback if you'd rather scan source).
-3. Import components: `import { Viewer } from "@plannotator/ui/components/Viewer";`
-4. Build with a bundler that compiles TS/TSX (Vite + React 19 + Tailwind v4). The packages ship **source**, so your bundler compiles them — set `moduleResolution: "bundler"`, `allowImportingTsExtensions`, `jsx: "react-jsx"`.
+3. **Load the fonts in your app entry** — the stylesheet references `--font-sans` / `--font-mono` but does not ship font binaries (standard for a shared UI package; your app owns font loading). Plannotator uses Inter + Geist Mono:
+   ```ts
+   import "@fontsource-variable/inter";
+   import "@fontsource-variable/geist-mono";
+   ```
+   Or provide your own fonts and set `--font-sans` / `--font-mono` to match.
+4. Import components: `import { Viewer } from "@plannotator/ui/components/Viewer";`
+5. Build with a bundler that compiles TS/TSX (Vite + React 19 + Tailwind v4). The packages ship **source**, so your bundler compiles them — set `moduleResolution: "bundler"`, `allowImportingTsExtensions`, `jsx: "react-jsx"`.
 
 ## Packages & publishing
 

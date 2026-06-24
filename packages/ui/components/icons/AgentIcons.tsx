@@ -19,38 +19,24 @@ export function CodexIcon({ className }: { className?: string }) {
   return <img src={CODEX_DATA_URI} className={className} alt="" aria-hidden="true" draggable={false} />;
 }
 
-// Cursor + OpenCode ship no public single-color vector marks, so these are
-// clean inline-SVG stand-ins drawn to match the ClaudeIcon style (single svg,
-// `currentColor` so they inherit the engine-button text color). Tasteful,
-// recognizable geometric marks — the real brand SVGs can be swapped in later.
-
+// Cursor brand mark — from packages/ui/components/icons/app/cursor.svg
+// (black rounded square + white cursor facet).
 export function CursorIcon({ className }: { className?: string }) {
-  // Cursor's mark is a chevron-cut cube; this renders the same upward-pointing
-  // angular silhouette with a folded inner facet for depth.
   return (
-    <svg viewBox="0 0 32 32" className={className} xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
-      <path d="M16 2 4 9v14l12 7 12-7V9L16 2Zm0 2.6 9.3 5.4-9.3 5.4-9.3-5.4L16 4.6ZM6 11.9l9 5.2v10.3L6 22.2V11.9Zm20 0v10.3l-9 5.2V17.1l9-5.2Z" fill="currentColor" />
+    <svg viewBox="0 0 40 40" className={className} xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+      <path d="M28.375 4H11.625C7.41383 4 4 7.41383 4 11.625V28.375C4 32.5862 7.41383 36 11.625 36H28.375C32.5862 36 36 32.5862 36 28.375V11.625C36 7.41383 32.5862 4 28.375 4Z" fill="#000" />
+      <path d="M29.6214 14.2072L20.9502 9.12249C20.6718 8.95917 20.3282 8.95917 20.0498 9.12249L11.3786 14.2072C11.1445 14.3445 11 14.5984 11 14.8733V25.1267C11 25.4012 11.1445 25.6555 11.3786 25.7928L20.0498 30.8775C20.3282 31.0408 20.6718 31.0408 20.9502 30.8775L29.6214 25.7928C29.8555 25.6555 30 25.4016 30 25.1267V14.8733C30 14.5988 29.8555 14.3445 29.6214 14.2072ZM29.0767 15.2843L20.706 30.0101C20.6494 30.1093 20.5 30.0688 20.5 29.9538V20.3115C20.5 20.1189 20.3986 19.9407 20.2342 19.8439L12.0124 15.0226C11.9147 14.9651 11.9546 14.8134 12.0678 14.8134H28.8093C29.047 14.8134 29.1956 15.0751 29.0767 15.2843Z" fill="#fff" />
     </svg>
   );
 }
 
+// OpenCode brand mark — extracted from apps/marketing/public/assets/icon-opencode-dark.svg
+// (same vector ProviderIcons.tsx uses; currentColor so it adapts to theme).
 export function OpenCodeIcon({ className }: { className?: string }) {
-  // OpenCode reads as an open terminal: a rounded square frame with a prompt
-  // chevron and caret bar, the universal "code shell" glyph.
   return (
     <svg viewBox="0 0 32 32" className={className} xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
-      <path
-        d="M6 4h20a4 4 0 0 1 4 4v16a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8a4 4 0 0 1 4-4Zm0 2.5A1.5 1.5 0 0 0 4.5 8v16A1.5 1.5 0 0 0 6 25.5h20a1.5 1.5 0 0 0 1.5-1.5V8A1.5 1.5 0 0 0 26 6.5H6Z"
-        fill="currentColor"
-      />
-      <path
-        d="m10 12 4 4-4 4M16.5 20.5h6"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <path d="M3 32V0h26v32zM22 7H10v18h12z" fill="currentColor" />
+      <path d="M10 13h12v12H10z" fill="currentColor" opacity={0.4} />
     </svg>
   );
 }

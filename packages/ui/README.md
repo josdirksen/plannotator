@@ -16,13 +16,13 @@ Every place the UI talks to a backend (loading a doc preview, saving settings, p
 import { configurePlannotatorUI } from "@plannotator/ui/configure";
 
 configurePlannotatorUI({
-  storage,          // where settings persist
-  identity,         // who the current user is
-  imageResolver,    // how image paths resolve to URLs
+  storageBackend,              // where settings persist
+  identityProvider,           // who the current user is
+  imageSrcResolver,           // how image paths resolve to URLs
   docPreviewFetcher,
   fileTreeBackend,
   draftTransport,
-  externalAnnotations, // live/agent comments
+  externalAnnotationTransport, // live/agent comments
   aiTransport,
   serverSync,
 });

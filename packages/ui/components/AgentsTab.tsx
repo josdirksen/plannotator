@@ -690,15 +690,20 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
   // posting it would fail the launch. Collapse it to the first option (auto/
   // Default) when it's no longer offered.
   useEffect(() => {
+    // Only once the engine is actually available — before capabilities load,
+    // cursorModels is just the fallback, and reconciling here would wipe a valid
+    // saved model before the live catalog arrives.
+    if (!cursorAvailable) return;
     if (!cursorModels.some((m) => m.value === cursorModel)) {
       setCursorModel(cursorModels[0]?.value ?? 'auto');
     }
-  }, [cursorModels, cursorModel, setCursorModel]);
+  }, [cursorAvailable, cursorModels, cursorModel, setCursorModel]);
   useEffect(() => {
+    if (!opencodeAvailable) return;
     if (!opencodeModels.some((m) => m.value === opencodeModel)) {
       setOpencodeModel(opencodeModels[0]?.value ?? '');
     }
-  }, [opencodeModels, opencodeModel, setOpencodeModel]);
+  }, [opencodeAvailable, opencodeModels, opencodeModel, setOpencodeModel]);
 
   // Annotation counts per job source
   const annotationCounts = useMemo(() => {

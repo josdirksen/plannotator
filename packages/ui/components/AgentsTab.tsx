@@ -795,10 +795,11 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
     engines: E[],
     iconMap: Record<E, React.FC<{ className?: string }>>,
     labelMap: Record<E, string>,
+    configLabel: string = 'Engine',
   ) {
     const StaticIcon: React.FC<{ className?: string }> = iconMap[value];
     return (
-      <ConfigRow label="Engine" stacked>
+      <ConfigRow label={configLabel} stacked>
         {engines.length > 1 ? (
           // Tap an agent's mark to pick it — no dropdown.
           <div className="flex items-center gap-1.5">
@@ -859,6 +860,16 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
 
             {selectedMode === 'review' && (
               <>
+                {/* Provider (engine) picker — icon-button row over the wide set
+                    (claude/codex/cursor/opencode), above the review selector. */}
+                {renderEngineSelect(
+                  reviewEngine,
+                  setReviewEngine,
+                  availableReviewEngines,
+                  REVIEW_ENGINE_ICON,
+                  REVIEW_ENGINE_LABEL,
+                  'Provider',
+                )}
                 <ConfigRow label="Review" stacked>
                   <SelectMenu
                     value={effectiveReviewProfileId}
@@ -867,15 +878,6 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
                     footerAction={{ label: 'Add new review', onClick: () => setAddReviewOpen(true) }}
                   />
                 </ConfigRow>
-                {/* Review uses the same icon-button row as Tour, just over the
-                    wide engine set (claude/codex/cursor/opencode). */}
-                {renderEngineSelect(
-                  reviewEngine,
-                  setReviewEngine,
-                  availableReviewEngines,
-                  REVIEW_ENGINE_ICON,
-                  REVIEW_ENGINE_LABEL,
-                )}
                 {reviewEngine === 'claude' && (
                   <>
                     <ConfigRow label="Model" stacked>

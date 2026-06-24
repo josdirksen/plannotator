@@ -82,11 +82,18 @@ export const PlanDiffViewer: React.FC<PlanDiffViewerProps> = ({
     if (!canOpenVscodeDiff || baseVersion == null) return;
     setVscodeDiffLoading(true);
     setVscodeDiffError(null);
-    const result = await (onOpenVscodeDiff ?? defaultOpenVscodeDiff)(baseVersion);
-    if (result.error) {
-      setVscodeDiffError(result.error);
+    try {
+      const result = await (onOpenVscodeDiff ?? defaultOpenVscodeDiff)(baseVersion);
+      if (result.error) {
+        setVscodeDiffError(result.error);
+      }
+    } catch {
+      // A host-supplied opener that throws (instead of returning { error }) must
+      // not wedge the button in a permanent loading state.
+      setVscodeDiffError("Failed to open VS Code diff");
+    } finally {
+      setVscodeDiffLoading(false);
     }
-    setVscodeDiffLoading(false);
   };
 
   return (

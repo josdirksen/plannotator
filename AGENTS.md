@@ -83,7 +83,8 @@ plannotator/
 │   │   ├── hooks/                # useAnnotationHighlighter.ts, useSharing.ts, usePlanDiff.ts, useSidebar.ts, useLinkedDoc.ts, useAnnotationDraft.ts, useCodeAnnotationDraft.ts, useArchive.ts
 │   │   └── types.ts
 │   ├── ai/                       # Provider-agnostic AI backbone (providers, sessions, endpoints)
-│   ├── shared/                   # Shared types, utilities, and cross-runtime logic
+│   ├── core/                     # @plannotator/core — browser-safe, zero-dep universal slice (pure utils + types) shared by ui + shared; published so @plannotator/ui can be installed standalone. `shared` re-exports the moved modules via one-line shims so Plannotator is unchanged.
+│   ├── shared/                   # Node/git/server logic + cross-runtime types (re-exports browser-safe modules from @plannotator/core)
 │   │   ├── storage.ts            # Plan saving, version history, archive listing (node:fs only)
 │   │   ├── draft.ts              # Annotation draft persistence (node:fs only)
 │   │   └── project.ts            # Pure string helpers (sanitizeTag, extractRepoName, extractDirName)

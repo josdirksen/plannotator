@@ -1,9 +1,8 @@
-import { toRelativePath } from "./path-utils";
 import {
   profileHasCustomSection,
   type ResolvedReviewProfile,
 } from "@plannotator/shared/review-profiles";
-import { classifyFindingPlacement } from "@plannotator/shared/external-annotation";
+import { transformSeverityFindings } from "./review-findings";
 
 /**
  * Marker Review Engines — the shared machinery for review CLIs that expose NO
@@ -78,10 +77,14 @@ const VALID_SEVERITIES: ReadonlySet<string> = new Set([
 // Empty findings are valid as long as the JSON is valid and the summary is.
 // ---------------------------------------------------------------------------
 
-/** Read a value that may be a number, null, or absent — anything else is invalid. */
-function optionalNullableNumber(value: unknown): { ok: true; value: number | null } | { ok: false } {
+/**
+ * Read a line coordinate that may be a finite integer, null, or absent. The
+ * marker block is prompt-enforced, so a fractional/NaN/Infinity line is garbage
+ * we will not trust as an annotation coordinate — it is rejected here.
+ */
+function optionalNullableInteger(value: unknown): { ok: true; value: number | null } | { ok: false } {
   if (value === undefined || value === null) return { ok: true, value: null };
-  if (typeof value === "number") return { ok: true, value };
+  if (typeof value === "number" && Number.isInteger(value)) return { ok: true, value };
   return { ok: false };
 }
 
@@ -108,7 +111,7 @@ export function validateMarkerReviewOutput(parsed: unknown): MarkerReviewOutput 
   const s = summary as Record<string, unknown>;
   if (typeof s.correctness !== "string") return null;
   if (typeof s.explanation !== "string") return null;
-  if (typeof s.confidence !== "number") return null;
+  if (typeof s.confidence !== "number" || !Number.isFinite(s.confidence)) return null;
 
   const findings: MarkerFinding[] = [];
   for (const raw of obj.findings) {
@@ -120,9 +123,9 @@ export function validateMarkerReviewOutput(parsed: unknown): MarkerReviewOutput 
 
     const file = optionalNullableString(f.file);
     if (!file.ok) return null;
-    const line = optionalNullableNumber(f.line);
+    const line = optionalNullableInteger(f.line);
     if (!line.ok) return null;
-    const endLine = optionalNullableNumber(f.end_line);
+    const endLine = optionalNullableInteger(f.end_line);
     if (!endLine.ok) return null;
 
     findings.push({
@@ -140,7 +143,8 @@ export function validateMarkerReviewOutput(parsed: unknown): MarkerReviewOutput 
     summary: {
       correctness: s.correctness,
       explanation: s.explanation,
-      confidence: s.confidence,
+      // Clamp to [0,1] — the model occasionally reports out-of-range confidence.
+      confidence: Math.max(0, Math.min(1, s.confidence)),
     },
   };
 }
@@ -160,6 +164,8 @@ export type MarkerStreamEvent = Record<string, unknown>;
 export interface MarkerEngine {
   /** Stable engine id — also the provider id used by the server. */
   id: "cursor" | "opencode";
+  /** Display name for the capabilities/provider listing (e.g. "Cursor CLI"). */
+  name: string;
   /** The CLI binary to spawn (NOTE: cursor's binary is `agent`). */
   binary: string;
   /** Author string stamped on every annotation this engine produces. */
@@ -436,6 +442,7 @@ function opencodeBuildArgv(prompt: string, model?: string, cwd?: string): string
 
 const CURSOR_ENGINE: MarkerEngine = {
   id: "cursor",
+  name: "Cursor CLI",
   binary: "agent",
   author: "Cursor",
   buildArgv: cursorBuildArgv,
@@ -447,6 +454,7 @@ const CURSOR_ENGINE: MarkerEngine = {
 
 const OPENCODE_ENGINE: MarkerEngine = {
   id: "opencode",
+  name: "OpenCode",
   binary: "opencode",
   author: "OpenCode",
   buildArgv: opencodeBuildArgv,
@@ -770,27 +778,7 @@ export function transformMarkerFindings(
   cwd?: string,
   pathTransform?: (path: string) => string,
 ): MarkerReviewAnnotationInput[] {
-  // Route every finding by what it carries — nothing is dropped. A finding with
-  // no usable file becomes a general comment; with a file but no line, a whole-
-  // file comment; otherwise a line comment.
-  return findings.map((f) => {
-    const rawFile = typeof f.file === "string" ? f.file : "";
-    const filePath = rawFile
-      ? (pathTransform ? pathTransform(toRelativePath(rawFile, cwd)) : toRelativePath(rawFile, cwd))
-      : "";
-    const placement = classifyFindingPlacement(filePath, f.line, f.end_line);
-    return {
-      source,
-      filePath: placement.filePath,
-      lineStart: placement.lineStart,
-      lineEnd: placement.lineEnd,
-      type: "comment",
-      side: "new",
-      scope: placement.scope,
-      text: `[${f.severity}] ${f.description}`,
-      severity: f.severity,
-      reasoning: f.reasoning,
-      author,
-    };
-  });
+  // Routing (line / whole-file / general) is shared with Claude in
+  // review-findings.ts — nothing is dropped; only the author differs per engine.
+  return transformSeverityFindings(findings, source, author, cwd, pathTransform);
 }

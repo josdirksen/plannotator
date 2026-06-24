@@ -634,7 +634,7 @@ export async function startReviewServer(options: {
 			// Map findings onto annotations and ingest. Shared by both engine branches;
 			// no-ops on an empty set so a clean (zero-finding) review stays "done".
 			const ingest = <T extends object>(transformed: readonly T[], logTag: string) => {
-				if (transformed.length === 0) return;
+				if (transformed.length === 0) return undefined;
 				const annotations = transformed.map((a) => ({
 					...a,
 					...jobPrContext,
@@ -643,6 +643,7 @@ export async function startReviewServer(options: {
 				}));
 				const result = externalAnnotations.addAnnotations({ annotations });
 				if ("error" in result) console.error(`[${logTag}] addAnnotations error:`, result.error);
+				return result;
 			};
 
 			if (job.provider === "codex") {
@@ -732,26 +733,21 @@ export async function startReviewServer(options: {
 					confidence: output.summary.confidence,
 				};
 
-				if (output.findings.length > 0) {
-					const annotations = transformMarkerFindings(
+				// Reuse the shared ingest() decoration; add a fail-closed check on result.
+				const result = ingest(
+					transformMarkerFindings(
 						output.findings,
 						job.source,
 						markerEngine.author,
 						cwd,
 						workspace ? (filePath) => workspace.normalizeAnnotationPath(filePath) : undefined,
-					)
-						.map(a => ({
-							...a,
-							...jobPrContext,
-							...(jobDiffScope && { diffScope: jobDiffScope }),
-							...(profileLabel && { reviewProfileLabel: profileLabel }),
-						}));
-					const result = externalAnnotations.addAnnotations({ annotations });
-					if ("error" in result) {
-						job.status = "failed";
-						job.error = `${markerEngine.author} annotation insertion failed: ${result.error}`;
-						return;
-					}
+					),
+					`${markerEngine.id}-review`,
+				);
+				if (result && "error" in result) {
+					job.status = "failed";
+					job.error = `${markerEngine.author} annotation insertion failed: ${result.error}`;
+					return;
 				}
 				return;
 			}

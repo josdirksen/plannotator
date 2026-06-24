@@ -1,9 +1,8 @@
-import { toRelativePath } from "./path-utils";
 import {
   composeReviewPrompt,
   type ResolvedReviewProfile,
 } from "@plannotator/shared/review-profiles";
-import { classifyFindingPlacement } from "@plannotator/shared/external-annotation";
+import { transformSeverityFindings, type ReviewAnnotationInput } from "./review-findings";
 
 /**
  * Claude Code Review Agent — prompt, command builder, and JSONL output parser.
@@ -313,42 +312,10 @@ export function transformClaudeFindings(
   source: string,
   cwd?: string,
   pathTransform?: (path: string) => string,
-): Array<{
-  source: string;
-  filePath: string;
-  lineStart: number;
-  lineEnd: number;
-  type: string;
-  side: string;
-  scope: string;
-  text: string;
-  severity: ClaudeSeverity;
-  reasoning: string;
-  author: string;
-}> {
-  // Route every finding by what it carries — nothing is dropped. A finding
-  // with no usable file becomes a general comment; with a file but no line, a
-  // whole-file comment; otherwise a line comment.
-  return findings.map(f => {
-    const rawFile = typeof f.file === "string" ? f.file : "";
-    const filePath = rawFile
-      ? (pathTransform ? pathTransform(toRelativePath(rawFile, cwd)) : toRelativePath(rawFile, cwd))
-      : "";
-    const placement = classifyFindingPlacement(filePath, f.line, f.end_line);
-    return {
-      source,
-      filePath: placement.filePath,
-      lineStart: placement.lineStart,
-      lineEnd: placement.lineEnd,
-      type: "comment",
-      side: "new",
-      scope: placement.scope,
-      text: `[${f.severity}] ${f.description}`,
-      severity: f.severity,
-      reasoning: f.reasoning,
-      author: "Claude Code",
-    };
-  });
+): ReviewAnnotationInput[] {
+  // Routing (line / whole-file / general) is shared with the marker engines in
+  // review-findings.ts — nothing is dropped; only the author differs.
+  return transformSeverityFindings(findings, source, "Claude Code", cwd, pathTransform);
 }
 
 // ---------------------------------------------------------------------------

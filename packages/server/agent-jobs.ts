@@ -147,34 +147,39 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
   const encoder = new TextEncoder();
   let version = 0;
 
-  // --- Capability detection (run once) ---
+  // --- Capability detection: binaries are probed once at construction; marker
+  // model catalogs are discovered LAZILY (see buildCapabilitiesResponse) so a
+  // slow/unauthenticated `<binary> models` spawn never blocks review-server
+  // startup — it runs at most once, on the first /capabilities request. ---
   const capabilities: AgentCapability[] = [
     { id: "claude", name: "Claude Code", available: !!Bun.which("claude") },
     { id: "codex", name: "Codex CLI", available: !!Bun.which("codex") },
     { id: "tour", name: "Code Tour", available: !!Bun.which("claude") || !!Bun.which("codex") },
   ];
-  // Marker engines (Cursor, OpenCode) — same shape, one loop. Each is available
-  // only in review mode when its binary is on PATH (NOTE: Cursor's binary is
-  // literally named `agent`). When present, discover its account-specific model
-  // catalog so the UI doesn't hardcode ids.
-  const MARKER_ENGINE_NAMES: Record<"cursor" | "opencode", string> = {
-    cursor: "Cursor CLI",
-    opencode: "OpenCode",
-  };
+  // Marker engines (Cursor, OpenCode) — same shape, one loop. Available only in
+  // review mode when the binary is on PATH (NOTE: cursor's binary is `agent`).
   for (const engine of Object.values(MARKER_ENGINES)) {
-    const available = mode === "review" && !!Bun.which(engine.binary);
     capabilities.push({
       id: engine.id,
-      name: MARKER_ENGINE_NAMES[engine.id],
-      available,
-      ...(available ? { models: discoverMarkerModels(engine) } : {}),
+      name: engine.name,
+      available: mode === "review" && !!Bun.which(engine.binary),
     });
   }
-  const capabilitiesResponse: AgentCapabilities = {
-    mode,
-    providers: capabilities,
-    available: capabilities.some((c) => c.available),
-  };
+
+  const markerModelsCache = new Map<string, MarkerModel[]>();
+  function buildCapabilitiesResponse(): AgentCapabilities {
+    const providers = capabilities.map((c) => {
+      const engine = MARKER_ENGINES[c.id as "cursor" | "opencode"];
+      if (!engine || !c.available) return c;
+      let models = markerModelsCache.get(engine.id);
+      if (!models) {
+        models = discoverMarkerModels(engine);
+        markerModelsCache.set(engine.id, models);
+      }
+      return { ...c, models };
+    });
+    return { mode, providers, available: providers.some((p) => p.available) };
+  }
 
   // --- SSE broadcasting ---
   function broadcast(event: AgentJobEvent): void {
@@ -375,7 +380,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
             // must surface as a failed job rather than a green one. (Their
             // handlers normally fail by mutation and never throw; this guards
             // future refactors.)
-            if (provider === "cursor" || provider === "opencode") {
+            if (MARKER_ENGINES[provider as "cursor" | "opencode"]) {
               entry.info.status = "failed";
               entry.info.error = err instanceof Error ? err.message : `${provider} result ingestion failed`;
             }
@@ -448,7 +453,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
     ): Promise<Response | null> {
       // --- GET /api/agents/capabilities ---
       if (url.pathname === CAPABILITIES && req.method === "GET") {
-        return Response.json(capabilitiesResponse);
+        return Response.json(buildCapabilitiesResponse());
       }
 
       // --- SSE stream ---

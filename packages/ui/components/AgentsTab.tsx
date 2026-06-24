@@ -685,6 +685,21 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
     setTourEngine,
   ]);
 
+  // Reconcile the saved Cursor/OpenCode model against the live catalog: a
+  // persisted id can go stale after an account switch or discovery loss, and
+  // posting it would fail the launch. Collapse it to the first option (auto/
+  // Default) when it's no longer offered.
+  useEffect(() => {
+    if (!cursorModels.some((m) => m.value === cursorModel)) {
+      setCursorModel(cursorModels[0]?.value ?? 'auto');
+    }
+  }, [cursorModels, cursorModel, setCursorModel]);
+  useEffect(() => {
+    if (!opencodeModels.some((m) => m.value === opencodeModel)) {
+      setOpencodeModel(opencodeModels[0]?.value ?? '');
+    }
+  }, [opencodeModels, opencodeModel, setOpencodeModel]);
+
   // Annotation counts per job source
   const annotationCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -835,6 +850,28 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
     );
   }
 
+  // Cursor and OpenCode share the same review config: an "experimental" note and
+  // a single model picker driven by their live (or fallback) catalog.
+  const renderMarkerEngineConfig = (
+    model: string,
+    models: Array<{ value: string; label: string }>,
+    setModel: (value: string) => void,
+  ) => (
+    <>
+      <div className="flex items-center gap-1.5 text-[10px] text-amber-600 dark:text-amber-400">
+        <span className="rounded bg-amber-500/10 px-1 py-px font-medium">experimental</span>
+        <span className="text-muted-foreground/50">Findings are prompt-enforced</span>
+      </div>
+      <ConfigRow label="Model" stacked>
+        {models.length > 1 ? (
+          <SelectMenu value={model} options={models} onChange={setModel} />
+        ) : (
+          renderStaticChoice(catalogLabel(models, model))
+        )}
+      </ConfigRow>
+    </>
+  );
+
   return (
     <div className="flex flex-col h-full">
       {/* Launch panel (pinned to the top) */}
@@ -903,36 +940,8 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
                     </ConfigRow>
                   </>
                 )}
-                {reviewEngine === 'cursor' && (
-                  <>
-                    <div className="flex items-center gap-1.5 text-[10px] text-amber-600 dark:text-amber-400">
-                      <span className="rounded bg-amber-500/10 px-1 py-px font-medium">experimental</span>
-                      <span className="text-muted-foreground/50">Findings are prompt-enforced</span>
-                    </div>
-                    <ConfigRow label="Model" stacked>
-                      {cursorModels.length > 1 ? (
-                        <SelectMenu value={cursorModel} options={cursorModels} onChange={setCursorModel} />
-                      ) : (
-                        renderStaticChoice(catalogLabel(cursorModels, cursorModel))
-                      )}
-                    </ConfigRow>
-                  </>
-                )}
-                {reviewEngine === 'opencode' && (
-                  <>
-                    <div className="flex items-center gap-1.5 text-[10px] text-amber-600 dark:text-amber-400">
-                      <span className="rounded bg-amber-500/10 px-1 py-px font-medium">experimental</span>
-                      <span className="text-muted-foreground/50">Findings are prompt-enforced</span>
-                    </div>
-                    <ConfigRow label="Model" stacked>
-                      {opencodeModels.length > 1 ? (
-                        <SelectMenu value={opencodeModel} options={opencodeModels} onChange={setOpencodeModel} />
-                      ) : (
-                        renderStaticChoice(catalogLabel(opencodeModels, opencodeModel))
-                      )}
-                    </ConfigRow>
-                  </>
-                )}
+                {reviewEngine === 'cursor' && renderMarkerEngineConfig(cursorModel, cursorModels, setCursorModel)}
+                {reviewEngine === 'opencode' && renderMarkerEngineConfig(opencodeModel, opencodeModels, setOpencodeModel)}
               </>
             )}
 

@@ -32,13 +32,44 @@ import {
  */
 
 // ---------------------------------------------------------------------------
-// Static marker — v1 uses a STATIC marker plus last-block selection (no nonce).
-// If a real run shows the model echoing the marker from the prompt, add a
-// per-job nonce then — not before.
+// Per-job marker — the JSON payload is delimited by tags carrying a random,
+// per-job nonce: <plannotator-review-json:NONCE> … </plannotator-review-json:NONCE>.
+//
+// Why the nonce: in review mode the diff (and the model's own prose) is
+// untrusted text that routinely contains the bare string "plannotator-review-json"
+// — e.g. when reviewing this very module, or when the model echoes the contract
+// example. A static tag let those echoed mentions be mistaken for the real
+// delimiter, so extraction grabbed prose instead of the payload and valid
+// reviews failed. The nonce is generated at prompt-build time, embedded in the
+// output contract the model copies, and recovered from the stored prompt at
+// parse time, so only the model's genuine payload can match.
 // ---------------------------------------------------------------------------
 
-export const MARKER_OPEN = "<plannotator-review-json>";
-export const MARKER_CLOSE = "</plannotator-review-json>";
+const MARKER_TAG = "plannotator-review-json";
+
+/** Open delimiter for a job's nonce. */
+export function markerOpen(nonce: string): string {
+  return `<${MARKER_TAG}:${nonce}>`;
+}
+/** Close delimiter for a job's nonce. */
+export function markerClose(nonce: string): string {
+  return `</${MARKER_TAG}:${nonce}>`;
+}
+
+/** Generate an unguessable per-job marker nonce (matches html-assets token style). */
+export function makeMarkerNonce(): string {
+  return "pn" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+}
+
+/**
+ * Recover the nonce embedded in a composed prompt's marker contract. Returns
+ * null when absent — the parser then fails closed, since no payload can be
+ * trusted without the expected delimiter.
+ */
+export function extractMarkerNonce(prompt: string): string | null {
+  const m = new RegExp(`<${MARKER_TAG}:(pn[0-9a-f]{12})>`).exec(prompt);
+  return m ? m[1] : null;
+}
 
 // ---------------------------------------------------------------------------
 // Finding model — IDENTICAL to ClaudeFinding: nullable file/line/end_line so a
@@ -522,23 +553,28 @@ export function reduceMarkerStream(stdout: string, engine: MarkerEngine): Marker
 // schema-validate. Returns null on any failure (caller fails the job).
 // ---------------------------------------------------------------------------
 
-/** Extract the content of the LAST complete marker block from canonical text. */
-export function extractLastMarkerBlock(text: string): string | null {
+/**
+ * Extract the content of the LAST complete marker block from canonical text.
+ * The open/close tags carry the job nonce, so bare `plannotator-review-json`
+ * mentions in the diff or the model's prose (which lack the nonce) are ignored
+ * rather than mistaken for delimiters.
+ */
+export function extractLastMarkerBlock(text: string, openTag: string, closeTag: string): string | null {
   let result: string | null = null;
   let searchFrom = 0;
 
   while (true) {
-    const open = text.indexOf(MARKER_OPEN, searchFrom);
+    const open = text.indexOf(openTag, searchFrom);
     if (open === -1) break;
-    const contentStart = open + MARKER_OPEN.length;
-    const close = text.indexOf(MARKER_CLOSE, contentStart);
+    const contentStart = open + openTag.length;
+    const close = text.indexOf(closeTag, contentStart);
     // A dangling opener (no matching close) almost always means the model's
     // final block was truncated mid-stream. Fail closed — return null — rather
     // than silently falling back to an earlier (draft, or echoed prompt-example)
     // block, which would mark a truncated review green with the wrong findings.
     if (close === -1) return null;
     result = text.slice(contentStart, close);
-    searchFrom = close + MARKER_CLOSE.length;
+    searchFrom = close + closeTag.length;
   }
 
   return result;
@@ -552,13 +588,14 @@ export function extractLastMarkerBlock(text: string): string | null {
  * ANY failure (missing marker, malformed JSON, schema mismatch) so the caller
  * can fail the job.
  */
-export function parseMarkerStreamOutput(stdout: string, engine: MarkerEngine): MarkerReviewOutput | null {
+export function parseMarkerStreamOutput(stdout: string, engine: MarkerEngine, nonce: string): MarkerReviewOutput | null {
   if (!stdout || !stdout.trim()) return null;
+  if (!nonce) return null; // no expected nonce → cannot trust any block
 
   const { canonicalText } = reduceMarkerStream(stdout, engine);
   if (!canonicalText) return null;
 
-  const block = extractLastMarkerBlock(canonicalText);
+  const block = extractLastMarkerBlock(canonicalText, markerOpen(nonce), markerClose(nonce));
   if (block === null) return null;
 
   let parsed: unknown;
@@ -662,12 +699,15 @@ breaks, and why it isn't already handled.
   or any commenting tool.
 - Never approve or block the change. Your only output is findings.`;
 
-export const MARKER_OUTPUT_CONTRACT = `## Output contract
+export function buildMarkerOutputContract(nonce: string): string {
+  return `## Output contract
 Your only machine-readable output is a single marker-delimited JSON block.
 Any natural-language commentary you write must come BEFORE the final marker
-block. Emit the block exactly once, as the last thing in your response:
+block. Emit the block exactly once, as the last thing in your response. The
+opening and closing tags carry a session id (after the colon) — reproduce both
+tags EXACTLY as shown, including that id, or your findings will be discarded:
 
-${MARKER_OPEN}
+${markerOpen(nonce)}
 {
   "findings": [
     {
@@ -685,7 +725,7 @@ ${MARKER_OPEN}
     "confidence": 0.85
   }
 }
-${MARKER_CLOSE}
+${markerClose(nonce)}
 
 Schema:
 - findings: array of objects, each with
@@ -711,31 +751,36 @@ drop to a file or general placement instead of guessing. Cite file/line from the
 new (post-change) code. One finding per distinct bug — do not stack unrelated
 issues. If no issues are found, return an empty "findings" array with a valid
 summary.`;
+}
 
 /**
  * Compose a marker engine's review prompt.
  *
  * A custom review profile REPLACES the methodology (its own instructions take
  * over). But unlike Claude/Codex — which use a native schema flag — marker
- * engines have NO schema flag, so MARKER_OUTPUT_CONTRACT is the ONLY thing that
- * makes their output parseable. It is therefore ALWAYS appended, even for a
+ * engines have NO schema flag, so the marker output contract is the ONLY thing
+ * that makes their output parseable. It is therefore ALWAYS appended, even for a
  * custom profile. (This is why we do NOT call composeReviewPrompt directly: that
  * helper REPLACES the whole system prompt for custom profiles, which would strip
  * our contract.)
  *
+ * The contract embeds `nonce` in its marker tags; the caller must generate it
+ * with makeMarkerNonce() and recover it with extractMarkerNonce() at parse time.
+ *
  *   <methodology OR custom profile instructions>
- *   <MARKER_OUTPUT_CONTRACT>
+ *   <marker output contract (nonce-tagged)>
  *   ---
  *   <user message>
  */
 export function composeMarkerReviewPrompt(
   profile: ResolvedReviewProfile | undefined,
   userMessage: string,
+  nonce: string,
 ): string {
   const head = profileHasCustomSection(profile)
     ? (profile as ResolvedReviewProfile).instructions.trim()
     : MARKER_REVIEW_METHODOLOGY;
-  return head + "\n\n" + MARKER_OUTPUT_CONTRACT + "\n\n---\n\n" + userMessage;
+  return head + "\n\n" + buildMarkerOutputContract(nonce) + "\n\n---\n\n" + userMessage;
 }
 
 // ---------------------------------------------------------------------------

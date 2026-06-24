@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
-  MARKER_OPEN,
-  MARKER_CLOSE,
-  MARKER_OUTPUT_CONTRACT,
+  markerOpen,
+  markerClose,
+  makeMarkerNonce,
+  extractMarkerNonce,
+  buildMarkerOutputContract,
   MARKER_ENGINES,
   buildMarkerCommand,
   reduceMarkerStream,
@@ -19,6 +21,11 @@ import type { ResolvedReviewProfile } from "@plannotator/shared/review-profiles"
 
 const cursor = MARKER_ENGINES.cursor;
 const opencode = MARKER_ENGINES.opencode;
+
+// A fixed, valid nonce (pn + 12 hex) for deterministic tests.
+const NONCE = "pn0123456789ab";
+const OPEN = markerOpen(NONCE);
+const CLOSE = markerClose(NONCE);
 
 // ---------------------------------------------------------------------------
 // NDJSON builders, mirroring each engine's real stream shape.
@@ -42,7 +49,7 @@ function opencodeText(text: string): string {
 }
 
 function markerBlock(payload: unknown): string {
-  return `${MARKER_OPEN}\n${JSON.stringify(payload, null, 2)}\n${MARKER_CLOSE}`;
+  return `${OPEN}\n${JSON.stringify(payload, null, 2)}\n${CLOSE}`;
 }
 
 function chunkify(s: string, parts: number): string[] {
@@ -211,7 +218,7 @@ describe("parseMarkerStreamOutput: last block wins, chunk-safe", () => {
     const stdout =
       cursorDelta("Draft:\n" + markerBlock(stale) + "\n") +
       cursorDelta("Final:\n" + markerBlock(validReview));
-    const out = parseMarkerStreamOutput(stdout, cursor);
+    const out = parseMarkerStreamOutput(stdout, cursor, NONCE);
     expect(out!.summary.correctness).toBe("Issues Found");
     expect(out!.findings).toHaveLength(1);
   });
@@ -220,36 +227,66 @@ describe("parseMarkerStreamOutput: last block wins, chunk-safe", () => {
     const full = "Commentary first.\n" + markerBlock(validReview);
     const half = Math.floor(full.length / 2);
     const stdout = opencodeText(full.slice(0, half)) + opencodeText(full.slice(half));
-    const out = parseMarkerStreamOutput(chunkify(stdout, 9).join(""), opencode);
+    const out = parseMarkerStreamOutput(chunkify(stdout, 9).join(""), opencode, NONCE);
     expect(out!.findings).toHaveLength(1);
   });
 });
 
 describe("parseMarkerStreamOutput: failure modes → null", () => {
   test("cursor: missing / unclosed / malformed-JSON / schema-invalid / empty", () => {
-    expect(parseMarkerStreamOutput(cursorDelta("no marker here"), cursor)).toBeNull();
-    expect(parseMarkerStreamOutput(cursorDelta(`${MARKER_OPEN}\n{"findings":[]`), cursor)).toBeNull();
-    expect(parseMarkerStreamOutput(cursorDelta(`${MARKER_OPEN}\n{ bad json }\n${MARKER_CLOSE}`), cursor)).toBeNull();
+    expect(parseMarkerStreamOutput(cursorDelta("no marker here"), cursor, NONCE)).toBeNull();
+    expect(parseMarkerStreamOutput(cursorDelta(`${OPEN}\n{"findings":[]`), cursor, NONCE)).toBeNull();
+    expect(parseMarkerStreamOutput(cursorDelta(`${OPEN}\n{ bad json }\n${CLOSE}`), cursor, NONCE)).toBeNull();
     const badSeverity = { findings: [{ file: "x.ts", line: 1, severity: "blocker", description: "d", reasoning: "" }], summary: { correctness: "x", explanation: "y", confidence: 1 } };
-    expect(parseMarkerStreamOutput(cursorDelta(markerBlock(badSeverity)), cursor)).toBeNull();
-    expect(parseMarkerStreamOutput("", cursor)).toBeNull();
-    expect(parseMarkerStreamOutput("   \n  ", cursor)).toBeNull();
+    expect(parseMarkerStreamOutput(cursorDelta(markerBlock(badSeverity)), cursor, NONCE)).toBeNull();
+    expect(parseMarkerStreamOutput("", cursor, NONCE)).toBeNull();
+    expect(parseMarkerStreamOutput("   \n  ", cursor, NONCE)).toBeNull();
   });
 
   test("cursor: a complete block followed by a truncated block fails closed (no stale fallback)", () => {
     // Model emitted a draft block, then started a replacement that got cut off.
     // We must NOT silently return the earlier block.
     const stdout = cursorDelta(
-      "Draft:\n" + markerBlock(validReview) + "\nFinal:\n" + `${MARKER_OPEN}\n{"findings":[`,
+      "Draft:\n" + markerBlock(validReview) + "\nFinal:\n" + `${OPEN}\n{"findings":[`,
     );
-    expect(parseMarkerStreamOutput(stdout, cursor)).toBeNull();
+    expect(parseMarkerStreamOutput(stdout, cursor, NONCE)).toBeNull();
+  });
+
+  test("cursor: bare static sentinels in prose don't corrupt extraction (real-run regression)", () => {
+    // Reproduces the live failure: reviewing this module, Composer's prose quoted
+    // the bare `<plannotator-review-json>` tag (no nonce) BEFORE its real payload.
+    // The static parser latched onto that mention; the nonce makes it inert.
+    const bareOpen = "<plannotator-review-json>";
+    const bareClose = "</plannotator-review-json>";
+    const stdout = cursorDelta(
+      `Findings are extracted from a ${bareOpen} marker block; see ${bareClose}.\n` +
+        "Here is my review.\n" +
+        markerBlock(validReview) +
+        "\nTo run the full panel, switch to Agent mode.",
+    );
+    const out = parseMarkerStreamOutput(stdout, cursor, NONCE);
+    expect(out!.summary.correctness).toBe("Issues Found");
+    expect(out!.findings).toHaveLength(1);
+  });
+
+  test("nonce: makeMarkerNonce round-trips through a composed prompt; wrong/absent nonce fails closed", () => {
+    const nonce = makeMarkerNonce();
+    expect(nonce).toMatch(/^pn[0-9a-f]{12}$/);
+    const prompt = composeMarkerReviewPrompt(undefined, "review the diff", nonce);
+    expect(extractMarkerNonce(prompt)).toBe(nonce);
+    expect(extractMarkerNonce("no marker here")).toBeNull();
+    // A payload tagged with the real nonce parses only under that nonce.
+    const stdout = cursorDelta(`${markerOpen(nonce)}\n${JSON.stringify(validReview)}\n${markerClose(nonce)}`);
+    expect(parseMarkerStreamOutput(stdout, cursor, nonce)!.findings).toHaveLength(1);
+    expect(parseMarkerStreamOutput(stdout, cursor, "pnffffffffffff")).toBeNull();
+    expect(parseMarkerStreamOutput(stdout, cursor, "")).toBeNull();
   });
 
   test("opencode: missing summary field → null; valid empty findings accepted", () => {
     const missingSummary = { findings: [], summary: { correctness: "x", explanation: "y" } };
-    expect(parseMarkerStreamOutput(opencodeText(markerBlock(missingSummary)), opencode)).toBeNull();
+    expect(parseMarkerStreamOutput(opencodeText(markerBlock(missingSummary)), opencode, NONCE)).toBeNull();
     const clean = { findings: [], summary: { correctness: "Correct", explanation: "ok", confidence: 1 } };
-    const out = parseMarkerStreamOutput(opencodeText(markerBlock(clean)), opencode);
+    const out = parseMarkerStreamOutput(opencodeText(markerBlock(clean)), opencode, NONCE);
     expect(out!.findings).toEqual([]);
   });
 });
@@ -372,18 +409,18 @@ describe("composeMarkerReviewPrompt", () => {
   const userMessage = "Review the diff for branch X.";
 
   test("default profile: methodology + contract + user message", () => {
-    const prompt = composeMarkerReviewPrompt(undefined, userMessage);
+    const prompt = composeMarkerReviewPrompt(undefined, userMessage, NONCE);
     expect(prompt).toContain("# Code Review");
-    expect(prompt).toContain(MARKER_OUTPUT_CONTRACT);
-    expect(prompt).toContain(MARKER_OPEN);
+    expect(prompt).toContain(buildMarkerOutputContract(NONCE));
+    expect(prompt).toContain(OPEN);
     expect(prompt.endsWith(userMessage)).toBe(true);
   });
 
   test("builtin:default profile behaves like no profile (contract present)", () => {
     const builtin: ResolvedReviewProfile = { id: "builtin:default", label: "Default", instructions: "", source: "builtin", default: true };
-    const prompt = composeMarkerReviewPrompt(builtin, userMessage);
+    const prompt = composeMarkerReviewPrompt(builtin, userMessage, NONCE);
     expect(prompt).toContain("# Code Review");
-    expect(prompt).toContain(MARKER_OUTPUT_CONTRACT);
+    expect(prompt).toContain(buildMarkerOutputContract(NONCE));
   });
 
   test("custom profile REPLACES methodology but KEEPS the output contract", () => {
@@ -393,14 +430,14 @@ describe("composeMarkerReviewPrompt", () => {
       instructions: "ONLY look for SQL injection and auth bypasses.",
       source: "user",
     };
-    const prompt = composeMarkerReviewPrompt(custom, userMessage);
+    const prompt = composeMarkerReviewPrompt(custom, userMessage, NONCE);
     expect(prompt).toContain("ONLY look for SQL injection and auth bypasses.");
     // Custom instructions replace the default methodology...
     expect(prompt).not.toContain("You are a senior engineer reviewing a code change.");
     // ...but the marker contract is still appended — it's the only thing that
     // makes marker output parseable.
-    expect(prompt).toContain(MARKER_OUTPUT_CONTRACT);
-    expect(prompt).toContain(MARKER_OPEN);
+    expect(prompt).toContain(buildMarkerOutputContract(NONCE));
+    expect(prompt).toContain(OPEN);
     expect(prompt.endsWith(userMessage)).toBe(true);
   });
 });

@@ -96,6 +96,8 @@ import {
 	buildMarkerCommand,
 	parseMarkerStreamOutput,
 	transformMarkerFindings,
+	makeMarkerNonce,
+	extractMarkerNonce,
 } from "../generated/marker-review.js";
 import {
 	WorkspaceReviewSession,
@@ -605,7 +607,10 @@ export async function startReviewServer(options: {
 			const markerEngine = MARKER_ENGINES[provider as "cursor" | "opencode"];
 			if (markerEngine) {
 				const model = typeof config?.model === "string" && config.model ? config.model : undefined;
-				const prompt = composeMarkerReviewPrompt(reviewProfile, userMessage);
+				// Per-job nonce embedded in the marker contract; recovered from job.prompt
+				// at parse time so echoed/quoted bare tags can't be mistaken for the payload.
+				const nonce = makeMarkerNonce();
+				const prompt = composeMarkerReviewPrompt(reviewProfile, userMessage, nonce);
 				const { command } = buildMarkerCommand(markerEngine, prompt, model, cwd);
 				return { command, prompt, cwd, label: jobLabel, captureStdout: true, model, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label };
 			}
@@ -714,7 +719,10 @@ export async function startReviewServer(options: {
 			// general by transformMarkerFindings — nothing is dropped (same as Claude).
 			const markerEngine = MARKER_ENGINES[job.provider as "cursor" | "opencode"];
 			if (markerEngine) {
-				const output = meta.stdout ? parseMarkerStreamOutput(meta.stdout, markerEngine) : null;
+				// Recover the per-job nonce embedded in the prompt; without it no block
+				// can be trusted, so parse fails closed below.
+				const nonce = extractMarkerNonce(job.prompt ?? "");
+				const output = nonce && meta.stdout ? parseMarkerStreamOutput(meta.stdout, markerEngine, nonce) : null;
 				if (!output) {
 					job.status = "failed";
 					job.error = `${markerEngine.author} review output missing or unparseable (no valid marker JSON).`;

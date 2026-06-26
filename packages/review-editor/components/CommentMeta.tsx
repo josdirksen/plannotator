@@ -14,9 +14,6 @@ interface CommentMetaProps {
   source?: string;
   author?: string;
   createdAt?: number;
-  /** Surface-specific right-aligned controls (e.g. edit/delete actions), shown
-   *  after the timestamp. */
-  trailing?: React.ReactNode;
 }
 
 /**
@@ -35,7 +32,6 @@ export const CommentMeta: React.FC<CommentMetaProps> = ({
   source,
   author,
   createdAt,
-  trailing,
 }) => (
   <div className="review-comment-header">
     <div className="flex min-w-0 items-center gap-1.5">
@@ -63,13 +59,10 @@ export const CommentMeta: React.FC<CommentMetaProps> = ({
         </span>
       )}
     </div>
-    {(createdAt != null || trailing) && (
-      <div className="ml-auto flex flex-none items-center gap-1.5">
-        {createdAt != null && (
-          <span className="text-[10px] text-muted-foreground/50">{formatRelativeTime(createdAt)}</span>
-        )}
-        {trailing}
-      </div>
+    {createdAt != null && (
+      <span className="ml-auto flex-none text-[10px] text-muted-foreground/50">
+        {formatRelativeTime(createdAt)}
+      </span>
     )}
   </div>
 );

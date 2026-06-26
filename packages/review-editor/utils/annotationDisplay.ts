@@ -19,3 +19,15 @@ export function copyLocationPrefix(
   if (scope === 'file') return `${a.filePath}\n`;
   return `${a.filePath}:${a.lineStart}${a.lineEnd !== a.lineStart ? `-${a.lineEnd}` : ''}\n`;
 }
+
+/**
+ * The full clipboard text for a comment: location prefix + body + reasoning.
+ * Shared by every comment card's copy action so they produce identical,
+ * self-describing text.
+ */
+export function commentCopyText(
+  a: CodeAnnotation,
+  scope: CodeAnnotationScope = annotationScope(a),
+): string {
+  return `${copyLocationPrefix(a, scope)}${a.text ?? ''}${a.reasoning ? `\n\nReasoning: ${a.reasoning}` : ''}`;
+}

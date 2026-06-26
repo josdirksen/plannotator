@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { CodeAnnotation, type CodeAnnotationScope, type EditorAnnotation } from '@plannotator/ui/types';
 import { CommentMeta } from './CommentMeta';
 import { EditorAnnotationCard } from '@plannotator/ui/components/EditorAnnotationCard';
-import { CopyButton } from './CopyButton';
-import { copyLocationPrefix } from '../utils/annotationDisplay';
+import { CommentActions } from './CommentActions';
+import { commentCopyText } from '../utils/annotationDisplay';
 import { HighlightedCode } from './HighlightedCode';
 import { detectLanguage } from '../utils/detectLanguage';
 import { renderInlineMarkdown } from '../utils/renderInlineMarkdown';
@@ -258,23 +258,10 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
             <SuggestionPreview code={annotation.suggestedCode} originalCode={annotation.originalCode} language={detectLanguage(annotation.filePath)} />
           </div>
         )}
-        <div className="flex items-center justify-end gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          {annotation.text && (
-            <CopyButton text={`${copyLocationPrefix(annotation, scope)}${annotation.text}${annotation.reasoning ? `\n\nReasoning: ${annotation.reasoning}` : ''}`} variant="inline" />
-          )}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDeleteAnnotation(annotation.id);
-            }}
-            className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-            title="Delete annotation"
-          >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+        <CommentActions
+          copyText={annotation.text ? commentCopyText(annotation, scope) : undefined}
+          onDelete={() => onDeleteAnnotation(annotation.id)}
+        />
       </div>
     );
   }

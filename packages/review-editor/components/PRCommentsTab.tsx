@@ -387,7 +387,7 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
                 )}
 
                 {!isCollapsed && (
-                  <CommentActions
+                  <PRCommentLinkActions
                     url={entry.kind === 'comment' ? (entry.data as PRComment).url : (entry.data as PRReview).url}
                     body={entry.data.body}
                   />
@@ -525,14 +525,14 @@ function ThreadCard({ thread, isSelected, isCollapsed, onSelect, onToggleCollaps
           )}
 
           {/* Actions */}
-          <CommentActions url={first.url} body={first.body} />
+          <PRCommentLinkActions url={first.url} body={first.body} />
         </>
       )}
     </div>
   );
 }
 
-function CommentActions({ url, body }: { url?: string; body: string }) {
+function PRCommentLinkActions({ url, body }: { url?: string; body: string }) {
   if (!url && !body) return null;
 
   return (

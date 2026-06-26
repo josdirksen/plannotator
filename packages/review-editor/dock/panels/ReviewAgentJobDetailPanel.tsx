@@ -8,7 +8,7 @@ import { CopyButton } from '../../components/CopyButton';
 import { LiveLogViewer } from '../../components/LiveLogViewer';
 import { ScrollFade } from '../../components/ScrollFade';
 import { exportReviewFeedback } from '../../utils/exportFeedback';
-import { annotationScope, copyLocationPrefix } from '../../utils/annotationDisplay';
+import { annotationScope, commentCopyText } from '../../utils/annotationDisplay';
 
 // ---------------------------------------------------------------------------
 // Panel
@@ -413,7 +413,7 @@ function AnnotationRow({ annotation: ann, dismissed, onClick }: {
   onClick: (ann: CodeAnnotation) => void;
 }) {
   const scope = annotationScope(ann);
-  const copyText = ann.text ? `${copyLocationPrefix(ann, scope)}${ann.text}${ann.reasoning ? `\n\nReasoning: ${ann.reasoning}` : ''}` : '';
+  const copyText = ann.text ? commentCopyText(ann, scope) : '';
   const severity = ann.severity ? SEVERITY_STYLES[ann.severity] : null;
   return (
     <div

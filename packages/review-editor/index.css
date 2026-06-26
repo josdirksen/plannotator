@@ -167,43 +167,6 @@ diffs-container {
   color: var(--muted-foreground);
 }
 
-.review-comment-actions {
-  /* Float in the card's top-right corner instead of taking inline space — an
-     opacity:0 in-flow row would reserve width and shove the timestamp left,
-     misaligning it vs. surfaces without actions (the sidebar). Absolute keeps the
-     timestamp flush-right everywhere; actions fade in over the corner on hover. */
-  position: absolute;
-  top: 0.5rem;
-  right: 0.6rem;
-  display: flex;
-  gap: 0.125rem;
-  opacity: 0;
-  transform: scale(0.95);
-  transition: opacity 100ms, transform 100ms;
-}
-
-.review-comment:hover .review-comment-actions {
-  opacity: 1;
-  transform: scale(1);
-}
-
-.review-comment-action {
-  padding: 0.25rem;
-  border-radius: 4px;
-  color: var(--muted-foreground);
-  transition: color 100ms, background 100ms;
-}
-
-.review-comment-action:hover {
-  color: var(--foreground);
-  background: var(--muted);
-}
-
-.review-comment-action.destructive:hover {
-  color: var(--destructive);
-  background: oklch(from var(--destructive) l c h / 0.1);
-}
-
 .review-comment > .review-comment-body {
   min-width: 0;
   color: var(--foreground);

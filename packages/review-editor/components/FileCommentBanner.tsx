@@ -2,7 +2,9 @@ import React, { useMemo, useState } from 'react';
 import type { CodeAnnotation } from '@plannotator/ui/types';
 import { sanitizeBlockHtml } from '@plannotator/ui/utils/sanitizeHtml';
 import { CommentMeta } from './CommentMeta';
+import { CommentActions } from './CommentActions';
 import { FileNameChip } from './FileNameChip';
+import { commentCopyText } from '../utils/annotationDisplay';
 
 interface FileCommentBannerProps {
   /** File-scoped comments for ONE file (already filtered to scope === 'file'). */
@@ -57,7 +59,7 @@ export const FileCommentCard: React.FC<{
 
   return (
     <div
-      className={`review-comment${isSelected ? ' is-selected' : ''}`}
+      className={`review-comment group${isSelected ? ' is-selected' : ''}`}
       data-annotation-id={comment.id}
       onClick={() => onSelect(comment.id)}
     >
@@ -84,32 +86,6 @@ export const FileCommentCard: React.FC<{
         source={comment.source}
         author={comment.author}
         createdAt={comment.createdAt}
-        trailing={
-          editable ? (
-            <div className="review-comment-actions">
-              {!isEditing && (
-                <button
-                  className="review-comment-action"
-                  onClick={(e) => { e.stopPropagation(); setDraft(comment.text ?? ''); setIsEditing(true); setCollapsed(false); }}
-                  title="Edit"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                </button>
-              )}
-              <button
-                className="review-comment-action destructive"
-                onClick={(e) => { e.stopPropagation(); onDelete(comment.id); }}
-                title="Delete"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          ) : undefined
-        }
       />
 
       {isEditing ? (
@@ -141,6 +117,13 @@ export const FileCommentCard: React.FC<{
           <div className="review-comment-body ai-markdown" dangerouslySetInnerHTML={{ __html: html }} />
         )
       ) : null}
+      {!isEditing && (
+        <CommentActions
+          onEdit={editable ? () => { setDraft(comment.text ?? ''); setIsEditing(true); setCollapsed(false); } : undefined}
+          copyText={comment.text ? commentCopyText(comment) : undefined}
+          onDelete={editable ? () => onDelete(comment.id) : undefined}
+        />
+      )}
     </div>
   );
 };

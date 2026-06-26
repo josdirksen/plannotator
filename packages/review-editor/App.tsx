@@ -1543,7 +1543,7 @@ const ReviewApp: React.FC = () => {
     if (!annotation || !annotationMatchesPrScope(annotation, prMetadata?.url, prDiffScope)) {
       return;
     }
-    if (annotation && !isAllFilesActiveRef.current) {
+    if (!isAllFilesActiveRef.current) {
       const fileIndex = files.findIndex(f => f.path === annotation.filePath);
       if (fileIndex !== -1) handleFileSwitch(fileIndex);
     }

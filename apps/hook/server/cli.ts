@@ -114,6 +114,15 @@ const SUBCOMMAND_HELP: Record<string, string> = {
     "",
     "Open a read-only browser for saved plan decisions in ~/.plannotator/plans/.",
   ].join("\n"),
+  "improve-context": [
+    "Usage:",
+    "  plannotator improve-context",
+    "",
+    "Hook-integration command spawned by the PreToolUse hook on EnterPlanMode.",
+    "Reads the hook event on stdin and emits additionalContext JSON (PFM reminder",
+    "and/or compound improvement hook), or exits silently when nothing is enabled.",
+    "Not intended to be run directly.",
+  ].join("\n"),
   sessions: [
     "Usage:",
     "  plannotator sessions [--open [N]] [--clean]",

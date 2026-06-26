@@ -71,8 +71,16 @@ describe("CLI subcommand help", () => {
     );
   });
 
-  test("covers every user-facing subcommand", () => {
-    for (const sub of ["annotate", "setup-goal", "archive", "sessions"]) {
+  test("covers every command advertised in top-level help", () => {
+    // Each command listed in formatTopLevelHelp() must respond to --help so the
+    // advertised "run 'plannotator <command> --help'" contract holds.
+    for (const sub of [
+      "annotate",
+      "setup-goal",
+      "archive",
+      "sessions",
+      "improve-context",
+    ]) {
       expect(isSubcommandHelpInvocation([sub, "--help"])).toBe(sub);
     }
   });

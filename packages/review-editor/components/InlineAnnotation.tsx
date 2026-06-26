@@ -24,6 +24,8 @@ export const InlineAnnotation: React.FC<InlineAnnotationProps> = ({
   onDelete,
 }) => {
   const severity = metadata.severity ? SEVERITY_STYLES[metadata.severity] : null;
+  // External (source-set) findings are read-only — matches the file-comment card.
+  const editable = !metadata.source;
 
   return (
     <div
@@ -58,9 +60,9 @@ export const InlineAnnotation: React.FC<InlineAnnotationProps> = ({
         </div>
       )}
       <CommentActions
-        onEdit={() => onEdit(metadata.annotationId)}
-        copyText={metadata.text ? `${metadata.text}${metadata.reasoning ? `\n\nReasoning: ${metadata.reasoning}` : ''}` : undefined}
-        onDelete={() => onDelete(metadata.annotationId)}
+        onEdit={editable ? () => onEdit(metadata.annotationId) : undefined}
+        copyText={metadata.copyText}
+        onDelete={editable ? () => onDelete(metadata.annotationId) : undefined}
       />
     </div>
   );

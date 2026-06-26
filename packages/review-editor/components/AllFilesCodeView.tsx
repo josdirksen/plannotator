@@ -32,6 +32,7 @@ import { ToolbarHost, type ToolbarHostHandle } from './ToolbarHost';
 import { FileHeader } from './FileHeader';
 import { FileCommentBanner } from './FileCommentBanner';
 import { annotationMatchesPrScope, isFileScopedAnnotation, lineRangeForAnnotation } from '../utils/annotationScope';
+import { commentCopyText } from '../utils/annotationDisplay';
 import { InlineAnnotation } from './InlineAnnotation';
 import { detectLanguage } from '../utils/detectLanguage';
 import type { AIChatEntry } from '../hooks/useAIChat';
@@ -285,6 +286,7 @@ function projectFileAnnotations(
         createdAt: ann.createdAt,
         reviewProfileLabel: ann.reviewProfileLabel,
         source: ann.source,
+        copyText: ann.text ? commentCopyText(ann) : undefined,
       } as DiffAnnotationMetadata,
     }));
 }
@@ -1290,6 +1292,7 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
           ? JSON.stringify([
               'F', a.id, a.text ?? '', a.source ?? '', a.author ?? '',
               a.reviewProfileLabel ?? '', a.conventionalLabel ?? '',
+              (a.decorations ?? []).join(','), a.createdAt ?? 0,
             ])
           : JSON.stringify([
               a.id, a.lineEnd, a.side, a.type,
@@ -1581,6 +1584,11 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
   // card ring — but NEVER scrolls. Clicking a comment in the diff must not move
   // the viewport. `annotations` is read through the ref so this fires only on
   // selection change, not on any add/edit/delete while one is selected.
+  // Read-only mirror of pendingSelection so the selection effect can yield to an
+  // active compose WITHOUT taking pendingSelection as a dep (which would re-run
+  // it on every drag delta).
+  const pendingSelectionRef = useRef(pendingSelection);
+  pendingSelectionRef.current = pendingSelection;
   const prevSelectedFileRef = useRef<string | null>(null);
   useEffect(() => {
     const ann = selectedAnnotationId
@@ -1598,6 +1606,11 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
     for (const path of filesToRefresh) {
       for (const itemId of filePathToItemIds.get(path) ?? []) refreshItem(itemId);
     }
+
+    // An active compose (toolbar open) owns selectedLines — clicking/deselecting a
+    // comment must not clobber the in-progress range highlight. Mirrors
+    // single-file DiffViewer's `pendingSelection ?? selectedAnnotationRange`.
+    if (pendingSelectionRef.current != null) return;
 
     // Line/range comments replay their exact range as the controlled highlight
     // (the same state a drag paints). File-scoped comments / deselection clear it.

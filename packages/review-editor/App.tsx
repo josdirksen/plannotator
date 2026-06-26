@@ -1520,6 +1520,9 @@ const ReviewApp: React.FC = () => {
   // switch — the clicked card is already on screen. Clicking the selected card
   // again (or a null id) clears it.
   const handleSelectAnnotation = useCallback((id: string | null) => {
+    // An inline selection supersedes any pending sidebar/findings navigate target,
+    // so a later remount (Refresh / base switch) doesn't re-scroll back to it.
+    setScrollTargetAnnotation(null);
     setSelectedAnnotationId(prev => (!id || prev === id ? null : id));
   }, []);
 

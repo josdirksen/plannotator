@@ -182,6 +182,14 @@ diffs-container {
   white-space: normal;
 }
 
+/* Finding reasoning — wrap long unbroken tokens (file:line refs, identifiers) so
+   they don't bleed past the card's right edge, same as the comment body. */
+.review-comment-reasoning {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 /* Inline markdown in review comments */
 .review-comment-body .inline-code,
 .review-comment-markdown .inline-code {

@@ -162,6 +162,10 @@ export interface DiffAnnotationMetadata {
   createdAt?: number;
   reviewProfileLabel?: string;
   source?: string;
+  /** Precomputed clipboard text (location prefix + body + reasoning) so the
+   *  inline copy action matches the sidebar/banner — the inline card only has
+   *  the projected metadata, not the full annotation. */
+  copyText?: string;
   // AI marker fields (set when kind === 'ai-marker')
   kind?: 'annotation' | 'ai-marker';
   questionId?: string;

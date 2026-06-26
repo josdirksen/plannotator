@@ -15,6 +15,7 @@ import { useOverlayViewport } from '@plannotator/ui/hooks/useOverlayViewport';
 import { FileHeader } from './FileHeader';
 import { FileCommentBanner } from './FileCommentBanner';
 import { isFileScopedAnnotation, lineRangeForAnnotation } from '../utils/annotationScope';
+import { commentCopyText } from '../utils/annotationDisplay';
 import type { AnnotationScrollTarget } from '../types';
 import { getLineNumberFromNode, getSideFromNode, getDiffSelection } from '../utils/diffSelection';
 import { isContentConsistentWithPatch } from '../utils/patchConsistency';
@@ -526,6 +527,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           createdAt: ann.createdAt,
           reviewProfileLabel: ann.reviewProfileLabel,
           source: ann.source,
+          copyText: ann.text ? commentCopyText(ann) : undefined,
         } as DiffAnnotationMetadata,
       }));
   }, [annotations]);

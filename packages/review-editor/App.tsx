@@ -86,6 +86,7 @@ import {
   REVIEW_CODE_NAV_PANEL_ID,
 } from './dock/reviewPanelTypes';
 import type { DiffFile, AnnotationScrollTarget } from './types';
+import { annotationMatchesPrScope } from './utils/annotationScope';
 import type { DiffOption, WorktreeInfo, GitContext } from '@plannotator/shared/types';
 import type { PRMetadata } from '@plannotator/shared/pr-types';
 import type { PRDiffScope, PRDiffScopeOption, PRStackInfo, PRStackTree } from '@plannotator/shared/pr-stack';
@@ -1536,13 +1537,19 @@ const ReviewApp: React.FC = () => {
       return;
     }
     const annotation = allAnnotationsRef.current.find(a => a.id === id);
+    // Don't navigate to an annotation filtered out of the active PR/diff-scope —
+    // it isn't rendered in the current diff, so scroll/highlight would target
+    // nothing (e.g. a stale sidebar row after an in-place PR/scope switch).
+    if (annotation && !annotationMatchesPrScope(annotation, prMetadata?.url, prDiffScope)) {
+      return;
+    }
     if (annotation && !isAllFilesActiveRef.current) {
       const fileIndex = files.findIndex(f => f.path === annotation.filePath);
       if (fileIndex !== -1) handleFileSwitch(fileIndex);
     }
     setSelectedAnnotationId(id);
     setScrollTargetAnnotation(prev => ({ id, token: (prev?.token ?? 0) + 1 }));
-  }, [files, handleFileSwitch]);
+  }, [files, handleFileSwitch, prMetadata, prDiffScope]);
 
   // Diff context bundled into local-mode feedback headers so the receiving
   // agent knows which diff the annotations are anchored to. Uses committedBase

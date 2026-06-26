@@ -1277,7 +1277,7 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
           ? JSON.stringify([
               'F', a.id, a.text ?? '', a.source ?? '', a.author ?? '',
               a.reviewProfileLabel ?? '', a.conventionalLabel ?? '',
-              (a.decorations ?? []).join(','), a.createdAt ?? 0,
+              (a.decorations ?? []).join(','), a.createdAt ?? 0, a.reasoning ?? '',
             ])
           : JSON.stringify([
               a.id, a.lineEnd, a.side, a.type,
@@ -1427,9 +1427,23 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
   //   2. A toolbar-originated range CodeView doesn't know about (gutter-utility
   //      click on a not-yet-active file, draft restore) → paint it on the
   //      active file's item.
+  // Mirror so the effect below can restore the selected comment's highlight when
+  // a compose ends, without taking selectedAnnotationId as a dep.
+  const selectedAnnotationIdRef = useRef(selectedAnnotationId);
+  selectedAnnotationIdRef.current = selectedAnnotationId;
   useEffect(() => {
     if (pendingSelection == null) {
-      setSelectedLines(null);
+      // Compose ended — restore the selected line comment's highlight instead of
+      // clearing, mirroring single-file's `pendingSelection ?? annotationRange`.
+      const ann = selectedAnnotationIdRef.current
+        ? annotationsRef.current.find((a) => a.id === selectedAnnotationIdRef.current)
+        : null;
+      if (ann && !isFileScopedAnnotation(ann)) {
+        const itemId = filePathToItemId.get(ann.filePath);
+        setSelectedLines(itemId != null ? { id: itemId, range: lineRangeForAnnotation(ann) } : null);
+      } else {
+        setSelectedLines(null);
+      }
       return;
     }
     const current = selectedLinesRef.current;
@@ -1817,6 +1831,10 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
             onSelect={onSelectAnnotation}
             onEdit={onEditAnnotation}
             onDelete={onDeleteAnnotation}
+            // Re-measure the item when a comment expands/collapses/edits — the
+            // custom-header height isn't auto-observed, so without this the
+            // content below would overlap until an unrelated refresh.
+            onHeightChange={() => refreshItem(item.id)}
           />
         )}
       </div>

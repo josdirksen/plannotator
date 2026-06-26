@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { CodeAnnotation } from '@plannotator/ui/types';
 import { sanitizeBlockHtml } from '@plannotator/ui/utils/sanitizeHtml';
 import { CommentMeta } from './CommentMeta';
@@ -13,6 +13,8 @@ interface FileCommentBannerProps {
   onSelect: (id: string | null) => void;
   onEdit: (id: string, text: string) => void;
   onDelete: (id: string) => void;
+  /** Re-measure hook for the virtualized all-files host (see FileCommentCard). */
+  onHeightChange?: () => void;
 }
 
 /** First non-empty line of the comment, used as the collapsed one-line preview. */
@@ -36,15 +38,28 @@ export const FileCommentCard: React.FC<{
   onSelect: (id: string | null) => void;
   onEdit: (id: string, text: string) => void;
   onDelete: (id: string) => void;
-}> = ({ comment, isSelected, onSelect, onEdit, onDelete }) => {
+  /** Fired after our rendered height changes (expand/collapse/edit) so the
+   *  virtualized all-files host can re-measure this item. */
+  onHeightChange?: () => void;
+}> = ({ comment, isSelected, onSelect, onEdit, onDelete, onHeightChange }) => {
   // Default expanded (the comment IS the point of a guided review); the toggle
   // lets a reviewer collapse a long note back to one line to reach the hunks.
   const [collapsed, setCollapsed] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(comment.text ?? '');
 
-  // External (source-set) comments are read-only — they mirror how inline
-  // annotations treat findings imported via the External Annotations API.
+  // Tell the owner to re-measure when our height changes — in the all-files view
+  // these cards live in Pierre's custom-header portal, whose height isn't auto-
+  // observed; without this, expanding/editing overlaps the content below.
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (mounted.current) onHeightChange?.();
+    else mounted.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapsed, isEditing]);
+
+  // Edit is gated on !source (external findings are managed elsewhere); delete is
+  // always available so findings can be dismissed from any surface.
   const editable = !comment.source;
   const html = useMemo(
     () => (comment.text ? sanitizeBlockHtml(comment.text) : ''),
@@ -114,14 +129,14 @@ export const FileCommentCard: React.FC<{
         collapsed ? (
           <div className="review-comment-body truncate text-muted-foreground/80">{firstLine(comment.text)}</div>
         ) : (
-          <div className="review-comment-body ai-markdown" dangerouslySetInnerHTML={{ __html: html }} />
+          <div className="review-comment-body ai-markdown max-h-[220px] overflow-y-auto" dangerouslySetInnerHTML={{ __html: html }} />
         )
       ) : null}
       {!isEditing && (
         <CommentActions
           onEdit={editable ? () => { setDraft(comment.text ?? ''); setIsEditing(true); setCollapsed(false); } : undefined}
           copyText={comment.text ? commentCopyText(comment) : undefined}
-          onDelete={editable ? () => onDelete(comment.id) : undefined}
+          onDelete={() => onDelete(comment.id)}
         />
       )}
     </div>
@@ -140,6 +155,7 @@ export const FileCommentBanner: React.FC<FileCommentBannerProps> = ({
   onSelect,
   onEdit,
   onDelete,
+  onHeightChange,
 }) => {
   if (comments.length === 0) return null;
   return (
@@ -152,6 +168,7 @@ export const FileCommentBanner: React.FC<FileCommentBannerProps> = ({
           onSelect={onSelect}
           onEdit={onEdit}
           onDelete={onDelete}
+          onHeightChange={onHeightChange}
         />
       ))}
     </div>

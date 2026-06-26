@@ -86,8 +86,10 @@ export const ReviewAgentJobDetailPanel: React.FC<IDockviewPanelProps> = (props) 
   const handleAnnotationClick = useCallback((ann: CodeAnnotation) => {
     // General comments belong to no file — nothing to open in the diff.
     if (ann.filePath) state.openDiffFile(ann.filePath);
-    state.onSelectAnnotation(ann.id);
-  }, [state.openDiffFile, state.onSelectAnnotation]);
+    // Navigate (select + scroll): clicking a finding should jump the diff to it,
+    // not merely toggle its highlight.
+    state.onNavigateToAnnotation(ann.id);
+  }, [state.openDiffFile, state.onNavigateToAnnotation]);
 
   // Copy All uses the diff context snapshotted on the JOB at launch, not the
   // current UI state — so if the reviewer switches modes/bases after the job

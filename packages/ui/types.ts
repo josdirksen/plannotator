@@ -157,6 +157,11 @@ export interface DiffAnnotationMetadata {
   reasoning?: string;
   conventionalLabel?: ConventionalLabel;
   decorations?: ConventionalDecoration[];
+  // Shared comment-meta fields (so the inline diff card shows the same identity
+  // row — author, time, badges — as the sidebar and file-banner cards).
+  createdAt?: number;
+  reviewProfileLabel?: string;
+  source?: string;
   // AI marker fields (set when kind === 'ai-marker')
   kind?: 'annotation' | 'ai-marker';
   questionId?: string;

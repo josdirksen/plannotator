@@ -120,23 +120,41 @@ diffs-container {
 .review-comment {
   position: relative;
   box-sizing: border-box;
-  width: 100%;
-  max-width: 100%;
+  /* Subtract the horizontal margins: box-sizing can't account for margin, so a
+     plain width:100% + side margins would overflow the slot (right edge touches
+     the container). Keep this in sync with the horizontal margin below. */
+  width: calc(100% - 0.5rem);
+  max-width: calc(100% - 0.5rem);
   min-width: 0;
   background: var(--popover);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 0.625rem 0.75rem;
   font-size: 0.8125rem;
-  margin: 0.5rem 0;
+  /* Force the app's sans font — without this the card inherits its surroundings,
+     which inside the diff is MONOSPACE, making inline comment prose hard to read
+     and inconsistent with the sidebar. Code spans opt back into mono explicitly. */
+  font-family: var(--font-sans);
+  margin: 0.5rem 0.25rem;
   cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  /* Soft two-layer shadow (close contact + ambient lift) for a card that reads
+     as elevated above the diff without a heavy border. */
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 10px rgb(0 0 0 / 0.04);
   transition: border-color 150ms, box-shadow 150ms, background 150ms;
 }
 
 .review-comment:hover {
   border-color: var(--muted-foreground);
-  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 6px 16px rgb(0 0 0 / 0.07);
+}
+
+/* Selected state — shared by inline annotations and file-comment cards. A
+   primary-colored border + 1px ring mirrors the sidebar's selected row so the
+   clicked card and its highlighted diff lines read as one selection. */
+.review-comment.is-selected,
+.review-comment.is-selected:hover {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary), 0 4px 12px rgb(0 0 0 / 0.06);
 }
 
 .review-comment-header {
@@ -150,7 +168,13 @@ diffs-container {
 }
 
 .review-comment-actions {
-  margin-left: auto;
+  /* Float in the card's top-right corner instead of taking inline space — an
+     opacity:0 in-flow row would reserve width and shove the timestamp left,
+     misaligning it vs. surfaces without actions (the sidebar). Absolute keeps the
+     timestamp flush-right everywhere; actions fade in over the corner on hover. */
+  position: absolute;
+  top: 0.5rem;
+  right: 0.6rem;
   display: flex;
   gap: 0.125rem;
   opacity: 0;
@@ -187,6 +211,12 @@ diffs-container {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+/* Block markdown in the file-comment banner: cancel the pre-wrap used for the
+   inline-markdown body so rendered paragraphs/lists don't gain blank lines. */
+.review-comment > .review-comment-body.ai-markdown {
+  white-space: normal;
 }
 
 /* Inline markdown in review comments */

@@ -1,7 +1,7 @@
 import React, { createContext, useContext } from 'react';
 import type { CodeAnnotation, CodeAnnotationType, SelectedLineRange, TokenAnnotationMeta, ConventionalLabel, ConventionalDecoration } from '@plannotator/ui/types';
 import type { AgentJobInfo } from '@plannotator/ui/types';
-import type { DiffFile } from '../types';
+import type { DiffFile, AnnotationScrollTarget } from '../types';
 import type { AIChatEntry } from '../hooks/useAIChat';
 import type { ReviewSearchMatch } from '../utils/reviewSearch';
 import type { PRMetadata, PRContext } from '@plannotator/shared/pr-types';
@@ -50,6 +50,9 @@ export interface ReviewState {
   allAnnotations: CodeAnnotation[];
   externalAnnotations: CodeAnnotation[];
   selectedAnnotationId: string | null;
+  /** Sidebar-initiated scroll-to-comment signal; the token re-fires per click.
+   *  Selecting a comment in the diff does NOT set this, so it never scrolls. */
+  scrollTargetAnnotation: AnnotationScrollTarget | null;
   pendingSelection: SelectedLineRange | null;
   onLineSelection: (range: SelectedLineRange | null) => void;
   onAddAnnotation: (type: CodeAnnotationType, text?: string, suggestedCode?: string, originalCode?: string, conventionalLabel?: ConventionalLabel, decorations?: ConventionalDecoration[], tokenMeta?: TokenAnnotationMeta) => void;
@@ -57,7 +60,10 @@ export interface ReviewState {
   onAddFileComment: (text: string) => void;
   onAddFileCommentForFile: (filePath: string, text: string) => void;
   onEditAnnotation: (id: string, text?: string, suggestedCode?: string, originalCode?: string, conventionalLabel?: ConventionalLabel | null, decorations?: ConventionalDecoration[]) => void;
+  /** Highlight a comment without moving the viewport (in-diff click). */
   onSelectAnnotation: (id: string | null) => void;
+  /** Select AND scroll the diff to a comment (sidebar / findings-list click). */
+  onNavigateToAnnotation: (id: string | null) => void;
   onDeleteAnnotation: (id: string) => void;
 
   // Viewed / staged

@@ -1,14 +1,13 @@
 import React, { useState } from 'react';
 import { CodeAnnotation, type CodeAnnotationScope, type EditorAnnotation } from '@plannotator/ui/types';
-import { isCurrentUser } from '@plannotator/ui/utils/identity';
+import { CommentMeta } from './CommentMeta';
 import { EditorAnnotationCard } from '@plannotator/ui/components/EditorAnnotationCard';
 import { CopyButton } from './CopyButton';
 import { copyLocationPrefix } from '../utils/annotationDisplay';
-import { ConventionalLabelBadge } from './ConventionalLabelPicker';
 import { HighlightedCode } from './HighlightedCode';
 import { detectLanguage } from '../utils/detectLanguage';
 import { renderInlineMarkdown } from '../utils/renderInlineMarkdown';
-import { formatRelativeTime } from '../utils/formatRelativeTime';
+import { FileNameChip } from './FileNameChip';
 import { AITab } from './AITab';
 import { AgentsTab } from '@plannotator/ui/components/AgentsTab';
 import type { PRMetadata } from '@plannotator/shared/pr-types';
@@ -29,6 +28,8 @@ interface ReviewSidebarProps {
   files: DiffFile[];
   selectedAnnotationId: string | null;
   onSelectAnnotation: (id: string | null) => void;
+  /** Sidebar row click → select AND scroll the diff to the comment. */
+  onNavigateToAnnotation: (id: string | null) => void;
   onDeleteAnnotation: (id: string) => void;
   feedbackMarkdown?: string;
   width?: number;
@@ -115,6 +116,7 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
   files,
   selectedAnnotationId,
   onSelectAnnotation,
+  onNavigateToAnnotation,
   onDeleteAnnotation,
   feedbackMarkdown,
   width,
@@ -213,23 +215,21 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
     return (
       <div
         key={annotation.id}
-        onClick={() => onSelectAnnotation(annotation.id)}
+        onClick={() => onNavigateToAnnotation(annotation.id)}
         className={`group relative p-2.5 rounded border cursor-pointer transition-colors duration-150 ${
           isSelected
             ? 'bg-primary/5 border-primary/30'
             : 'border-transparent hover:bg-muted/30'
         }`}
       >
-        <div className="flex items-center justify-between mb-1.5">
-          <div className="flex items-center gap-2">
-            {isGeneralScope ? (
+        <CommentMeta
+          leading={
+            isGeneralScope ? (
               <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">
                 general
               </span>
             ) : isFileScope ? (
-              <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-                file
-              </span>
+              <FileNameChip path={annotation.filePath} />
             ) : (
               <span className="text-[10px] font-mono text-muted-foreground">
                 {annotation.lineStart === annotation.lineEnd
@@ -239,25 +239,15 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
                   <span className="ml-1 text-primary/70">{`\`${annotation.tokenText.length > 30 ? annotation.tokenText.slice(0, 27) + '...' : annotation.tokenText}\``}</span>
                 )}
               </span>
-            )}
-            {annotation.conventionalLabel && (
-              <ConventionalLabelBadge label={annotation.conventionalLabel} decorations={annotation.decorations} />
-            )}
-            {annotation.reviewProfileLabel && (
-              <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-accent/10 text-accent/90">
-                {annotation.reviewProfileLabel}
-              </span>
-            )}
-            {annotation.author && (
-              <span className={`text-[10px] truncate max-w-[100px] ${isCurrentUser(annotation.author) ? 'text-muted-foreground/50' : 'text-muted-foreground/70'}`}>
-                {annotation.author}{isCurrentUser(annotation.author) && ' (me)'}
-              </span>
-            )}
-          </div>
-          <span className="text-[10px] text-muted-foreground/50">
-            {formatRelativeTime(annotation.createdAt)}
-          </span>
-        </div>
+            )
+          }
+          conventionalLabel={annotation.conventionalLabel}
+          decorations={annotation.decorations}
+          reviewProfileLabel={annotation.reviewProfileLabel}
+          source={annotation.source}
+          author={annotation.author}
+          createdAt={annotation.createdAt}
+        />
         {annotation.text && (
           <div className="text-xs text-foreground/80 line-clamp-2 review-comment-markdown">
             {renderInlineMarkdown(annotation.text)}

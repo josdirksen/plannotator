@@ -3,6 +3,7 @@ import type { AIChatEntry, PendingPermission } from '../hooks/useAIChat';
 import { renderChatMarkdown } from '../utils/renderChatMarkdown';
 import { formatLineRange } from '../utils/formatLineRange';
 import { formatRelativeTime } from '../utils/formatRelativeTime';
+import { FileNameChip } from './FileNameChip';
 import { SparklesIcon } from '@plannotator/ui/components/SparklesIcon';
 import { CountBadge } from './CountBadge';
 import { CopyButton } from './CopyButton';
@@ -352,10 +353,8 @@ const QAPair = memo<{
                 {formatLineRange(question.lineStart, question.lineEnd)}
               </button>
             )}
-            {scope === 'file' && (
-              <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-                file
-              </span>
+            {scope === 'file' && question.filePath && (
+              <FileNameChip path={question.filePath} />
             )}
           </div>
           <span className="text-[10px] text-muted-foreground/50">

@@ -20,6 +20,7 @@ export const ReviewAllFilesDiffPanel: React.FC<IDockviewPanelProps> = () => {
       fontSize={state.fontSize}
       annotations={state.allAnnotations}
       selectedAnnotationId={state.selectedAnnotationId}
+      scrollTargetAnnotation={state.scrollTargetAnnotation}
       pendingSelection={state.pendingSelection}
       reviewBase={state.reviewBase}
       onLineSelection={state.onLineSelection}

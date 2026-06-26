@@ -85,7 +85,7 @@ import {
   REVIEW_ALL_FILES_PANEL_ID,
   REVIEW_CODE_NAV_PANEL_ID,
 } from './dock/reviewPanelTypes';
-import type { DiffFile } from './types';
+import type { DiffFile, AnnotationScrollTarget } from './types';
 import type { DiffOption, WorktreeInfo, GitContext } from '@plannotator/shared/types';
 import type { PRMetadata } from '@plannotator/shared/pr-types';
 import type { PRDiffScope, PRDiffScopeOption, PRStackInfo, PRStackTree } from '@plannotator/shared/pr-stack';
@@ -121,6 +121,11 @@ const ReviewApp: React.FC = () => {
   const [activeFileIndex, setActiveFileIndex] = useState(0);
   const [annotations, setAnnotations] = useState<CodeAnnotation[]>([]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
+  // Sidebar-initiated "scroll to this comment" signal. The token bumps on every
+  // sidebar click so re-selecting the same comment re-navigates. Selecting a
+  // comment in the diff sets selectedAnnotationId but NOT this — so it never
+  // moves the viewport.
+  const [scrollTargetAnnotation, setScrollTargetAnnotation] = useState<AnnotationScrollTarget | null>(null);
   const [isAllFilesActive, setIsAllFilesActive] = useState(false);
   // Mirror ref: handlers captured by Pierre slot portals (which only republish
   // on item version bumps) and early-declared callbacks read the CURRENT value
@@ -1511,29 +1516,29 @@ const ReviewApp: React.FC = () => {
   // handler is baked into Pierre slot portals, which only republish on item
   // version bumps — a stale captured value would yank the user out of the
   // all-files tab into the single-file panel when they click an annotation.
+  // Inline-card selection: toggle the highlight + ring only. No scroll, no file
+  // switch — the clicked card is already on screen. Clicking the selected card
+  // again (or a null id) clears it.
   const handleSelectAnnotation = useCallback((id: string | null) => {
+    setSelectedAnnotationId(prev => (!id || prev === id ? null : id));
+  }, []);
+
+  // Sidebar navigation: select AND scroll-to the comment (DiffsHub "set +
+  // scroll"). The token bump re-fires the panels' scroll effect even when the
+  // same comment is clicked twice; in single-file mode it switches to the
+  // owning file first so the scroll target exists.
+  const handleNavigateToAnnotation = useCallback((id: string | null) => {
     if (!id) {
       setSelectedAnnotationId(null);
       return;
     }
-
-    // Find the annotation
     const annotation = allAnnotationsRef.current.find(a => a.id === id);
-    if (!annotation) {
-      setSelectedAnnotationId(id);
-      return;
-    }
-
-    // In all-files mode, just set the selection — the panel's scroll-to-annotation
-    // effect handles expanding and scrolling. In single-file mode, switch to the file.
-    if (!isAllFilesActiveRef.current) {
+    if (annotation && !isAllFilesActiveRef.current) {
       const fileIndex = files.findIndex(f => f.path === annotation.filePath);
-      if (fileIndex !== -1) {
-        handleFileSwitch(fileIndex);
-      }
+      if (fileIndex !== -1) handleFileSwitch(fileIndex);
     }
-
     setSelectedAnnotationId(id);
+    setScrollTargetAnnotation(prev => ({ id, token: (prev?.token ?? 0) + 1 }));
   }, [files, handleFileSwitch]);
 
   // Diff context bundled into local-mode feedback headers so the receiving
@@ -1596,6 +1601,7 @@ const ReviewApp: React.FC = () => {
     allAnnotations,
     externalAnnotations,
     selectedAnnotationId,
+    scrollTargetAnnotation,
     pendingSelection,
     onLineSelection: handleLineSelection,
     onAddAnnotation: handleAddAnnotation,
@@ -1604,6 +1610,7 @@ const ReviewApp: React.FC = () => {
     onAddFileCommentForFile: handleAddFileCommentForFile,
     onEditAnnotation: handleEditAnnotation,
     onSelectAnnotation: handleSelectAnnotation,
+    onNavigateToAnnotation: handleNavigateToAnnotation,
     onDeleteAnnotation: handleDeleteAnnotation,
     viewedFiles,
     onToggleViewed: handleToggleViewed,
@@ -1654,9 +1661,9 @@ const ReviewApp: React.FC = () => {
     diffLineDiffType, diffShowLineNumbers, diffShowBackground,
     diffExpandUnchanged, diffFontFamily, diffFontSize, activeDiffBase, committedBase, feedbackDiffContext, prReviewScopeLabel, prDiffScope, agentCwd,
     allAnnotations, externalAnnotations,
-    selectedAnnotationId, pendingSelection, handleLineSelection,
+    selectedAnnotationId, scrollTargetAnnotation, pendingSelection, handleLineSelection,
     handleAddAnnotation, handleAddFileComment, handleAddFileCommentForFile, handleEditAnnotation,
-    handleSelectAnnotation, handleDeleteAnnotation, viewedFiles,
+    handleSelectAnnotation, handleNavigateToAnnotation, handleDeleteAnnotation, viewedFiles,
     handleToggleViewed, stagedFiles, stagingFile, stageFile,
     canStageFiles, stageError, isSearchPending, debouncedSearchQuery,
     activeFileSearchMatches, activeSearchMatchId, activeSearchMatch, searchMatches,
@@ -2575,6 +2582,7 @@ const ReviewApp: React.FC = () => {
                 files={files}
                 selectedAnnotationId={selectedAnnotationId}
                 onSelectAnnotation={handleSelectAnnotation}
+                onNavigateToAnnotation={handleNavigateToAnnotation}
                 onDeleteAnnotation={handleDeleteAnnotation}
                 feedbackMarkdown={feedbackMarkdown}
                 width={panelResize.width}

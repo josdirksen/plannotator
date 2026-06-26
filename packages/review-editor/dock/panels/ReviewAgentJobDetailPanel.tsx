@@ -459,12 +459,12 @@ function AnnotationRow({ annotation: ann, dismissed, onClick }: {
         )}
       </div>
       {ann.text && (
-        <p className={`text-xs mt-1 leading-relaxed ${dismissed ? 'text-muted-foreground/40' : 'text-foreground/80'}`}>
+        <p className={`text-xs mt-1 leading-relaxed break-words [overflow-wrap:anywhere] ${dismissed ? 'text-muted-foreground/40' : 'text-foreground/80'}`}>
           {ann.text}
         </p>
       )}
       {ann.reasoning && (
-        <p className="text-[11px] text-muted-foreground/60 leading-relaxed mt-1.5">
+        <p className="text-[11px] text-muted-foreground/60 leading-relaxed mt-1.5 break-words [overflow-wrap:anywhere]">
           {ann.reasoning}
         </p>
       )}

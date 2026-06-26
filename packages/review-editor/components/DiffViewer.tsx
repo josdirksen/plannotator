@@ -15,7 +15,7 @@ import { useOverlayViewport } from '@plannotator/ui/hooks/useOverlayViewport';
 import { FileHeader } from './FileHeader';
 import { FileCommentBanner } from './FileCommentBanner';
 import { isFileScopedAnnotation, lineRangeForAnnotation } from '../utils/annotationScope';
-import { commentCopyText } from '../utils/annotationDisplay';
+import { lineAnnotationMetadata } from '../utils/annotationDisplay';
 import type { AnnotationScrollTarget } from '../types';
 import { getLineNumberFromNode, getSideFromNode, getDiffSelection } from '../utils/diffSelection';
 import { isContentConsistentWithPatch } from '../utils/patchConsistency';
@@ -513,22 +513,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       .map(ann => ({
         side: ann.side === 'new' ? 'additions' as const : 'deletions' as const,
         lineNumber: ann.lineEnd,
-        metadata: {
-          annotationId: ann.id,
-          type: ann.type,
-          text: ann.text,
-          suggestedCode: ann.suggestedCode,
-          originalCode: ann.originalCode,
-          author: ann.author,
-          severity: ann.severity,
-          reasoning: ann.reasoning,
-          conventionalLabel: ann.conventionalLabel,
-          decorations: ann.decorations,
-          createdAt: ann.createdAt,
-          reviewProfileLabel: ann.reviewProfileLabel,
-          source: ann.source,
-          copyText: ann.text ? commentCopyText(ann) : undefined,
-        } as DiffAnnotationMetadata,
+        metadata: lineAnnotationMetadata(ann),
       }));
   }, [annotations]);
 

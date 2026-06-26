@@ -32,7 +32,7 @@ import { ToolbarHost, type ToolbarHostHandle } from './ToolbarHost';
 import { FileHeader } from './FileHeader';
 import { FileCommentBanner } from './FileCommentBanner';
 import { annotationMatchesPrScope, isFileScopedAnnotation, lineRangeForAnnotation } from '../utils/annotationScope';
-import { commentCopyText } from '../utils/annotationDisplay';
+import { lineAnnotationMetadata } from '../utils/annotationDisplay';
 import { InlineAnnotation } from './InlineAnnotation';
 import { detectLanguage } from '../utils/detectLanguage';
 import type { AIChatEntry } from '../hooks/useAIChat';
@@ -272,22 +272,7 @@ function projectFileAnnotations(
     .map((ann) => ({
       side: ann.side === 'new' ? ('additions' as const) : ('deletions' as const),
       lineNumber: ann.lineEnd,
-      metadata: {
-        annotationId: ann.id,
-        type: ann.type,
-        text: ann.text,
-        suggestedCode: ann.suggestedCode,
-        originalCode: ann.originalCode,
-        author: ann.author,
-        severity: ann.severity,
-        reasoning: ann.reasoning,
-        conventionalLabel: ann.conventionalLabel,
-        decorations: ann.decorations,
-        createdAt: ann.createdAt,
-        reviewProfileLabel: ann.reviewProfileLabel,
-        source: ann.source,
-        copyText: ann.text ? commentCopyText(ann) : undefined,
-      } as DiffAnnotationMetadata,
+      metadata: lineAnnotationMetadata(ann),
     }));
 }
 
@@ -1299,6 +1284,7 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
               a.text ?? '', a.suggestedCode ?? '', a.originalCode ?? '',
               a.conventionalLabel ?? '', (a.decorations ?? []).join(','),
               a.severity ?? '', a.reasoning ?? '', a.author ?? '',
+              a.reviewProfileLabel ?? '', a.source ?? '', a.createdAt ?? 0,
             ]);
         map.set(a.filePath, `${map.get(a.filePath) ?? ''}${sig}\n`);
       }

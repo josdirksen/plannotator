@@ -24,9 +24,6 @@ export const InlineAnnotation: React.FC<InlineAnnotationProps> = ({
   onDelete,
 }) => {
   const severity = metadata.severity ? SEVERITY_STYLES[metadata.severity] : null;
-  // Edit is gated on !source (external findings are managed elsewhere); delete
-  // stays available so findings can be dismissed from any surface.
-  const editable = !metadata.source;
 
   return (
     <div
@@ -61,7 +58,7 @@ export const InlineAnnotation: React.FC<InlineAnnotationProps> = ({
         </div>
       )}
       <CommentActions
-        onEdit={editable ? () => onEdit(metadata.annotationId) : undefined}
+        onEdit={() => onEdit(metadata.annotationId)}
         copyText={metadata.copyText}
         onDelete={() => onDelete(metadata.annotationId)}
       />

@@ -60,9 +60,6 @@ export const FileCommentCard: React.FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collapsed, isEditing]);
 
-  // Edit is gated on !source (external findings are managed elsewhere); delete is
-  // always available so findings can be dismissed from any surface.
-  const editable = !comment.source;
   const html = useMemo(
     () => (comment.text ? sanitizeBlockHtml(comment.text) : ''),
     [comment.text],
@@ -136,7 +133,7 @@ export const FileCommentCard: React.FC<{
       ) : null}
       {!isEditing && (
         <CommentActions
-          onEdit={editable ? () => { setDraft(comment.text ?? ''); setIsEditing(true); setCollapsed(false); } : undefined}
+          onEdit={() => { setDraft(comment.text ?? ''); setIsEditing(true); setCollapsed(false); }}
           copyText={comment.text ? commentCopyText(comment) : undefined}
           onDelete={() => onDelete(comment.id)}
         />

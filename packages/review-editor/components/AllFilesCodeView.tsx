@@ -510,8 +510,12 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
   // file's patch CONTENT changes (diff type / base / whitespace / PR switch),
   // and is used as the CodeView `key` to force a remount + fresh seed.
   const fileSetKey = useMemo(
-    () => `${files.length}:${files.map((f, i) => `${f.path}#${patchHashes[i]}`).join('|')}`,
-    [files, patchHashes],
+    // prUrl/prDiffScope are part of the key so a pure scope switch (layer ↔
+    // full-stack, same file set) remounts and re-seeds annotations through the
+    // current scope filter — the incremental sync bails on an unchanged
+    // annotations ref and can't otherwise detect the filter change.
+    () => `${prUrl ?? ''}:${prDiffScope ?? ''}:${files.length}:${files.map((f, i) => `${f.path}#${patchHashes[i]}`).join('|')}`,
+    [files, patchHashes, prUrl, prDiffScope],
   );
 
   // Visual-order list of file paths (for [/] stepping). Derived from items so it

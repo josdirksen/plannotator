@@ -1537,10 +1537,10 @@ const ReviewApp: React.FC = () => {
       return;
     }
     const annotation = allAnnotationsRef.current.find(a => a.id === id);
-    // Don't navigate to an annotation filtered out of the active PR/diff-scope —
-    // it isn't rendered in the current diff, so scroll/highlight would target
-    // nothing (e.g. a stale sidebar row after an in-place PR/scope switch).
-    if (annotation && !annotationMatchesPrScope(annotation, prMetadata?.url, prDiffScope)) {
+    // Ignore navigation to an annotation that's gone (deleted) or filtered out of
+    // the active PR/diff-scope — there's nothing in the current diff to scroll to
+    // or highlight, so don't fake a selection.
+    if (!annotation || !annotationMatchesPrScope(annotation, prMetadata?.url, prDiffScope)) {
       return;
     }
     if (annotation && !isAllFilesActiveRef.current) {

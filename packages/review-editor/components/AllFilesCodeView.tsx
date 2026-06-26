@@ -1856,6 +1856,9 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
       enableGutterUtility: true,
       hunkSeparators: 'line-info',
       stickyHeaders: true,
+      // Flush files together (no inter-file gap) — file boundaries already read
+      // via the sticky header. Keep Pierre's default 8px list edge padding.
+      layout: { gap: 0, paddingTop: 8, paddingBottom: 8 },
       itemMetrics: {
         diffHeaderHeight: PANEL_HEADER_HEIGHT,
         hunkSeparatorHeight: HUNK_SEPARATOR_HEIGHT,

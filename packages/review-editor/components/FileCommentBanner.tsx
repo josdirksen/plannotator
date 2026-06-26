@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CodeAnnotation } from '@plannotator/ui/types';
 import { sanitizeBlockHtml } from '@plannotator/ui/utils/sanitizeHtml';
 import { CommentMeta } from './CommentMeta';
@@ -52,7 +52,9 @@ export const FileCommentCard: React.FC<{
   // these cards live in Pierre's custom-header portal, whose height isn't auto-
   // observed; without this, expanding/editing overlaps the content below.
   const mounted = useRef(false);
-  useEffect(() => {
+  // Layout effect (before paint) so the re-measure lands without a one-frame
+  // overlap when the card grows/shrinks.
+  useLayoutEffect(() => {
     if (mounted.current) onHeightChange?.();
     else mounted.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -1427,6 +1427,16 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
   //   2. A toolbar-originated range CodeView doesn't know about (gutter-utility
   //      click on a not-yet-active file, draft restore) → paint it on the
   //      active file's item.
+  // The controlled line highlight for a selected annotation (null for file-scoped
+  // / unresolved). Shared by the compose-end restore and the selection-replay
+  // effect so the two can't diverge.
+  const lineSelectionForAnnotation = useStableCallback(
+    (ann: CodeAnnotation | null | undefined): CodeViewLineSelection | null => {
+      if (!ann || isFileScopedAnnotation(ann)) return null;
+      const itemId = filePathToItemId.get(ann.filePath);
+      return itemId != null ? { id: itemId, range: lineRangeForAnnotation(ann) } : null;
+    },
+  );
   // Mirror so the effect below can restore the selected comment's highlight when
   // a compose ends, without taking selectedAnnotationId as a dep.
   const selectedAnnotationIdRef = useRef(selectedAnnotationId);
@@ -1438,12 +1448,7 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
       const ann = selectedAnnotationIdRef.current
         ? annotationsRef.current.find((a) => a.id === selectedAnnotationIdRef.current)
         : null;
-      if (ann && !isFileScopedAnnotation(ann)) {
-        const itemId = filePathToItemId.get(ann.filePath);
-        setSelectedLines(itemId != null ? { id: itemId, range: lineRangeForAnnotation(ann) } : null);
-      } else {
-        setSelectedLines(null);
-      }
+      setSelectedLines(lineSelectionForAnnotation(ann));
       return;
     }
     const current = selectedLinesRef.current;
@@ -1612,14 +1617,9 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
     // single-file DiffViewer's `pendingSelection ?? selectedAnnotationRange`.
     if (pendingSelectionRef.current != null) return;
 
-    // Line/range comments replay their exact range as the controlled highlight
-    // (the same state a drag paints). File-scoped comments / deselection clear it.
-    const itemId = ann ? filePathToItemId.get(ann.filePath) : undefined;
-    if (!ann || isFileScopedAnnotation(ann) || itemId == null) {
-      setSelectedLines((prev) => (prev ? null : prev));
-      return;
-    }
-    setSelectedLines({ id: itemId, range: lineRangeForAnnotation(ann) });
+    // Replay the selected line comment's range as the controlled highlight (the
+    // same state a drag paints); file-scoped / deselection clears it.
+    setSelectedLines(lineSelectionForAnnotation(ann));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAnnotationId, filePathToItemId, filePathToItemIds, refreshItem]);
 

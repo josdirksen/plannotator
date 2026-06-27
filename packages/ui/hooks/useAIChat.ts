@@ -358,6 +358,10 @@ export function useAIChat({
       setIsStreaming(false);
     }
 
+    // Drop any still-undecided permission cards: abort cancels them server-side,
+    // so leaving them on screen would be a dead Allow/Deny the agent never hears.
+    updatePermissions(prev => prev.filter(p => p.decided));
+
     if (sessionIdRef.current) {
       fetch('/api/ai/abort', {
         method: 'POST',
@@ -365,7 +369,7 @@ export function useAIChat({
         body: JSON.stringify({ sessionId: sessionIdRef.current }),
       }).catch(() => {});
     }
-  }, []);
+  }, [updatePermissions]);
 
   const respondToPermission = useCallback((requestId: string, allow: boolean) => {
     if (!sessionIdRef.current) return;

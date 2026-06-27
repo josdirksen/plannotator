@@ -29,12 +29,30 @@ import type {
 const PROVIDER_NAME = "claude-agent-sdk";
 
 /**
- * Default tools for inline chat. Read-only investigation plus Bash so the
- * agent can inspect the changes itself (e.g. `git diff`) instead of having the
- * whole diff pasted into the prompt. Anything beyond safe reads is still gated
- * by the permission flow (approvals stay on) and surfaced as an Allow/Deny card.
+ * Default tools for inline chat. Read-only investigation plus *scoped* read-only
+ * git so the agent can inspect the changes itself (e.g. `git diff`) instead of
+ * having the whole diff pasted into the prompt — which matters because large
+ * diffs don't fit in the prompt budget.
+ *
+ * These are deliberately NOT bare `Bash`. In the Agent SDK, `allowedTools`
+ * pre-approves matching calls; anything that doesn't match falls through to the
+ * permission flow. So `Bash(git diff:*)` auto-approves `git diff …`, while any
+ * other shell command (including a write git command or an injected compound
+ * command) surfaces an Allow/Deny card instead of running silently.
  */
-const DEFAULT_ALLOWED_TOOLS = ["Read", "Glob", "Grep", "WebSearch", "Bash"];
+const DEFAULT_ALLOWED_TOOLS = [
+  "Read",
+  "Glob",
+  "Grep",
+  "WebSearch",
+  "Bash(git diff:*)",
+  "Bash(git show:*)",
+  "Bash(git log:*)",
+  "Bash(git status:*)",
+  "Bash(git rev-parse:*)",
+  "Bash(git merge-base:*)",
+  "Bash(git ls-files:*)",
+];
 
 const DEFAULT_MAX_TURNS = 99;
 const DEFAULT_MODEL = "claude-sonnet-4-6";

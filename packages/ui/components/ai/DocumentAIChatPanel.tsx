@@ -105,6 +105,16 @@ export const DocumentAIChatPanel: React.FC<DocumentAIChatPanelProps> = ({
             </div>
           )}
 
+          {messages.map(entry => (
+            <DocumentQAPair key={entry.question.id} entry={entry} />
+          ))}
+        </div>
+      </OverlayScrollArea>
+
+      {/* Pending permission requests — pinned just above the input/model bar so
+          the user sees them right where they act, not buried at the top. */}
+      {permissionRequests.filter(p => !p.decided).length > 0 && (
+        <div className="border-t border-border/50 p-2 space-y-2">
           {permissionRequests.filter(p => !p.decided).map(permission => (
             <PermissionCard
               key={permission.requestId}
@@ -112,12 +122,8 @@ export const DocumentAIChatPanel: React.FC<DocumentAIChatPanelProps> = ({
               onRespond={onRespondToPermission ?? (() => {})}
             />
           ))}
-
-          {messages.map(entry => (
-            <DocumentQAPair key={entry.question.id} entry={entry} />
-          ))}
         </div>
-      </OverlayScrollArea>
+      )}
 
       <AIProviderBar
         providers={aiProviders}

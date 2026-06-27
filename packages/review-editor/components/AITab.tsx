@@ -221,21 +221,6 @@ export const AITab: React.FC<AITabProps> = ({
           );
         })}
 
-        {/* Pending permission requests */}
-        {permissionRequests.filter(p => !p.decided).map(perm => (
-          <div key={perm.requestId} className="mb-2">
-            <PermissionCard
-              requestId={perm.requestId}
-              toolName={perm.toolName}
-              toolInput={perm.toolInput}
-              title={perm.title}
-              displayName={perm.displayName}
-              description={perm.description}
-              onRespond={onRespondToPermission ?? (() => {})}
-            />
-          </div>
-        ))}
-
         {/* General questions */}
         {generalMessages.length > 0 && (
           <div className="mb-3 mt-2">
@@ -255,6 +240,25 @@ export const AITab: React.FC<AITabProps> = ({
         )}
       </div>
       </OverlayScrollArea>
+
+      {/* Pending permission requests — pinned just above the input/config bar
+          so the user sees them right where they act, not buried in the scroll. */}
+      {permissionRequests.filter(p => !p.decided).length > 0 && (
+        <div className="border-t border-border/50 p-2 space-y-2">
+          {permissionRequests.filter(p => !p.decided).map(perm => (
+            <PermissionCard
+              key={perm.requestId}
+              requestId={perm.requestId}
+              toolName={perm.toolName}
+              toolInput={perm.toolInput}
+              title={perm.title}
+              displayName={perm.displayName}
+              description={perm.description}
+              onRespond={onRespondToPermission ?? (() => {})}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Config bar */}
       <AIConfigBar

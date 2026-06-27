@@ -3077,6 +3077,7 @@ const App: React.FC = () => {
     permissionRequests: aiPermissionRequests,
     respondToPermission: respondToAIPermission,
     ask: askAI,
+    abort: abortAI,
     resetSession: resetAISession,
     resetThread: resetAIThread,
     sessionId: aiSessionId,
@@ -4421,6 +4422,7 @@ const App: React.FC = () => {
                 isCreatingSession={isAgentTerminalReady ? false : aiIsCreatingSession}
                 isStreaming={isAgentTerminalReady ? false : aiIsStreaming}
                 onAskGeneral={handleAskGeneralAI}
+                onStop={isAgentTerminalReady ? undefined : abortAI}
                 permissionRequests={isAgentTerminalReady ? [] : aiPermissionRequests}
                 onRespondToPermission={isAgentTerminalReady ? undefined : respondToAIPermission}
                 aiProviders={visibleAIProviders}

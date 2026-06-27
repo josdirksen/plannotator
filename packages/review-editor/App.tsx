@@ -477,6 +477,7 @@ const ReviewApp: React.FC = () => {
     permissionRequests: aiPermissionRequests,
     respondToPermission: respondToAIPermission,
     ask: askAI,
+    abort: abortAI,
     resetSession: resetAISession,
     sessionId: aiSessionId,
   } = aiChat;
@@ -2609,6 +2610,7 @@ const ReviewApp: React.FC = () => {
                 aiMessages={aiMessages}
                 isAICreatingSession={aiIsCreatingSession}
                 isAIStreaming={aiIsStreaming}
+                onAIStop={abortAI}
                 onScrollToAILines={handleScrollToAILines}
                 activeFilePath={files[activeFileIndex]?.path}
                 scrollToQuestionId={scrollToQuestionId}

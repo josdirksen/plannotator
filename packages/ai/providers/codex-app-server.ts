@@ -49,6 +49,9 @@ const DEFAULT_MODEL = "gpt-5.4";
 const CLIENT_NAME = "plannotator";
 /** Kill an idle app-server process after this long with no query. */
 const IDLE_TIMEOUT_MS = 10 * 60_000;
+/** Reject a JSON-RPC request that gets no response in this long (RPC acks are
+ *  fast — turn output streams via notifications, not the turn/start response). */
+const RPC_TIMEOUT_MS = 30_000;
 
 const CMD_APPROVAL_METHOD = "item/commandExecution/requestApproval";
 const FILE_APPROVAL_METHOD = "item/fileChange/requestApproval";
@@ -280,7 +283,9 @@ class CodexAppServerProcess {
     let proc: ChildProcess;
     try {
       const [file, ...args] = command;
-      proc = spawn(file, args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
+      // stderr is "ignore", not "pipe": we never read it, and an un-drained
+      // stderr pipe deadlocks the child once its buffer fills.
+      proc = spawn(file, args, { cwd, stdio: ["pipe", "pipe", "ignore"] });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.handleProcessEnd(error);
@@ -388,10 +393,23 @@ class CodexAppServerProcess {
     this.proc.stdin.write(`${JSON.stringify(message)}\n`);
   }
 
-  sendAndWait(message: RpcMessage): Promise<RpcMessage> {
+  sendAndWait(message: RpcMessage, timeoutMs = RPC_TIMEOUT_MS): Promise<RpcMessage> {
     const id = ++this.nextId;
+    const key = String(id);
     return new Promise((resolve, reject) => {
-      this.pendingRequests.set(String(id), { resolve, reject });
+      // Guard against a process that's alive but unresponsive (e.g. stalled on
+      // auth, or a turn queued behind an interrupting turn) — without a timer
+      // the request would hang forever.
+      const timer = setTimeout(() => {
+        if (this.pendingRequests.delete(key)) {
+          reject(new Error(`Codex app-server did not respond to ${String(message.method)} in ${timeoutMs}ms`));
+        }
+      }, timeoutMs);
+      (timer as { unref?: () => void }).unref?.();
+      this.pendingRequests.set(key, {
+        resolve: (data) => { clearTimeout(timer); resolve(data); },
+        reject: (err) => { clearTimeout(timer); reject(err); },
+      });
       this.send({ ...message, id });
     });
   }
@@ -539,6 +557,9 @@ class CodexAppServerSession extends BaseSession {
    */
   private liveThreadId: string | null = null;
   private activeTurnId: string | null = null;
+  /** A turn we aborted; its still-arriving events must be ignored (it may keep
+   *  flushing output on the shared thread before Codex stops it). */
+  private abandonedTurnId: string | null = null;
   /** requestId → inbound JSON-RPC request id awaiting a decision. */
   private pendingApprovals = new Map<string, string | number>();
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -558,11 +579,11 @@ class CodexAppServerSession extends BaseSession {
       yield BaseSession.BUSY_ERROR;
       return;
     }
-    const { gen } = started;
+    const { gen, signal } = started;
     this.clearIdleTimer();
 
     try {
-      yield* this.runTurn(prompt);
+      yield* this.runTurn(prompt, gen, signal);
     } catch (err) {
       yield {
         type: "error",
@@ -575,8 +596,16 @@ class CodexAppServerSession extends BaseSession {
     }
   }
 
-  private async *runTurn(prompt: string): AsyncIterable<AIMessage> {
+  private async *runTurn(
+    prompt: string,
+    gen: number,
+    signal: AbortSignal,
+  ): AsyncIterable<AIMessage> {
     await this.ensureThread();
+    // Stopped (or superseded by a newer query) during startup — bail before
+    // creating a turn so Codex doesn't run one in the background.
+    if (signal.aborted) return;
+
     const proc = this.process;
     if (!proc || !proc.alive) {
       yield {
@@ -606,36 +635,88 @@ class CodexAppServerSession extends BaseSession {
       resolve?.();
     };
 
+    // Generation guard: once a newer query starts (or this one is aborted and
+    // superseded), this turn's listeners must not push to its queue, end the
+    // wrong turn, or mutate shared session state.
+    const isCurrent = () => this._queryGen === gen;
+
+    // Set once turn/start returns. Events that carry a different turn id —
+    // e.g. a just-aborted turn still flushing output on the same thread — are
+    // then ignored, so an old turn can't pollute or end this one.
+    let myTurnId: string | null = null;
+    const eventTurnId = (notif: { method: string; params: RpcMessage }): string | undefined =>
+      notif.method === "turn/completed"
+        ? ((notif.params.turn as RpcMessage | undefined)?.id as string | undefined)
+        : (notif.params.turnId as string | undefined);
+
     const unsubEvents = proc.onEvent((notif) => {
+      if (!isCurrent()) return;
+      if (notif.method !== "process_exited") {
+        const evTurn = eventTurnId(notif);
+        // Reject an aborted turn's stragglers, or — once our turn id is known —
+        // any event from a different turn.
+        if (evTurn && (evTurn === this.abandonedTurnId || (myTurnId && evTurn !== myTurnId))) {
+          return;
+        }
+      }
       for (const msg of mapCodexAppServerEvent(notif, this.id)) push(msg);
       if (notif.method === "turn/completed" || notif.method === "process_exited") {
         finish();
       }
     });
     const unsubRequests = proc.onRequest((method, id, params) => {
-      if (method === CMD_APPROVAL_METHOD || method === FILE_APPROVAL_METHOD) {
+      const isApproval = method === CMD_APPROVAL_METHOD || method === FILE_APPROVAL_METHOD;
+      // Cancel approvals from a superseded generation or a different turn
+      // (e.g. a just-aborted turn) instead of surfacing them to this UI.
+      const evTurn = params.turnId as string | undefined;
+      const staleTurn =
+        isApproval &&
+        !!evTurn &&
+        (evTurn === this.abandonedTurnId || (!!myTurnId && evTurn !== myTurnId));
+      if (!isCurrent() || staleTurn) {
+        if (isApproval) proc.respond(id, { decision: "cancel" });
+        else proc.respondError(id, `Unsupported request: ${method}`);
+        return;
+      }
+      if (isApproval) {
         const requestId = String(id);
         this.pendingApprovals.set(requestId, id);
         push(mapApprovalRequest(method, params, requestId));
       } else {
-        // Unsupported server request — don't hang the turn.
         proc.respondError(id, `Unsupported request: ${method}`);
       }
     });
+
+    // End the drain loop promptly on abort instead of waiting for turn/completed
+    // (which may never arrive if startup was interrupted).
+    const onAbort = () => finish();
+    signal.addEventListener("abort", onAbort);
+
+    const cleanup = () => {
+      signal.removeEventListener("abort", onAbort);
+      unsubEvents();
+      unsubRequests();
+      // Only the current turn owns the shared session state; a superseded turn
+      // must not wipe the live turn's id or approvals.
+      if (isCurrent()) {
+        this.activeTurnId = null;
+        this.pendingApprovals.clear();
+      }
+    };
 
     try {
       const res = await proc.sendAndWait({
         method: "turn/start",
         params: {
           threadId: this.liveThreadId ?? this.id,
-          input: [{ type: "text", text: effectivePrompt }],
+          input: [{ type: "text", text: effectivePrompt, text_elements: [] }],
           ...(this.config.reasoningEffort && { effort: this.config.reasoningEffort }),
         },
       });
-      this.activeTurnId = ((res.turn as RpcMessage | undefined)?.id as string) ?? null;
+      myTurnId = ((res.turn as RpcMessage | undefined)?.id as string) ?? null;
+      this.activeTurnId = myTurnId;
     } catch (err) {
-      unsubEvents();
-      unsubRequests();
+      cleanup();
       yield {
         type: "error",
         error: `Codex rejected the turn: ${err instanceof Error ? err.message : String(err)}`,
@@ -644,6 +725,15 @@ class CodexAppServerSession extends BaseSession {
       return;
     }
     this._firstQuerySent = true;
+
+    // Aborted while turn/start was in flight — now that we know the turn id,
+    // interrupt it and stop, instead of streaming a turn the user cancelled.
+    if (signal.aborted) {
+      if (myTurnId) this.abandonedTurnId = myTurnId;
+      this.interruptActiveTurn();
+      cleanup();
+      return;
+    }
 
     try {
       while (!done || queue.length > 0) {
@@ -657,12 +747,7 @@ class CodexAppServerSession extends BaseSession {
         }
       }
     } finally {
-      unsubEvents();
-      unsubRequests();
-      this.activeTurnId = null;
-      // Drop any approvals left unanswered when the turn ended (e.g. interrupted
-      // or the process exited) so the map doesn't accumulate stale entries.
-      this.pendingApprovals.clear();
+      cleanup();
     }
   }
 
@@ -720,6 +805,21 @@ class CodexAppServerSession extends BaseSession {
     this.process.respond(id, { decision: allow ? "accept" : "decline" });
   }
 
+  /** Tell Codex to interrupt the in-flight turn (no-op if none is running).
+   *  turn/interrupt is a JSON-RPC *request* (not a notification), so it must
+   *  carry an id — we fire it and don't await the ack. */
+  private interruptActiveTurn(): void {
+    const threadId = this.liveThreadId ?? this._resolvedId;
+    if (this.process && this.activeTurnId && threadId) {
+      this.process
+        .sendAndWait({
+          method: "turn/interrupt",
+          params: { threadId, turnId: this.activeTurnId },
+        })
+        .catch(() => {});
+    }
+  }
+
   abort(): void {
     // Tear down the turn cleanly: cancel outstanding approvals so Codex doesn't
     // hang, interrupt the active turn, but keep the process alive (resumable).
@@ -728,13 +828,9 @@ class CodexAppServerSession extends BaseSession {
         this.process.respond(id, { decision: "cancel" });
       }
       this.pendingApprovals.clear();
-      const threadId = this.liveThreadId ?? this._resolvedId;
-      if (this.activeTurnId && threadId) {
-        this.process.send({
-          method: "turn/interrupt",
-          params: { threadId, turnId: this.activeTurnId },
-        });
-      }
+      // Remember the turn so any output it keeps flushing is ignored.
+      if (this.activeTurnId) this.abandonedTurnId = this.activeTurnId;
+      this.interruptActiveTurn();
     }
     super.abort();
   }

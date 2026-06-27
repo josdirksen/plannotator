@@ -41,6 +41,7 @@ interface ReviewSidebarProps {
   aiMessages?: AIChatEntry[];
   isAICreatingSession?: boolean;
   isAIStreaming?: boolean;
+  onAIStop?: () => void;
   onScrollToAILines?: (filePath: string, lineStart: number, lineEnd: number, side: 'old' | 'new') => void;
   activeFilePath?: string;
   scrollToQuestionId?: string | null;
@@ -127,6 +128,7 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
   aiMessages = [],
   isAICreatingSession = false,
   isAIStreaming = false,
+  onAIStop,
   onScrollToAILines,
   activeFilePath,
   scrollToQuestionId,
@@ -394,6 +396,7 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
               scrollToQuestionId={scrollToQuestionId}
               onScrollToLines={onScrollToAILines ?? (() => {})}
               onAskGeneral={onAskGeneral}
+              onStop={onAIStop}
               permissionRequests={aiPermissionRequests}
               onRespondToPermission={onRespondToPermission}
               aiProviders={aiProviders}

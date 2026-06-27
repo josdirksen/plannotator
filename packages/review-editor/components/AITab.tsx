@@ -21,6 +21,8 @@ interface AITabProps {
   scrollToQuestionId?: string | null;
   onScrollToLines: (filePath: string, lineStart: number, lineEnd: number, side: 'old' | 'new') => void;
   onAskGeneral?: (question: string) => void;
+  /** Stop the in-flight answer. When provided, the input shows a Stop button while streaming. */
+  onStop?: () => void;
   permissionRequests?: PendingPermission[];
   onRespondToPermission?: (requestId: string, allow: boolean) => void;
   aiProviders?: AIProviderOption[];
@@ -48,6 +50,7 @@ export const AITab: React.FC<AITabProps> = ({
   scrollToQuestionId,
   onScrollToLines,
   onAskGeneral,
+  onStop,
   permissionRequests = [],
   onRespondToPermission,
   aiProviders = [],
@@ -173,7 +176,7 @@ export const AITab: React.FC<AITabProps> = ({
           onReasoningEffortChange={(effort) => onAIConfigChange?.({ reasoningEffort: effort })}
           hasSession={hasAISession}
         />
-        {onAskGeneral && <GeneralInput value={generalInput} onChange={setGeneralInput} onSubmit={handleGeneralSubmit} disabled={isStreaming} />}
+        {onAskGeneral && <GeneralInput value={generalInput} onChange={setGeneralInput} onSubmit={handleGeneralSubmit} disabled={isStreaming} isStreaming={isStreaming} onStop={onStop} />}
       </div>
     );
   }
@@ -284,7 +287,9 @@ const GeneralInput: React.FC<{
   onChange: (v: string) => void;
   onSubmit: () => void;
   disabled?: boolean;
-}> = ({ value, onChange, onSubmit, disabled }) => {
+  isStreaming?: boolean;
+  onStop?: () => void;
+}> = ({ value, onChange, onSubmit, disabled, isStreaming, onStop }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const autoResize = useCallback(() => {
@@ -316,16 +321,29 @@ const GeneralInput: React.FC<{
             }
           }}
         />
-        <button
-          onClick={onSubmit}
-          disabled={disabled || !value.trim()}
-          className="p-1.5 mb-px rounded-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex-shrink-0"
-          title={`Send (${submitHint})`}
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-          </svg>
-        </button>
+        {isStreaming && onStop ? (
+          <button
+            onClick={onStop}
+            className="p-1.5 mb-px rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex-shrink-0"
+            title="Stop generating"
+            aria-label="Stop generating"
+          >
+            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+          </button>
+        ) : (
+          <button
+            onClick={onSubmit}
+            disabled={disabled || !value.trim()}
+            className="p-1.5 mb-px rounded-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+            title={`Send (${submitHint})`}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   );

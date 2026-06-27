@@ -36,6 +36,9 @@ export interface AskAIParams {
   selectedCode?: string;
   scope?: AIQuestion['scope'];
   contextUpdate?: string;
+  /** What the user is currently viewing (changes mid-session, so it rides with
+   *  each question rather than the once-created session context). */
+  viewing?: { scope: 'all' | 'file'; filePath?: string };
 }
 
 interface UseAIChatOptions {
@@ -68,6 +71,15 @@ export function buildDefaultPrompt(params: AskAIParams): string {
     const source = params.scope.sourcePath ? `\nSource: ${params.scope.sourcePath}` : '';
     const selection = params.scope.text ? `\n\nSelected text:\n\`\`\`\n${params.scope.text}\n\`\`\`` : '';
     return `${label}${source}${selection}\n\n${params.prompt}`;
+  }
+
+  // General question (no explicit file/line/selection): tell the agent what the
+  // user is currently looking at so it can scope its own investigation.
+  if (params.viewing) {
+    const note = params.viewing.scope === 'file' && params.viewing.filePath
+      ? `[The user is currently viewing ${params.viewing.filePath}]`
+      : '[The user is currently viewing all changed files]';
+    return `${note}\n${params.prompt}`;
   }
 
   return params.prompt;

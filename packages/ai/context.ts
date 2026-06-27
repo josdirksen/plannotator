@@ -42,7 +42,8 @@ export function buildSystemPrompt(ctx: AIContext): string {
 export function buildForkPreamble(ctx: AIContext): string {
   const lines: string[] = [
     "The user is now reviewing your work in Plannotator and has a question.",
-    "Answer concisely based on the conversation history and the context below.",
+    "Answer the user's message directly and concisely based on the conversation " +
+      "history and the context below. Do not re-review or summarize the work unless they ask.",
     "",
   ];
 
@@ -140,15 +141,63 @@ export function buildEffectivePrompt(
 const MAX_PLAN_CHARS = 60_000;
 const MAX_DIFF_CHARS = 40_000;
 
+/**
+ * Leading instruction for every Ask AI session. Ask AI is a chat assistant —
+ * it must respond to the user's message, not launch an unprompted review of the
+ * material it was given for context.
+ */
+const ANSWER_DIRECTLY =
+  "You are a helpful assistant inside Plannotator. Respond to the user's message directly and concisely. " +
+  "The material below is context for what the user is looking at — do NOT review, summarize, or critique it unless the user's message asks you to. " +
+  "Only investigate further (read files, run git) if the user's question actually requires it.";
+
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
   return `${text.slice(0, max)}\n\n... [truncated for context window]`;
+}
+
+/**
+ * For git-reproducible diff types, return a one-line instruction telling the
+ * agent how to inspect the changes itself — so we don't paste the whole diff.
+ * Returns null for types that can't be reproduced with a single git command
+ * (jj, Perforce, stacked-PR full-stack, workspace, unknown) — those fall back
+ * to pasting the diff.
+ *
+ * NOTE: kept self-contained here because `packages/ai` is dependency-free; the
+ * server's richer `getLocalDiffInstruction` (agent-review-message.ts) remains
+ * the source of truth for the agent-jobs path.
+ */
+function gitInspectInstruction(
+  diffType: string | undefined,
+  base: string | undefined,
+): string | null {
+  const b = base || "main";
+  switch (diffType) {
+    case "uncommitted":
+      return "Run `git diff HEAD` to see the changes (and `git status` for untracked files).";
+    case "staged":
+      return "Run `git diff --staged` to see the changes.";
+    case "unstaged":
+      return "Run `git diff` to see the changes.";
+    case "last-commit":
+      return "Run `git diff HEAD~1..HEAD` to see the changes.";
+    case "branch":
+      return `Run \`git diff ${b}..HEAD\` to see the changes.`;
+    case "merge-base":
+      // Three-dot diff = changes on HEAD since the merge-base with the base —
+      // the GitHub PR view. Single command, no shell substitution needed.
+      return `Run \`git diff ${b}...HEAD\` to see the changes (matches the PR view).`;
+    default:
+      return null;
+  }
 }
 
 function buildPlanReviewPrompt(
   ctx: Extract<AIContext, { mode: "plan-review" }>
 ): string {
   const sections: string[] = [
+    ANSWER_DIRECTLY,
+    "",
     "The user is reviewing an implementation plan in Plannotator.",
     "",
     "## Plan Under Review",
@@ -185,27 +234,37 @@ function buildCodeReviewPrompt(
   ctx: Extract<AIContext, { mode: "code-review" }>
 ): string {
   const sections: string[] = [
-    "The user is reviewing a code diff in Plannotator.",
+    ANSWER_DIRECTLY,
+    "",
+    "The user is reviewing a set of code changes in Plannotator.",
   ];
 
-  if (ctx.review.filePath) {
+  const inspect = gitInspectInstruction(ctx.review.diffType, ctx.review.base);
+
+  if (inspect) {
+    // Git-reproducible: tell the agent how to look instead of pasting the diff.
     sections.push("");
-    sections.push(`## Currently Viewing: ${ctx.review.filePath}`);
+    sections.push("## The changes under review");
+    sections.push(
+      `The current working directory is the repository being reviewed. ${inspect}`,
+    );
+  } else {
+    // Fallback (jj, Perforce, stacked-PR full-stack, workspace, unknown):
+    // paste the diff since it can't be reproduced with a single git command.
+    sections.push("");
+    sections.push("## Diff");
+    sections.push("```diff");
+    sections.push(truncate(ctx.review.patch, MAX_DIFF_CHARS));
+    sections.push("```");
   }
 
   if (ctx.review.selectedCode) {
     sections.push("");
-    sections.push("## Selected Code");
+    sections.push("## Code the user has selected");
     sections.push("```");
     sections.push(ctx.review.selectedCode);
     sections.push("```");
   }
-
-  sections.push("");
-  sections.push("## Diff");
-  sections.push("```diff");
-  sections.push(truncate(ctx.review.patch, MAX_DIFF_CHARS));
-  sections.push("```");
 
   if (ctx.review.annotations) {
     sections.push("");
@@ -220,6 +279,8 @@ function buildAnnotatePrompt(
   ctx: Extract<AIContext, { mode: "annotate" }>
 ): string {
   const sections: string[] = [
+    ANSWER_DIRECTLY,
+    "",
     "The user is annotating a markdown document in Plannotator.",
     "",
     `## Document: ${ctx.annotate.filePath}`,

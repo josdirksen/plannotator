@@ -460,6 +460,12 @@ const ReviewApp: React.FC = () => {
   }, []);
   const aiChat = useAIChat({
     patch: diffData?.rawPatch ?? '',
+    diffType,
+    base: committedBase,
+    viewing: {
+      scope: isAllFilesActive ? 'all' : 'file',
+      filePath: isAllFilesActive ? undefined : files[activeFileIndex]?.path,
+    },
     providerId: aiConfig.providerId,
     model: aiConfig.model,
     reasoningEffort: aiConfig.reasoningEffort,

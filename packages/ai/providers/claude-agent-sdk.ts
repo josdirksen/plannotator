@@ -28,8 +28,13 @@ import type {
 
 const PROVIDER_NAME = "claude-agent-sdk";
 
-/** Default read-only tools for inline chat. */
-const DEFAULT_ALLOWED_TOOLS = ["Read", "Glob", "Grep", "WebSearch"];
+/**
+ * Default tools for inline chat. Read-only investigation plus Bash so the
+ * agent can inspect the changes itself (e.g. `git diff`) instead of having the
+ * whole diff pasted into the prompt. Anything beyond safe reads is still gated
+ * by the permission flow (approvals stay on) and surfaced as an Allow/Deny card.
+ */
+const DEFAULT_ALLOWED_TOOLS = ["Read", "Glob", "Grep", "WebSearch", "Bash"];
 
 const DEFAULT_MAX_TURNS = 99;
 const DEFAULT_MODEL = "claude-sonnet-4-6";

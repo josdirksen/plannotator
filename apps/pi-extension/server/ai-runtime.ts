@@ -50,17 +50,18 @@ export async function createPiAIRuntime(options: CreatePiAIRuntimeOptions = {}):
 		}
 
 		try {
-			await import("../generated/ai/providers/codex-sdk.js");
-			await import("@openai/codex-sdk");
+			await import("../generated/ai/providers/codex-app-server.js");
 			const codexPath = whichCmd("codex");
-			const provider = await ai.createProvider({
-				type: "codex-sdk",
-				cwd,
-				...(codexPath && { codexExecutablePath: codexPath }),
-			});
-			registry.register(provider);
+			if (codexPath) {
+				const provider = await ai.createProvider({
+					type: "codex-sdk",
+					cwd,
+					...(codexPath ? { codexExecutablePath: codexPath } : {}),
+				});
+				registry.register(provider);
+			}
 		} catch {
-			// Codex SDK not available.
+			// Codex not available.
 		}
 
 		try {

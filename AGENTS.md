@@ -209,6 +209,8 @@ Ask AI providers are detected independently from installed/authenticated local C
 
 Per-origin choices are persisted in cookies, so a user can override the automatic match for one agent without changing the default for another.
 
+> **Codex transport note:** the `codex-sdk` provider id is a stable identifier only — it no longer uses `@openai/codex-sdk` / `codex exec`. It drives a long-lived `codex app-server` process over JSON-RPC (`packages/ai/providers/codex-app-server.ts`), which respects the user's/enterprise-managed approval policy and supports interactive Allow/Deny approvals. The id stays `codex-sdk` to preserve saved cookie preferences, the `agents.ts` mapping, and the UI reasoning-effort gate.
+
 ## Annotate Flow
 
 ```

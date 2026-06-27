@@ -404,6 +404,64 @@ describe("Context builders", () => {
     expect(prompt).toContain("[truncated for context window]");
     expect(prompt.length).toBeLessThan(longPlan.length);
   });
+
+  test("every mode instructs the agent to answer directly (no unprompted review)", () => {
+    const modes: AIContext[] = [
+      { mode: "plan-review", plan: { plan: "# Plan" } },
+      { mode: "code-review", review: { patch: "+x" } },
+      { mode: "annotate", annotate: { content: "# Doc", filePath: "/x.md" } },
+    ];
+    for (const ctx of modes) {
+      const prompt = buildSystemPrompt(ctx);
+      expect(prompt).toContain("Respond to the user's message directly");
+      expect(prompt).toContain("do NOT review");
+    }
+  });
+
+  test("code-review with a git-reproducible diffType instructs git, does not paste the diff", () => {
+    const ctx: AIContext = {
+      mode: "code-review",
+      review: {
+        patch: "diff --git a/foo.ts b/foo.ts\n+secret-paste-marker",
+        diffType: "branch",
+        base: "develop",
+      },
+    };
+    const prompt = buildSystemPrompt(ctx);
+    expect(prompt).toContain("git diff develop..HEAD");
+    // The whole diff must NOT be pasted when the agent can reproduce it.
+    expect(prompt).not.toContain("secret-paste-marker");
+    expect(prompt).not.toContain("```diff");
+  });
+
+  test("code-review merge-base uses three-dot diff (no shell substitution)", () => {
+    const ctx: AIContext = {
+      mode: "code-review",
+      review: { patch: "+x", diffType: "merge-base", base: "main" },
+    };
+    const prompt = buildSystemPrompt(ctx);
+    expect(prompt).toContain("git diff main...HEAD");
+    expect(prompt).not.toContain("$(");
+  });
+
+  test("code-review falls back to pasting the diff for non-git diff types", () => {
+    const ctx: AIContext = {
+      mode: "code-review",
+      review: { patch: "diff --git a/foo.ts\n+pasted", diffType: "jj-current" },
+    };
+    const prompt = buildSystemPrompt(ctx);
+    expect(prompt).toContain("```diff");
+    expect(prompt).toContain("+pasted");
+  });
+
+  test("code-review with no diffType pastes the diff (back-compat)", () => {
+    const ctx: AIContext = {
+      mode: "code-review",
+      review: { patch: "diff --git a/foo.ts\n+pasted" },
+    };
+    const prompt = buildSystemPrompt(ctx);
+    expect(prompt).toContain("+pasted");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -875,165 +933,84 @@ describe("resolveSDKModel", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Codex SDK event mapping
+// Codex app-server provider — JSON-RPC classification + event mapping
 // ---------------------------------------------------------------------------
 
 import {
-  mapCodexEvent,
-  mapCodexItem,
-  shouldSkipGitRepoCheck,
-} from "./providers/codex-sdk.ts";
+  classifyRpcMessage,
+  mapApprovalRequest,
+  mapCodexAppServerEvent,
+} from "./providers/codex-app-server.ts";
 
-describe("shouldSkipGitRepoCheck", () => {
-  test("keeps the Codex git repo check inside a worktree", async () => {
-    const probe = async (command: string, args: string[], options: { encoding: "utf8" }) => {
-      expect(command).toBe("git");
-      expect(args).toEqual(["-C", "/repo", "rev-parse", "--is-inside-work-tree"]);
-      expect(options).toEqual({ encoding: "utf8" });
-      return { stdout: "true\n" };
-    };
-
-    expect(await shouldSkipGitRepoCheck("/repo", probe)).toBe(false);
+describe("classifyRpcMessage", () => {
+  test("a message with id + result is a response", () => {
+    expect(classifyRpcMessage({ id: 7, result: { ok: true } })).toEqual({
+      kind: "response",
+      id: 7,
+    });
   });
 
-  test("skips the Codex git repo check for standalone document sessions", async () => {
-    const probe = async () => {
-      throw new Error("not a git repo");
-    };
-
-    expect(await shouldSkipGitRepoCheck("/tmp/plain-session", probe)).toBe(true);
+  test("a message with id + method is a server request (not a response)", () => {
+    // id-space collision guard: even though id 7 could match a pending client
+    // request, the presence of `method` means this is an inbound request.
+    expect(
+      classifyRpcMessage({
+        id: 7,
+        method: "item/commandExecution/requestApproval",
+        params: { command: "ls" },
+      }),
+    ).toEqual({
+      kind: "request",
+      id: 7,
+      method: "item/commandExecution/requestApproval",
+      params: { command: "ls" },
+    });
   });
 
-  test("skips the Codex git repo check when the probe cannot run", async () => {
-    const probe = async () => {
-      throw new Error("git unavailable");
-    };
-
-    expect(await shouldSkipGitRepoCheck("/tmp/plain-session", probe)).toBe(true);
-  });
-});
-
-describe("mapCodexEvent", () => {
-  function offsets() {
-    return new Map<string, number>();
-  }
-
-  test("thread.started returns empty", () => {
-    const result = mapCodexEvent(
-      { type: "thread.started", thread_id: "t-123" },
-      offsets(),
-    );
-    expect(result).toEqual([]);
+  test("a message with method and no id is a notification", () => {
+    expect(
+      classifyRpcMessage({ method: "item/agentMessage/delta", params: { delta: "hi" } }),
+    ).toEqual({
+      kind: "notification",
+      method: "item/agentMessage/delta",
+      params: { delta: "hi" },
+    });
   });
 
-  test("turn.started and turn.completed return empty", () => {
-    expect(mapCodexEvent({ type: "turn.started" }, offsets())).toEqual([]);
-    expect(mapCodexEvent({ type: "turn.completed", usage: {} }, offsets())).toEqual([]);
-  });
-
-  test("turn.failed returns error", () => {
-    const result = mapCodexEvent(
-      { type: "turn.failed", error: { message: "Out of tokens" } },
-      offsets(),
-    );
-    expect(result).toEqual([{
-      type: "error",
-      error: "Out of tokens",
-      code: "turn_failed",
-    }]);
-  });
-
-  test("error event returns error", () => {
-    const result = mapCodexEvent(
-      { type: "error", message: "Connection lost" },
-      offsets(),
-    );
-    expect(result).toEqual([{
-      type: "error",
-      error: "Connection lost",
-      code: "codex_error",
-    }]);
-  });
-
-  test("unknown event type passes through", () => {
-    const result = mapCodexEvent(
-      { type: "some.future.event", data: 42 },
-      offsets(),
-    );
-    expect(result.length).toBe(1);
-    expect(result[0].type).toBe("unknown");
+  test("a message with neither id nor method is unknown", () => {
+    expect(classifyRpcMessage({ foo: 1 })).toEqual({ kind: "unknown" });
   });
 });
 
-describe("mapCodexItem — agent_message", () => {
-  function offsets() {
-    return new Map<string, number>();
-  }
-
-  test("item.started initializes offset tracker, returns empty", () => {
-    const o = offsets();
-    const result = mapCodexItem(
-      { type: "item.started", item: { id: "msg-1", type: "agent_message", text: "" } },
-      o,
-    );
-    expect(result).toEqual([]);
-    expect(o.get("msg-1")).toBe(0);
+describe("mapCodexAppServerEvent", () => {
+  test("agentMessage delta maps to text_delta", () => {
+    expect(
+      mapCodexAppServerEvent(
+        { method: "item/agentMessage/delta", params: { delta: "Hello" } },
+        "thr-1",
+      ),
+    ).toEqual([{ type: "text_delta", delta: "Hello" }]);
   });
 
-  test("item.updated emits text_delta from cumulative text", () => {
-    const o = offsets();
-    o.set("msg-1", 0);
-
-    const r1 = mapCodexItem(
-      { type: "item.updated", item: { id: "msg-1", type: "agent_message", text: "Hello" } },
-      o,
-    );
-    expect(r1).toEqual([{ type: "text_delta", delta: "Hello" }]);
-    expect(o.get("msg-1")).toBe(5);
-
-    const r2 = mapCodexItem(
-      { type: "item.updated", item: { id: "msg-1", type: "agent_message", text: "Hello world" } },
-      o,
-    );
-    expect(r2).toEqual([{ type: "text_delta", delta: " world" }]);
-    expect(o.get("msg-1")).toBe(11);
+  test("empty agentMessage delta is ignored", () => {
+    expect(
+      mapCodexAppServerEvent(
+        { method: "item/agentMessage/delta", params: { delta: "" } },
+        "thr-1",
+      ),
+    ).toEqual([]);
   });
 
-  test("item.updated with no new text returns empty", () => {
-    const o = offsets();
-    o.set("msg-1", 5);
-
-    const result = mapCodexItem(
-      { type: "item.updated", item: { id: "msg-1", type: "agent_message", text: "Hello" } },
-      o,
-    );
-    expect(result).toEqual([]);
-  });
-
-  test("item.completed emits full text and cleans up offset", () => {
-    const o = offsets();
-    o.set("msg-1", 5);
-
-    const result = mapCodexItem(
-      { type: "item.completed", item: { id: "msg-1", type: "agent_message", text: "Hello world" } },
-      o,
-    );
-    expect(result).toEqual([{ type: "text", text: "Hello world" }]);
-    expect(o.has("msg-1")).toBe(false);
-  });
-});
-
-describe("mapCodexItem — command_execution", () => {
-  function offsets() {
-    return new Map<string, number>();
-  }
-
-  test("item.started emits tool_use", () => {
-    const result = mapCodexItem(
-      { type: "item.started", item: { id: "cmd-1", type: "command_execution", command: "ls -la", status: "in_progress" } },
-      offsets(),
-    );
-    expect(result).toEqual([{
+  test("commandExecution item/started maps to tool_use", () => {
+    expect(
+      mapCodexAppServerEvent(
+        {
+          method: "item/started",
+          params: { item: { id: "cmd-1", type: "commandExecution", command: "ls -la" } },
+        },
+        "thr-1",
+      ),
+    ).toEqual([{
       type: "tool_use",
       toolName: "Bash",
       toolInput: { command: "ls -la" },
@@ -1041,10 +1018,15 @@ describe("mapCodexItem — command_execution", () => {
     }]);
   });
 
-  test("item.completed emits tool_result with exit code", () => {
-    const result = mapCodexItem(
-      { type: "item.completed", item: { id: "cmd-1", type: "command_execution", command: "ls", aggregated_output: "file.txt\n", exit_code: 0, status: "completed" } },
-      offsets(),
+  test("commandExecution item/completed maps to tool_result with exit code", () => {
+    const result = mapCodexAppServerEvent(
+      {
+        method: "item/completed",
+        params: {
+          item: { id: "cmd-1", type: "commandExecution", aggregatedOutput: "file.txt\n", exitCode: 0 },
+        },
+      },
+      "thr-1",
     );
     expect(result.length).toBe(1);
     expect(result[0].type).toBe("tool_result");
@@ -1053,82 +1035,77 @@ describe("mapCodexItem — command_execution", () => {
       expect(result[0].result).toContain("[exit code: 0]");
     }
   });
-});
 
-describe("mapCodexItem — file_change", () => {
-  function offsets() {
-    return new Map<string, number>();
-  }
+  test("turn/completed (success) maps to result with sessionId", () => {
+    expect(
+      mapCodexAppServerEvent(
+        { method: "turn/completed", params: { turn: { status: "completed" } } },
+        "thr-1",
+      ),
+    ).toEqual([{ type: "result", sessionId: "thr-1", success: true }]);
+  });
 
-  test("emits tool_use with changes", () => {
-    const result = mapCodexItem(
-      { type: "item.completed", item: { id: "fc-1", type: "file_change", changes: [{ path: "src/foo.ts", kind: "update" }], status: "completed" } },
-      offsets(),
-    );
+  test("turn/completed (failed) maps to error", () => {
+    expect(
+      mapCodexAppServerEvent(
+        {
+          method: "turn/completed",
+          params: { turn: { status: "failed", error: { message: "boom" } } },
+        },
+        "thr-1",
+      ),
+    ).toEqual([{ type: "error", error: "boom", code: "turn_failed" }]);
+  });
+
+  test("process_exited maps to a provider error", () => {
+    const result = mapCodexAppServerEvent({ method: "process_exited", params: {} }, "thr-1");
+    expect(result[0].type).toBe("error");
+    if (result[0].type === "error") expect(result[0].code).toBe("provider_error");
+  });
+
+  test("informational notifications are ignored", () => {
+    expect(mapCodexAppServerEvent({ method: "turn/started", params: {} }, "thr-1")).toEqual([]);
+    expect(mapCodexAppServerEvent({ method: "thread/started", params: {} }, "thr-1")).toEqual([]);
+  });
+
+  test("unknown notification passes through", () => {
+    const result = mapCodexAppServerEvent({ method: "some/future/event", params: {} }, "thr-1");
     expect(result.length).toBe(1);
-    expect(result[0].type).toBe("tool_use");
-    if (result[0].type === "tool_use") {
-      expect(result[0].toolName).toBe("FileChange");
-    }
+    expect(result[0].type).toBe("unknown");
   });
 });
 
-describe("mapCodexItem — mcp_tool_call", () => {
-  function offsets() {
-    return new Map<string, number>();
-  }
-
-  test("item.started emits tool_use with server/tool name", () => {
-    const result = mapCodexItem(
-      { type: "item.started", item: { id: "mcp-1", type: "mcp_tool_call", server: "github", tool: "search", arguments: { q: "test" }, status: "in_progress" } },
-      offsets(),
+describe("mapApprovalRequest", () => {
+  test("command execution approval maps to a Bash permission_request", () => {
+    const msg = mapApprovalRequest(
+      "item/commandExecution/requestApproval",
+      { command: "rm -rf build", cwd: "/repo", itemId: "item-1", reason: "needs write" },
+      "42",
     );
-    expect(result).toEqual([{
-      type: "tool_use",
-      toolName: "github/search",
-      toolInput: { q: "test" },
-      toolUseId: "mcp-1",
-    }]);
+    expect(msg.type).toBe("permission_request");
+    expect(msg.requestId).toBe("42");
+    expect(msg.toolName).toBe("Bash");
+    expect(msg.toolInput).toEqual({ command: "rm -rf build", cwd: "/repo" });
+    expect(msg.toolUseId).toBe("item-1");
+    expect(msg.description).toBe("needs write");
   });
 
-  test("item.completed with result emits tool_result", () => {
-    const result = mapCodexItem(
-      { type: "item.completed", item: { id: "mcp-1", type: "mcp_tool_call", server: "github", tool: "search", arguments: {}, result: "found 3 items", status: "completed" } },
-      offsets(),
+  test("file change approval maps to a FileChange permission_request", () => {
+    const msg = mapApprovalRequest(
+      "item/fileChange/requestApproval",
+      { itemId: "item-2", reason: "edit src/foo.ts" },
+      "43",
     );
-    expect(result.some(m => m.type === "tool_result")).toBe(true);
+    expect(msg.toolName).toBe("FileChange");
+    expect(msg.title).toBe("edit src/foo.ts");
+    expect(msg.requestId).toBe("43");
   });
 
-  test("item.completed with error emits error", () => {
-    const result = mapCodexItem(
-      { type: "item.completed", item: { id: "mcp-1", type: "mcp_tool_call", server: "github", tool: "search", arguments: {}, error: { message: "rate limited" }, status: "completed" } },
-      offsets(),
-    );
-    expect(result.some(m => m.type === "error")).toBe(true);
-  });
-});
-
-describe("mapCodexItem — error and passthrough types", () => {
-  function offsets() {
-    return new Map<string, number>();
-  }
-
-  test("error item maps to error message", () => {
-    const result = mapCodexItem(
-      { type: "item.completed", item: { id: "e-1", type: "error", message: "Something broke" } },
-      offsets(),
-    );
-    expect(result).toEqual([{ type: "error", error: "Something broke" }]);
-  });
-
-  test("reasoning, web_search, todo_list pass through as unknown", () => {
-    for (const itemType of ["reasoning", "web_search", "todo_list"]) {
-      const result = mapCodexItem(
-        { type: "item.completed", item: { id: "x-1", type: itemType, text: "thinking..." } },
-        offsets(),
-      );
-      expect(result[0].type).toBe("unknown");
-    }
+  test("unknown approval method falls back to a generic permission_request", () => {
+    const msg = mapApprovalRequest("item/something/requestApproval", { foo: 1 }, "44");
+    expect(msg.type).toBe("permission_request");
+    expect(msg.toolName).toBe("item/something/requestApproval");
+    expect(msg.toolInput).toEqual({ foo: 1 });
   });
 });
 

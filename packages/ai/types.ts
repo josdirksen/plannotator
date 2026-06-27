@@ -278,7 +278,15 @@ export interface AIProvider {
   readonly capabilities: AIProviderCapabilities;
 
   /** Available models for this provider. */
-  readonly models?: ReadonlyArray<{ id: string; label: string; default?: boolean }>;
+  readonly models?: ReadonlyArray<{
+    id: string;
+    label: string;
+    default?: boolean;
+    /** Reasoning-effort options this model supports (provider-reported). */
+    reasoningEfforts?: ReadonlyArray<{ id: string; label: string }>;
+    /** The model's default reasoning effort. */
+    defaultReasoningEffort?: string;
+  }>;
 
   /**
    * Create a fresh session (no parent history).

@@ -56,6 +56,25 @@ const RPC_TIMEOUT_MS = 30_000;
 const CMD_APPROVAL_METHOD = "item/commandExecution/requestApproval";
 const FILE_APPROVAL_METHOD = "item/fileChange/requestApproval";
 
+/** Display labels for Codex's reasoning-effort ids. `xhigh` is shown verbatim
+ *  (Codex's own term), not "Max" or "Extra High". */
+const REASONING_EFFORT_LABELS: Record<string, string> = {
+  none: "None",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "xhigh",
+};
+
+type ProviderModel = {
+  id: string;
+  label: string;
+  default?: boolean;
+  reasoningEfforts?: { id: string; label: string }[];
+  defaultReasoningEffort?: string;
+};
+
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for testing)
 // ---------------------------------------------------------------------------
@@ -473,21 +492,64 @@ export class CodexAppServerProvider implements AIProvider {
     streaming: true,
     tools: true,
   };
-  readonly models = [
-    { id: "gpt-5.5", label: "GPT-5.5" },
+  // Fallback used only until fetchModels() replaces it with Codex's real list
+  // (model/list). Reasoning efforts are intentionally omitted here so the UI
+  // hides the control until we have the model's actual supported set.
+  models: ProviderModel[] = [
     { id: "gpt-5.4", label: "GPT-5.4", default: true },
-    { id: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
-    { id: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
-    { id: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark" },
-    { id: "gpt-5.2-codex", label: "GPT-5.2 Codex" },
-    { id: "gpt-5.2", label: "GPT-5.2" },
-  ] as const;
+  ];
 
   private config: CodexSDKConfig;
   private sessions = new Set<CodexAppServerSession>();
+  private modelsLoaded = false;
 
   constructor(config: CodexSDKConfig) {
     this.config = config;
+  }
+
+  /**
+   * Populate `models` from Codex's `model/list` — the real models plus each
+   * model's actual supportedReasoningEfforts + defaultReasoningEffort. Spawns a
+   * throwaway app-server (like the Pi/OpenCode providers' fetchModels). Keeps
+   * the static fallback on any failure.
+   */
+  async fetchModels(): Promise<void> {
+    if (this.modelsLoaded) return;
+    const proc = new CodexAppServerProcess();
+    try {
+      await proc.start(
+        this.config.codexExecutablePath ?? "codex",
+        this.config.cwd ?? process.cwd(),
+      );
+      const res = await proc.sendAndWait({
+        method: "model/list",
+        params: { includeHidden: false },
+      });
+      const data = (res.data as RpcMessage[] | undefined) ?? [];
+      const models: ProviderModel[] = data
+        .filter((m) => !m.hidden && typeof m.id === "string")
+        .map((m) => {
+          const efforts = ((m.supportedReasoningEfforts as RpcMessage[] | undefined) ?? [])
+            .map((e) => e.reasoningEffort as string)
+            .filter(Boolean)
+            .map((id) => ({ id, label: REASONING_EFFORT_LABELS[id] ?? id }));
+          return {
+            id: m.id as string,
+            label: (m.displayName as string) || (m.id as string),
+            ...(m.isDefault ? { default: true } : {}),
+            ...(efforts.length ? { reasoningEfforts: efforts } : {}),
+            ...(m.defaultReasoningEffort
+              ? { defaultReasoningEffort: m.defaultReasoningEffort as string }
+              : {}),
+          };
+        });
+      if (models.length) this.models = models;
+      this.modelsLoaded = true;
+    } catch {
+      // Keep the static fallback list.
+    } finally {
+      proc.kill();
+    }
   }
 
   async createSession(options: CreateSessionOptions): Promise<AISession> {

@@ -276,7 +276,7 @@ export const AITab: React.FC<AITabProps> = ({
       />
 
       {/* General question input */}
-      {onAskGeneral && <GeneralInput value={generalInput} onChange={setGeneralInput} onSubmit={handleGeneralSubmit} disabled={isStreaming} />}
+      {onAskGeneral && <GeneralInput value={generalInput} onChange={setGeneralInput} onSubmit={handleGeneralSubmit} disabled={isStreaming} isStreaming={isStreaming} onStop={onStop} />}
     </div>
   );
 };

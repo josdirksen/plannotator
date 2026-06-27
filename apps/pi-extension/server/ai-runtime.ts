@@ -59,6 +59,11 @@ export async function createPiAIRuntime(options: CreatePiAIRuntimeOptions = {}):
 					...(codexPath ? { codexExecutablePath: codexPath } : {}),
 				});
 				registry.register(provider);
+				if (provider && "fetchModels" in provider) {
+					modelDiscovery.push(
+						(provider as { fetchModels: () => Promise<void> }).fetchModels().catch(() => {}),
+					);
+				}
 			}
 		} catch {
 			// Codex not available.

@@ -49,6 +49,11 @@ export async function createAIRuntime(options: CreateAIRuntimeOptions = {}): Pro
         ...(codexPath ? { codexExecutablePath: codexPath } : {}),
       });
       registry.register(provider);
+      if ("fetchModels" in provider) {
+        modelDiscovery.push(
+          (provider as { fetchModels: () => Promise<void> }).fetchModels().catch(() => {}),
+        );
+      }
     }
   } catch {
     // Codex not available.

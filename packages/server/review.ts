@@ -15,6 +15,7 @@ import { type DiffType, type GitContext, runVcsDiff, getVcsFileContentsForDiff, 
 import { basename } from "node:path";
 import { existsSync } from "node:fs";
 import { parseWorktreeDiffType, resolveBaseBranch } from "@plannotator/shared/review-core";
+import { resolvePoolCwd } from "@plannotator/shared/worktree-pool";
 import {
   createDefaultSemanticDiffRuntime,
   getSemanticDiffAvailability,
@@ -251,9 +252,9 @@ export async function startReviewServer(
   const resolvePRLocalCwd = (meta: PRMetadata | undefined = prMetadata): string | undefined => {
     const pool = options.worktreePool;
     if (pool && meta) {
-      const entry = pool.get(meta.url);
-      if (entry?.ready) return entry.path;
-      if (entry) return undefined;
+      const r = resolvePoolCwd(pool, meta.url);
+      if (r.kind === "ready") return r.path;
+      if (r.kind === "pending") return undefined; // warming up — don't fall back
     }
     return agentCwdIfExists();
   };

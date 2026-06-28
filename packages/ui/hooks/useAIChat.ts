@@ -130,6 +130,9 @@ export function useAIChat({
   const [error, setError] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
+  // In-flight server abort (from Stop or a superseding question). The next ask()
+  // waits on it so a new query can't race the still-active turn into busy.
+  const pendingAbortRef = useRef<Promise<unknown> | null>(null);
   const sessionEpochRef = useRef(0);
   const createRequestRef = useRef(0);
   const sessionIdRef = useRef<string | null>(null);
@@ -208,9 +211,16 @@ export function useAIChat({
   const ask = useCallback(async (params: AskAIParams) => {
     if (abortRef.current) {
       abortRef.current.abort();
-      // Supersede: stop the server-side turn (not just the browser fetch) and
-      // wait for it, so the new query below doesn't hit session_busy.
-      await postServerAbort();
+      // Supersede: stop the server-side turn (not just the browser fetch).
+      pendingAbortRef.current = postServerAbort();
+    }
+    // Wait for any in-flight server abort — from this supersede OR a prior Stop
+    // click — so the query below doesn't race the still-active turn into a
+    // session_busy error. Stopping still kills the turn; chatting right after
+    // just waits the one round-trip for the stop to land.
+    if (pendingAbortRef.current) {
+      await pendingAbortRef.current;
+      pendingAbortRef.current = null;
     }
 
     const controller = new AbortController();
@@ -392,7 +402,8 @@ export function useAIChat({
     // so leaving them on screen would be a dead Allow/Deny the agent never hears.
     updatePermissions(prev => prev.filter(p => p.decided));
 
-    postServerAbort();
+    // Record the abort so a quick follow-up question waits for it (see ask()).
+    pendingAbortRef.current = postServerAbort();
   }, [updatePermissions, postServerAbort]);
 
   const respondToPermission = useCallback((requestId: string, allow: boolean) => {

@@ -42,7 +42,7 @@ import {
 	type PRDiffScope,
 } from "../generated/pr-stack.js";
 
-import type { WorktreePool } from "../generated/worktree-pool.js";
+import { resolvePoolCwd, type WorktreePool } from "../generated/worktree-pool.js";
 
 import { createEditorAnnotationHandler } from "./annotations.js";
 import { createAgentJobHandler } from "./agent-jobs.js";
@@ -415,9 +415,9 @@ export async function startReviewServer(options: {
 	function resolvePRLocalCwd(): string | null {
 		const pool = options.worktreePool;
 		if (pool && prMeta) {
-			const entry = pool.get(prMeta.url);
-			if (entry?.ready) return entry.path;
-			if (entry) return null;
+			const r = resolvePoolCwd(pool, prMeta.url);
+			if (r.kind === "ready") return r.path;
+			if (r.kind === "pending") return null; // warming up — don't fall back
 		}
 		return options.agentCwd && existsSync(options.agentCwd) ? options.agentCwd : null;
 	}
@@ -447,7 +447,10 @@ export async function startReviewServer(options: {
 				true,
 			);
 		}
-		const hasLocalAccess = !!options.worktreePool || !!options.agentCwd || !!options.gitContext;
+		// Ready-checked (matches Bun): a warming PR checkout must NOT claim local
+		// access, or the agent would be told to diff a checkout that isn't there.
+		const hasLocalAccess = !!options.gitContext ||
+			(options.worktreePool && prMeta ? resolvePRLocalCwd() !== null : !!options.agentCwd);
 		return buildAgentReviewUserMessage(
 			currentPatch,
 			currentDiffType as DiffType,

@@ -448,6 +448,9 @@ const ReviewApp: React.FC = () => {
       providerId: pid,
       model: pid ? (saved.preferredModels[pid] ?? null) : null,
       reasoningEffort: null as string | null,
+      // Reasoning effort is tracked per model so switching models can't carry a
+      // stale (possibly unsupported) level across to a different model.
+      reasoningEffortByModel: {} as Record<string, string>,
     };
   });
   const [showDiffTypeSetup, setShowDiffTypeSetup] = useState(false);
@@ -545,7 +548,12 @@ const ReviewApp: React.FC = () => {
 
       if (prev.providerId === selection.providerId && prev.model === selection.model) return prev;
 
-      return { ...prev, providerId: selection.providerId, model: selection.model };
+      return {
+        ...prev,
+        providerId: selection.providerId,
+        model: selection.model,
+        reasoningEffort: selection.model ? (prev.reasoningEffortByModel[selection.model] ?? null) : null,
+      };
     });
   }, [aiAvailable, aiProviders, aiDefaultProvider, origin]);
 
@@ -558,7 +566,16 @@ const ReviewApp: React.FC = () => {
       const model = providerChanged
         ? (config.model !== undefined ? config.model : resolveAIModelForProvider(provider, saved.preferredModels))
         : (config.model !== undefined ? config.model : prev.model);
-      const next = { ...prev, ...config, providerId, model };
+      // Reasoning effort is per model: record an explicit change against the
+      // current model, then derive the effective level from the (possibly new)
+      // model — so a provider/model switch never carries a stale level across.
+      const reasoningEffortByModel = { ...prev.reasoningEffortByModel };
+      if (config.reasoningEffort !== undefined && prev.model) {
+        if (config.reasoningEffort === null) delete reasoningEffortByModel[prev.model];
+        else reasoningEffortByModel[prev.model] = config.reasoningEffort;
+      }
+      const reasoningEffort = model ? (reasoningEffortByModel[model] ?? null) : null;
+      const next = { ...prev, providerId, model, reasoningEffort, reasoningEffortByModel };
       saveAIProviderSelection({
         providerId: next.providerId,
         model: next.model,
@@ -925,6 +942,7 @@ const ReviewApp: React.FC = () => {
       .then((data: {
         rawPatch: string;
         gitRef: string;
+        aiReviewContext?: string;
         origin?: Origin;
         mode?: string;
         diffType?: string;

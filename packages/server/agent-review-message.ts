@@ -136,7 +136,17 @@ export function buildAgentReviewUserMessage(
         "Do NOT diff against the local `main` branch; it may be stale. Always use origin/.",
       ].join("\n");
     }
-    return prMetadata.url;
+    // No confirmed local checkout yet. A worktree at the PR head is being
+    // prepared and pulls the PR files on demand — tell the agent to verify the
+    // files exist before relying on them, give it the same diff command, and
+    // fall back to the PR URL if the checkout isn't ready.
+    return [
+      prMetadata.url,
+      "",
+      "You are reviewing this PR. A local worktree checked out at the PR head is being prepared; it may still be warming up, so verify the PR files exist before relying on them.",
+      `Once they do, see the PR changes by diffing against the remote base branch: git diff origin/${prMetadata.baseBranch}...HEAD`,
+      "Do NOT diff against the local `main` branch; it may be stale. Always use origin/. If the files are not yet available, use the PR URL above for context.",
+    ].join("\n");
   }
 
   const instruction = getLocalDiffInstruction(diffType, options?.defaultBranch);

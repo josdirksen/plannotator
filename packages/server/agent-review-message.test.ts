@@ -208,11 +208,15 @@ describe("buildAgentReviewUserMessage — Ask AI scenario coverage", () => {
     baseBranch: "main",
   } as Parameters<typeof buildAgentReviewUserMessage>[3];
 
-  test("PR without local access or full-stack → just the URL", () => {
+  test("PR without confirmed checkout → worktree-aware instruction (verify files), URL + diff command, no paste", () => {
     const message = buildAgentReviewUserMessage(patch, "branch", {}, prMetadata, true);
-    expect(message).toBe("https://github.com/o/r/pull/3");
+    expect(message).toContain("https://github.com/o/r/pull/3");
+    expect(message).toContain("git diff origin/main...HEAD");
+    expect(message.toLowerCase()).toContain("verify the pr files exist");
+    expect(message.toLowerCase()).toContain("warming up");
+    // Still no pasted diff — the agent fetches it from the worktree itself.
     expect(message).not.toContain(patch);
-    expect(message).not.toContain("git diff");
+    expect(message).not.toContain("```diff");
   });
 
   test("PR full-stack (default framing) → review line, stacked explanation, inline patch", () => {

@@ -277,6 +277,9 @@ class CodexAppServerProcess {
   >();
   private nextId = 0;
   private buffer = "";
+  // Streaming decoder: a multi-byte UTF-8 char can split across stdout chunks;
+  // decoding per-chunk with toString() would corrupt the boundary into U+FFFD.
+  private decoder = new TextDecoder();
   private _alive = false;
   private startPromise: Promise<void> | null = null;
 
@@ -360,7 +363,7 @@ class CodexAppServerProcess {
   private readStream(): void {
     if (!this.proc?.stdout) return;
     this.proc.stdout.on("data", (chunk: Buffer) => {
-      this.buffer += chunk.toString();
+      this.buffer += this.decoder.decode(chunk, { stream: true });
       const lines = this.buffer.split("\n");
       this.buffer = lines.pop() ?? "";
       for (const line of lines) {

@@ -190,9 +190,27 @@ export function useAIChat({
     }
   }, [context, model, providerId, reasoningEffort, setSessionId]);
 
+  // Tell the server to stop the current session's in-flight turn, and resolve
+  // once it has. Used by the Stop button and when a new question supersedes a
+  // streaming one — aborting the browser fetch alone leaves the agent's turn
+  // running. The /api/ai/abort handler clears the session's active flag before
+  // it responds, so awaiting this guarantees a following query won't race it
+  // into a session_busy error. Best-effort (never rejects).
+  const postServerAbort = useCallback((): Promise<unknown> => {
+    if (!sessionIdRef.current) return Promise.resolve();
+    return fetch('/api/ai/abort', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: sessionIdRef.current }),
+    }).catch(() => {});
+  }, []);
+
   const ask = useCallback(async (params: AskAIParams) => {
     if (abortRef.current) {
       abortRef.current.abort();
+      // Supersede: stop the server-side turn (not just the browser fetch) and
+      // wait for it, so the new query below doesn't hit session_busy.
+      await postServerAbort();
     }
 
     const controller = new AbortController();
@@ -361,7 +379,7 @@ export function useAIChat({
         abortRef.current = null;
       }
     }
-  }, [buildPrompt, createSession, updateMessages, updatePermissions]);
+  }, [buildPrompt, createSession, updateMessages, updatePermissions, postServerAbort]);
 
   const abort = useCallback(() => {
     if (abortRef.current) {
@@ -374,14 +392,8 @@ export function useAIChat({
     // so leaving them on screen would be a dead Allow/Deny the agent never hears.
     updatePermissions(prev => prev.filter(p => p.decided));
 
-    if (sessionIdRef.current) {
-      fetch('/api/ai/abort', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: sessionIdRef.current }),
-      }).catch(() => {});
-    }
-  }, [updatePermissions]);
+    postServerAbort();
+  }, [updatePermissions, postServerAbort]);
 
   const respondToPermission = useCallback((requestId: string, allow: boolean) => {
     if (!sessionIdRef.current) return;

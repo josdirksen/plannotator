@@ -535,11 +535,20 @@ export class CodexAppServerProvider implements AIProvider {
         this.config.codexExecutablePath ?? "codex",
         this.config.cwd ?? process.cwd(),
       );
-      const res = await proc.sendAndWait({
-        method: "model/list",
-        params: { includeHidden: false },
-      });
-      const data = (res.data as RpcMessage[] | undefined) ?? [];
+      // model/list is paginated (nextCursor); aggregate every page into one list
+      // so larger model catalogs aren't silently truncated. The page guard is a
+      // safety stop against a misbehaving cursor, not an expected limit.
+      const data: RpcMessage[] = [];
+      let cursor: string | undefined;
+      for (let page = 0; page < 50; page++) {
+        const res = await proc.sendAndWait({
+          method: "model/list",
+          params: { includeHidden: false, ...(cursor ? { cursor } : {}) },
+        });
+        data.push(...((res.data as RpcMessage[] | undefined) ?? []));
+        cursor = (res.nextCursor as string | undefined) ?? undefined;
+        if (!cursor) break;
+      }
       const models: ProviderModel[] = data
         .filter((m) => !m.hidden && typeof m.id === "string")
         .map((m) => {

@@ -35,13 +35,8 @@ import { getOctarineSettings, isOctarineConfigured } from '@plannotator/ui/utils
 import { getDefaultNotesApp } from '@plannotator/ui/utils/defaultNotesApp';
 import { getAgentSwitchSettings, getEffectiveAgentName } from '@plannotator/ui/utils/agentSwitch';
 import { getPlanSaveSettings } from '@plannotator/ui/utils/planSave';
-import {
-  getAIProviderSettings,
-  resolveAIModelForProvider,
-  resolveAIProviderSelection,
-  saveAIProviderSelection,
-  type AIProviderOption,
-} from '@plannotator/ui/utils/aiProvider';
+import { type AIProviderOption } from '@plannotator/ui/utils/aiProvider';
+import { useAIProviderConfig } from '@plannotator/ui/hooks/useAIProviderConfig';
 import { markPlanAIAnnouncementSeen, needsPlanAIAnnouncement } from '@plannotator/ui/utils/planAIAnnouncement';
 import { markLookAndFeelAnnouncementSeen, needsLookAndFeelAnnouncement } from '@plannotator/ui/utils/lookAndFeelAnnouncement';
 import { buildDefaultPrompt, useAIChat } from '@plannotator/ui/hooks/useAIChat';
@@ -420,14 +415,12 @@ const App: React.FC = () => {
   const [aiSessionEnabled, setAISessionEnabled] = useState(false);
   const [aiAvailable, setAiAvailable] = useState(false);
   const [aiProviders, setAiProviders] = useState<Array<{ id: string; name: string; capabilities?: Record<string, boolean>; models?: Array<{ id: string; label: string; default?: boolean }> }>>([]);
-  const [aiConfig, setAIConfig] = useState(() => {
-    const saved = getAIProviderSettings();
-    const providerId = saved.providerId;
-    return {
-      providerId,
-      model: providerId ? (saved.preferredModels[providerId] ?? null) : null,
-      reasoningEffort: null as string | null,
-    };
+  const [aiDefaultProvider, setAiDefaultProvider] = useState<string | null>(null);
+  const { aiConfig, applyConfigChange } = useAIProviderConfig({
+    providers: aiProviders,
+    defaultProvider: aiDefaultProvider,
+    available: aiAvailable,
+    origin,
   });
   const [showPlanAIAnnouncement, setShowPlanAIAnnouncement] = useState(needsPlanAIAnnouncement);
   const [showLookAndFeelAnnouncement, setShowLookAndFeelAnnouncement] = useState(needsLookAndFeelAnnouncement);
@@ -2273,19 +2266,9 @@ const App: React.FC = () => {
           const providers = data.providers ?? [];
           setAiAvailable(true);
           setAiProviders(providers);
-          setAIConfig(prev => {
-            const saved = getAIProviderSettings();
-            const selection = resolveAIProviderSelection({
-              providers,
-              origin,
-              settings: saved,
-              serverDefaultProvider: data.defaultProvider ?? null,
-            });
-
-            if (prev.providerId === selection.providerId && prev.model === selection.model) return prev;
-
-            return { ...prev, providerId: selection.providerId, model: selection.model };
-          });
+          // Provider/model is resolved by useAIProviderConfig's effect once these
+          // states land — just record the server default for it to use.
+          setAiDefaultProvider(data.defaultProvider ?? null);
         } else {
           setAiAvailable(false);
           setAiProviders([]);
@@ -3138,26 +3121,13 @@ const App: React.FC = () => {
     previousAIDocumentKeyRef.current = aiDocumentKey;
   }, [aiDocumentKey, aiSessionEnabled, resetAIThread]);
 
+  // Provider/model/effort selection logic lives in the shared hook above (incl.
+  // per-model reasoning effort); the app only composes the session reset (the
+  // hook can't own it — see the cycle note in useAIProviderConfig).
   const handleAIConfigChange = useCallback((config: { providerId?: string | null; model?: string | null; reasoningEffort?: string | null }) => {
-    setAIConfig(prev => {
-      const saved = getAIProviderSettings();
-      const providerId = config.providerId !== undefined ? config.providerId : prev.providerId;
-      const providerChanged = config.providerId !== undefined && config.providerId !== prev.providerId;
-      const provider = aiProviders.find(p => p.id === providerId) ?? null;
-      const model = providerChanged
-        ? (config.model !== undefined ? config.model : resolveAIModelForProvider(provider, saved.preferredModels))
-        : (config.model !== undefined ? config.model : prev.model);
-      const next = { ...prev, ...config, providerId, model };
-      saveAIProviderSelection({
-        providerId: next.providerId,
-        model: next.model,
-        origin,
-        settings: saved,
-      });
-      return next;
-    });
+    applyConfigChange(config);
     resetAISession();
-  }, [aiProviders, origin, resetAISession]);
+  }, [applyConfigChange, resetAISession]);
 
   const openAIChat = useCallback(() => {
     if (wideModeType !== null) {

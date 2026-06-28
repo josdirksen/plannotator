@@ -19,12 +19,7 @@ import type { SemanticDiffAdvert } from '@plannotator/shared/semantic-diff-types
 import { configStore, useConfigValue } from '@plannotator/ui/config';
 import { loadDiffFont } from '@plannotator/ui/utils/diffFonts';
 import { getAgentSwitchSettings, getEffectiveAgentName } from '@plannotator/ui/utils/agentSwitch';
-import {
-  getAIProviderSettings,
-  resolveAIModelForProvider,
-  resolveAIProviderSelection,
-  saveAIProviderSelection,
-} from '@plannotator/ui/utils/aiProvider';
+import { useAIProviderConfig } from '@plannotator/ui/hooks/useAIProviderConfig';
 import { DiffTypeSetupDialog } from '@plannotator/ui/components/DiffTypeSetupDialog';
 import { needsDiffTypeSetup } from '@plannotator/ui/utils/diffTypeSetup';
 import { LookAndFeelAnnouncementDialog } from '@plannotator/ui/components/LookAndFeelAnnouncementDialog';
@@ -441,17 +436,11 @@ const ReviewApp: React.FC = () => {
   const [aiAvailable, setAiAvailable] = useState(false);
   const [aiProviders, setAiProviders] = useState<Array<{ id: string; name: string; capabilities: Record<string, boolean>; models?: Array<{ id: string; label: string; default?: boolean }> }>>([]);
   const [aiDefaultProvider, setAiDefaultProvider] = useState<string | null>(null);
-  const [aiConfig, setAiConfig] = useState(() => {
-    const saved = getAIProviderSettings();
-    const pid = saved.providerId;
-    return {
-      providerId: pid,
-      model: pid ? (saved.preferredModels[pid] ?? null) : null,
-      reasoningEffort: null as string | null,
-      // Reasoning effort is tracked per model so switching models can't carry a
-      // stale (possibly unsupported) level across to a different model.
-      reasoningEffortByModel: {} as Record<string, string>,
-    };
+  const { aiConfig, applyConfigChange } = useAIProviderConfig({
+    providers: aiProviders,
+    defaultProvider: aiDefaultProvider,
+    available: aiAvailable,
+    origin,
   });
   const [showDiffTypeSetup, setShowDiffTypeSetup] = useState(false);
   const [diffTypeSetupPending, setDiffTypeSetupPending] = useState(false);
@@ -535,57 +524,13 @@ const ReviewApp: React.FC = () => {
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    if (!aiAvailable || aiProviders.length === 0) return;
-    setAiConfig(prev => {
-      const saved = getAIProviderSettings();
-      const selection = resolveAIProviderSelection({
-        providers: aiProviders,
-        origin,
-        settings: saved,
-        serverDefaultProvider: aiDefaultProvider,
-      });
-
-      if (prev.providerId === selection.providerId && prev.model === selection.model) return prev;
-
-      return {
-        ...prev,
-        providerId: selection.providerId,
-        model: selection.model,
-        reasoningEffort: selection.model ? (prev.reasoningEffortByModel[selection.model] ?? null) : null,
-      };
-    });
-  }, [aiAvailable, aiProviders, aiDefaultProvider, origin]);
-
+  // Provider/model/effort selection logic lives in the shared hook above; the
+  // app only composes the session reset (the hook can't own it — see the cycle
+  // note in useAIProviderConfig).
   const handleAIConfigChange = useCallback((config: { providerId?: string | null; model?: string | null; reasoningEffort?: string | null }) => {
-    setAiConfig(prev => {
-      const saved = getAIProviderSettings();
-      const providerId = config.providerId !== undefined ? config.providerId : prev.providerId;
-      const providerChanged = config.providerId !== undefined && config.providerId !== prev.providerId;
-      const provider = aiProviders.find(p => p.id === providerId) ?? null;
-      const model = providerChanged
-        ? (config.model !== undefined ? config.model : resolveAIModelForProvider(provider, saved.preferredModels))
-        : (config.model !== undefined ? config.model : prev.model);
-      // Reasoning effort is per model: record an explicit change against the
-      // current model, then derive the effective level from the (possibly new)
-      // model — so a provider/model switch never carries a stale level across.
-      const reasoningEffortByModel = { ...prev.reasoningEffortByModel };
-      if (config.reasoningEffort !== undefined && prev.model) {
-        if (config.reasoningEffort === null) delete reasoningEffortByModel[prev.model];
-        else reasoningEffortByModel[prev.model] = config.reasoningEffort;
-      }
-      const reasoningEffort = model ? (reasoningEffortByModel[model] ?? null) : null;
-      const next = { ...prev, providerId, model, reasoningEffort, reasoningEffortByModel };
-      saveAIProviderSelection({
-        providerId: next.providerId,
-        model: next.model,
-        origin,
-        settings: saved,
-      });
-      return next;
-    });
+    applyConfigChange(config);
     resetAISession();
-  }, [aiProviders, origin, resetAISession]);
+  }, [applyConfigChange, resetAISession]);
 
   // File-aware Ask AI: the all-files surface resolves the owning file itself
   // (its toolbar selection lives in a file the single-file panel may never

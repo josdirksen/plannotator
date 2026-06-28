@@ -333,14 +333,19 @@ describe("Context builders", () => {
     expect(prompt).toContain("# Old Plan");
   });
 
-  test("buildSystemPrompt for code-review", () => {
+  test("buildSystemPrompt for code-review is role-only (diff rides on user messages)", () => {
     const ctx: AIContext = {
       mode: "code-review",
-      review: { patch: "diff --git a/foo.ts b/foo.ts\n+hello" },
+      review: { patch: "diff --git a/foo.ts b/foo.ts\n+hello", diffType: "branch", base: "main" },
     };
     const prompt = buildSystemPrompt(ctx);
     expect(prompt).toContain("Plannotator");
-    expect(prompt).toContain("diff --git");
+    expect(prompt).toContain("code changes");
+    // The diff and how-to-inspect-it are delivered on the user's messages now
+    // (the review server's shared machine builds them), not in the system prompt.
+    expect(prompt).not.toContain("diff --git");
+    expect(prompt).not.toContain("git diff");
+    expect(prompt).not.toContain("```diff");
   });
 
   test("buildSystemPrompt for annotate", () => {
@@ -418,49 +423,28 @@ describe("Context builders", () => {
     }
   });
 
-  test("code-review with a git-reproducible diffType instructs git, does not paste the diff", () => {
-    const ctx: AIContext = {
-      mode: "code-review",
-      review: {
-        patch: "diff --git a/foo.ts b/foo.ts\n+secret-paste-marker",
-        diffType: "branch",
-        base: "develop",
-      },
-    };
-    const prompt = buildSystemPrompt(ctx);
-    expect(prompt).toContain("git diff develop..HEAD");
-    // The whole diff must NOT be pasted when the agent can reproduce it.
-    expect(prompt).not.toContain("secret-paste-marker");
-    expect(prompt).not.toContain("```diff");
+  test("code-review system prompt never carries the diff or a git command, for any diffType", () => {
+    // The "changes under review" context moved to the user's messages (built by
+    // the shared agent-review machine), so the system prompt must stay role-only
+    // regardless of diff type — no pasted patch, no git command.
+    const variants: AIContext[] = [
+      { mode: "code-review", review: { patch: "diff --git a/foo.ts\n+marker", diffType: "branch", base: "develop" } },
+      { mode: "code-review", review: { patch: "+marker", diffType: "merge-base", base: "main" } },
+      { mode: "code-review", review: { patch: "diff --git a/foo.ts\n+marker", diffType: "jj-current" } },
+      { mode: "code-review", review: { patch: "diff --git a/foo.ts\n+marker" } },
+    ];
+    for (const ctx of variants) {
+      const prompt = buildSystemPrompt(ctx);
+      expect(prompt).not.toContain("marker");
+      expect(prompt).not.toContain("```diff");
+      expect(prompt).not.toContain("git diff");
+    }
   });
 
-  test("code-review merge-base uses three-dot diff (no shell substitution)", () => {
-    const ctx: AIContext = {
-      mode: "code-review",
-      review: { patch: "+x", diffType: "merge-base", base: "main" },
-    };
-    const prompt = buildSystemPrompt(ctx);
-    expect(prompt).toContain("git diff main...HEAD");
-    expect(prompt).not.toContain("$(");
-  });
-
-  test("code-review falls back to pasting the diff for non-git diff types", () => {
-    const ctx: AIContext = {
-      mode: "code-review",
-      review: { patch: "diff --git a/foo.ts\n+pasted", diffType: "jj-current" },
-    };
-    const prompt = buildSystemPrompt(ctx);
-    expect(prompt).toContain("```diff");
-    expect(prompt).toContain("+pasted");
-  });
-
-  test("code-review with no diffType pastes the diff (back-compat)", () => {
-    const ctx: AIContext = {
-      mode: "code-review",
-      review: { patch: "diff --git a/foo.ts\n+pasted" },
-    };
-    const prompt = buildSystemPrompt(ctx);
-    expect(prompt).toContain("+pasted");
+  test("code-review system prompt tells the agent the changeset arrives in user messages", () => {
+    const prompt = buildSystemPrompt({ mode: "code-review", review: { patch: "+x" } });
+    expect(prompt).toMatch(/messages/i);
+    expect(prompt).toMatch(/inspect/i);
   });
 });
 

@@ -39,6 +39,9 @@ export interface AskAIParams {
   /** What the user is currently viewing (changes mid-session, so it rides with
    *  each question rather than the once-created session context). */
   viewing?: { scope: 'all' | 'file'; filePath?: string };
+  /** Context block prepended to the message (e.g. the "changes under review"
+   *  description). Rides with each question so it reflects the live view. */
+  contextPreamble?: string;
 }
 
 interface UseAIChatOptions {
@@ -51,38 +54,47 @@ interface UseAIChatOptions {
 }
 
 export function buildDefaultPrompt(params: AskAIParams): string {
-  if (params.filePath && params.lineStart != null && params.lineEnd != null) {
-    const lineRef = params.lineStart === params.lineEnd
-      ? `line ${params.lineStart}`
-      : `lines ${params.lineStart}-${params.lineEnd}`;
-    const sideLabel = params.side === 'new' ? 'new (added)' : 'old (removed)';
-    const codeBlock = params.selectedCode
-      ? `\n\`\`\`\n${params.selectedCode}\n\`\`\`\n`
-      : '';
-    return `Re: ${params.filePath}, ${lineRef} (${sideLabel} side)${codeBlock}\n${params.prompt}`;
-  }
+  // The "changes under review" context (and any other preamble) leads the
+  // message, so the agent is oriented to the live view before the question and
+  // the existing file/line/viewing notes.
+  const pre = params.contextPreamble?.trim() ? `${params.contextPreamble.trim()}\n\n` : '';
 
-  if (params.filePath) {
-    return `Re: ${params.filePath} (entire file)\n\n${params.prompt}`;
-  }
+  const base = ((): string => {
+    if (params.filePath && params.lineStart != null && params.lineEnd != null) {
+      const lineRef = params.lineStart === params.lineEnd
+        ? `line ${params.lineStart}`
+        : `lines ${params.lineStart}-${params.lineEnd}`;
+      const sideLabel = params.side === 'new' ? 'new (added)' : 'old (removed)';
+      const codeBlock = params.selectedCode
+        ? `\n\`\`\`\n${params.selectedCode}\n\`\`\`\n`
+        : '';
+      return `Re: ${params.filePath}, ${lineRef} (${sideLabel} side)${codeBlock}\n${params.prompt}`;
+    }
 
-  if (params.scope?.kind === 'selection') {
-    const label = params.scope.label ? `Re: ${params.scope.label}` : 'Re: selected text';
-    const source = params.scope.sourcePath ? `\nSource: ${params.scope.sourcePath}` : '';
-    const selection = params.scope.text ? `\n\nSelected text:\n\`\`\`\n${params.scope.text}\n\`\`\`` : '';
-    return `${label}${source}${selection}\n\n${params.prompt}`;
-  }
+    if (params.filePath) {
+      return `Re: ${params.filePath} (entire file)\n\n${params.prompt}`;
+    }
 
-  // General question (no explicit file/line/selection): tell the agent what the
-  // user is currently looking at so it can scope its own investigation.
-  if (params.viewing) {
-    const note = params.viewing.scope === 'file' && params.viewing.filePath
-      ? `[The user is currently viewing ${params.viewing.filePath}]`
-      : '[The user is currently viewing all changed files]';
-    return `${note}\n${params.prompt}`;
-  }
+    if (params.scope?.kind === 'selection') {
+      const label = params.scope.label ? `Re: ${params.scope.label}` : 'Re: selected text';
+      const source = params.scope.sourcePath ? `\nSource: ${params.scope.sourcePath}` : '';
+      const selection = params.scope.text ? `\n\nSelected text:\n\`\`\`\n${params.scope.text}\n\`\`\`` : '';
+      return `${label}${source}${selection}\n\n${params.prompt}`;
+    }
 
-  return params.prompt;
+    // General question (no explicit file/line/selection): tell the agent what the
+    // user is currently looking at so it can scope its own investigation.
+    if (params.viewing) {
+      const note = params.viewing.scope === 'file' && params.viewing.filePath
+        ? `[The user is currently viewing ${params.viewing.filePath}]`
+        : '[The user is currently viewing all changed files]';
+      return `${note}\n${params.prompt}`;
+    }
+
+    return params.prompt;
+  })();
+
+  return pre + base;
 }
 
 function createThread(title = 'Chat'): AIChatThread {

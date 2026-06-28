@@ -102,6 +102,8 @@ interface DiffData {
   gitRef: string;
   origin?: Origin;
   diffType?: string;
+  /** Server-built "changes under review" description for Ask AI (current view). */
+  aiReviewContext?: string;
   gitContext?: GitContext;
   diffOptions?: DiffOption[];
   sharingEnabled?: boolean;
@@ -462,6 +464,7 @@ const ReviewApp: React.FC = () => {
     patch: diffData?.rawPatch ?? '',
     diffType,
     base: committedBase,
+    reviewContext: diffData?.aiReviewContext,
     viewing: {
       scope: isAllFilesActive ? 'all' : 'file',
       filePath: isAllFilesActive ? undefined : files[activeFileIndex]?.path,
@@ -956,6 +959,7 @@ const ReviewApp: React.FC = () => {
           gitRef: data.gitRef,
           origin: data.origin,
           diffType: data.diffType,
+          aiReviewContext: data.aiReviewContext,
           gitContext: data.gitContext,
           diffOptions: data.diffOptions,
           sharingEnabled: data.sharingEnabled,
@@ -1272,6 +1276,7 @@ const ReviewApp: React.FC = () => {
   // Shared function: apply a PR response (used by both initial load and PR switch)
   function applyPRResponse(data: PRSessionUpdate & {
     rawPatch: string; gitRef: string;
+    aiReviewContext?: string;
     repoInfo?: { display: string; branch?: string };
     viewedFiles?: string[]; error?: string;
     semanticDiff?: SemanticDiffAdvert;
@@ -1281,7 +1286,7 @@ const ReviewApp: React.FC = () => {
     const nextFiles = parseDiffToFiles(data.rawPatch);
     dockApi?.getPanel(REVIEW_DIFF_PANEL_ID)?.api.close();
     needsInitialDiffPanel.current = true;
-    setDiffData(prev => prev ? { ...prev, rawPatch: data.rawPatch, gitRef: data.gitRef } : prev);
+    setDiffData(prev => prev ? { ...prev, rawPatch: data.rawPatch, gitRef: data.gitRef, aiReviewContext: data.aiReviewContext } : prev);
     setFiles(nextFiles);
     if (isPRSwitch) {
       setActiveFileIndex(0);
@@ -1348,6 +1353,7 @@ const ReviewApp: React.FC = () => {
       const data = await res.json() as {
         rawPatch: string;
         gitRef: string;
+        aiReviewContext?: string;
         diffType: string;
         base?: string;
         gitContext?: GitContext;
@@ -1363,7 +1369,7 @@ const ReviewApp: React.FC = () => {
         // Whitespace toggle: update patch in-place, keep the active file.
         // If the current file was removed (whitespace-only), retarget the
         // dock panel to the first remaining file.
-        setDiffData(prev => prev ? { ...prev, rawPatch: data.rawPatch, gitRef: data.gitRef } : prev);
+        setDiffData(prev => prev ? { ...prev, rawPatch: data.rawPatch, gitRef: data.gitRef, aiReviewContext: data.aiReviewContext } : prev);
         if (data.diffOptions) setWorkspaceDiffOptions(data.diffOptions);
         setFiles(nextFiles);
         const currentPath = files[activeFileIndex]?.path;
@@ -1381,7 +1387,7 @@ const ReviewApp: React.FC = () => {
       } else {
         dockApi?.getPanel(REVIEW_DIFF_PANEL_ID)?.api.close();
         needsInitialDiffPanel.current = true;
-        setDiffData(prev => prev ? { ...prev, rawPatch: data.rawPatch, gitRef: data.gitRef, diffType: data.diffType } : prev);
+        setDiffData(prev => prev ? { ...prev, rawPatch: data.rawPatch, gitRef: data.gitRef, diffType: data.diffType, aiReviewContext: data.aiReviewContext } : prev);
         setFiles(nextFiles);
         setDiffType(data.diffType);
         if (data.diffOptions) setWorkspaceDiffOptions(data.diffOptions);

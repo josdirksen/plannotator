@@ -26,7 +26,7 @@ export function buildSystemPrompt(ctx: AIContext): string {
     case "plan-review":
       return buildPlanReviewPrompt(ctx);
     case "code-review":
-      return buildCodeReviewPrompt(ctx);
+      return buildCodeReviewPrompt();
     case "annotate":
       return buildAnnotatePrompt(ctx);
   }
@@ -156,42 +156,6 @@ function truncate(text: string, max: number): string {
   return `${text.slice(0, max)}\n\n... [truncated for context window]`;
 }
 
-/**
- * For git-reproducible diff types, return a one-line instruction telling the
- * agent how to inspect the changes itself — so we don't paste the whole diff.
- * Returns null for types that can't be reproduced with a single git command
- * (jj, Perforce, stacked-PR full-stack, workspace, unknown) — those fall back
- * to pasting the diff.
- *
- * NOTE: kept self-contained here because `packages/ai` is dependency-free; the
- * server's richer `getLocalDiffInstruction` (agent-review-message.ts) remains
- * the source of truth for the agent-jobs path.
- */
-function gitInspectInstruction(
-  diffType: string | undefined,
-  base: string | undefined,
-): string | null {
-  const b = base || "main";
-  switch (diffType) {
-    case "uncommitted":
-      return "Run `git diff HEAD` to see the changes (and `git status` for untracked files).";
-    case "staged":
-      return "Run `git diff --staged` to see the changes.";
-    case "unstaged":
-      return "Run `git diff` to see the changes.";
-    case "last-commit":
-      return "Run `git diff HEAD~1..HEAD` to see the changes.";
-    case "branch":
-      return `Run \`git diff ${b}..HEAD\` to see the changes.`;
-    case "merge-base":
-      // Three-dot diff = changes on HEAD since the merge-base with the base —
-      // the GitHub PR view. Single command, no shell substitution needed.
-      return `Run \`git diff ${b}...HEAD\` to see the changes (matches the PR view).`;
-    default:
-      return null;
-  }
-}
-
 function buildPlanReviewPrompt(
   ctx: Extract<AIContext, { mode: "plan-review" }>
 ): string {
@@ -230,49 +194,22 @@ function buildPlanReviewPrompt(
   return sections.join("\n");
 }
 
-function buildCodeReviewPrompt(
-  ctx: Extract<AIContext, { mode: "code-review" }>
-): string {
-  const sections: string[] = [
+/**
+ * Code-review system prompt: role only. The actual changeset and how to inspect
+ * it are NOT in the system prompt — they ride on the user's messages, where the
+ * review server's shared agent-review prompt machine describes the *current*
+ * view (a git command to run, or the diff inline for modes git can't reproduce)
+ * and the client latches it on. See packages/server/review.ts
+ * `buildCurrentAiReviewContext` and packages/ui/utils/aiPrompt.ts.
+ */
+function buildCodeReviewPrompt(): string {
+  return [
     ANSWER_DIRECTLY,
     "",
-    "The user is reviewing a set of code changes in Plannotator.",
-  ];
-
-  const inspect = gitInspectInstruction(ctx.review.diffType, ctx.review.base);
-
-  if (inspect) {
-    // Git-reproducible: tell the agent how to look instead of pasting the diff.
-    sections.push("");
-    sections.push("## The changes under review");
-    sections.push(
-      `The current working directory is the repository being reviewed. ${inspect}`,
-    );
-  } else {
-    // Fallback (jj, Perforce, stacked-PR full-stack, workspace, unknown):
-    // paste the diff since it can't be reproduced with a single git command.
-    sections.push("");
-    sections.push("## Diff");
-    sections.push("```diff");
-    sections.push(truncate(ctx.review.patch, MAX_DIFF_CHARS));
-    sections.push("```");
-  }
-
-  if (ctx.review.selectedCode) {
-    sections.push("");
-    sections.push("## Code the user has selected");
-    sections.push("```");
-    sections.push(ctx.review.selectedCode);
-    sections.push("```");
-  }
-
-  if (ctx.review.annotations) {
-    sections.push("");
-    sections.push("## User Annotations");
-    sections.push(ctx.review.annotations);
-  }
-
-  return sections.join("\n");
+    "The user is reviewing a set of code changes in Plannotator. Their messages " +
+      "describe the changeset under review and how to inspect it — either a git " +
+      "command to run, or the diff inline.",
+  ].join("\n");
 }
 
 function buildAnnotatePrompt(

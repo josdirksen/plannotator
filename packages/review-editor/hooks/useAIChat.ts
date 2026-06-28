@@ -5,6 +5,7 @@ import {
   type AskAIParams,
   type PendingPermission,
 } from '@plannotator/ui/hooks/useAIChat';
+import { buildReviewContextPreamble } from '@plannotator/ui/utils/aiPrompt';
 export type { AIChatEntry, PendingPermission };
 
 interface Viewing {
@@ -18,6 +19,9 @@ interface UseAIChatOptions {
   diffType?: string;
   /** Base branch/ref the diff is computed against. */
   base?: string | null;
+  /** Server-built "changes under review" description for the current view (the
+   *  shared agent-review machine's output). Latched onto each question. */
+  reviewContext?: string;
   /** What the user is currently viewing (read fresh on each question). */
   viewing?: Viewing;
   providerId?: string | null;
@@ -29,6 +33,7 @@ export function useAIChat({
   patch,
   diffType,
   base,
+  reviewContext,
   viewing,
   providerId,
   model,
@@ -49,9 +54,26 @@ export function useAIChat({
   const viewingRef = useRef(viewing);
   viewingRef.current = viewing;
 
+  // The "changes under review" context also changes mid-session (diff-type/base/
+  // whitespace/PR/scope switches). Send the full block when it first appears or
+  // changes; a short reminder otherwise (see buildReviewContextPreamble).
+  const reviewContextRef = useRef(reviewContext);
+  reviewContextRef.current = reviewContext;
+  const lastSentContextRef = useRef<string | undefined>(undefined);
+
   const ask = useCallback(
-    (params: AskAIParams) =>
-      chat.ask({ viewing: viewingRef.current, ...params }),
+    (params: AskAIParams) => {
+      const ctx = reviewContextRef.current;
+      // Send the full context when this question starts a fresh underlying
+      // session (first message, or after a provider/model switch — resetSession
+      // nulls sessionId but keeps messages, so a string-only diff would miss it)
+      // or when the viewed changeset itself changed.
+      const freshSession = !chat.sessionId;
+      const changed = freshSession || (ctx ?? '') !== (lastSentContextRef.current ?? '');
+      const contextPreamble = buildReviewContextPreamble(ctx, { changed });
+      lastSentContextRef.current = ctx;
+      return chat.ask({ viewing: viewingRef.current, contextPreamble, ...params });
+    },
     [chat],
   );
 

@@ -379,6 +379,33 @@ export async function startReviewServer(
     if (!workspace) return undefined;
     return workspace.getPromptContext();
   };
+
+  // The "changes under review" context for Ask AI, built from the CURRENT view
+  // by the SAME machine the launchable review jobs use (buildCommand above) —
+  // contextOnly=true so it carries only the changeset/how-to-inspect-it text, no
+  // "provide findings" framing. Returned in the diff payloads so the chat can
+  // latch it onto the user's messages; recomputed wherever the view changes so a
+  // mid-session switch (diff type, base, whitespace, PR, scope) stays accurate.
+  const buildCurrentAiReviewContext = (): string => {
+    const workspacePrompt = getWorkspacePromptContext();
+    if (workspacePrompt) {
+      return buildAgentReviewUserMessageForTarget(
+        { kind: "workspace", patch: currentPatch, workspace: workspacePrompt },
+        true,
+      );
+    }
+    const hasLocalAccess = !!gitContext ||
+      (options.worktreePool && prMetadata
+        ? resolvePRLocalCwd(prMetadata) !== undefined
+        : !!options.agentCwd);
+    return buildAgentReviewUserMessage(
+      currentPatch,
+      currentDiffType as DiffType,
+      { defaultBranch: currentBase, hasLocalAccess, prDiffScope: currentPRDiffScope },
+      prMetadata,
+      true,
+    );
+  };
   const semanticDiffScratchCwd = getSemanticDiffScratchCwd();
   const resolveSemanticDiffCwd = (): string => {
     if (workspace) return workspace.root;
@@ -871,6 +898,7 @@ export async function startReviewServer(
           if (url.pathname === "/api/diff" && req.method === "GET") {
             return Response.json({
               rawPatch: currentPatch,
+              aiReviewContext: buildCurrentAiReviewContext(),
               gitRef: currentGitRef,
               origin,
               mode: isWorkspaceMode ? "workspace" : undefined,
@@ -991,6 +1019,7 @@ export async function startReviewServer(
 
                 return Response.json({
                   rawPatch: currentPatch,
+                  aiReviewContext: buildCurrentAiReviewContext(),
                   gitRef: currentGitRef,
                   diffType: currentDiffType,
                   diffOptions: workspace.diffOptions,
@@ -1038,6 +1067,7 @@ export async function startReviewServer(
 
               return Response.json({
                 rawPatch: currentPatch,
+                aiReviewContext: buildCurrentAiReviewContext(),
                 gitRef: currentGitRef,
                 diffType: currentDiffType,
                 // Echo the base the server actually used. resolveBaseBranch
@@ -1077,6 +1107,7 @@ export async function startReviewServer(
                 const semanticDiff = await getSemanticDiffAdvert();
                 return Response.json({
                   rawPatch: currentPatch,
+                  aiReviewContext: buildCurrentAiReviewContext(),
                   gitRef: currentGitRef,
                   prDiffScope: currentPRDiffScope,
                   ...(layerPatchIncomplete && { prPatchIncomplete: true, prPatchUpgradeAvailable: layerUpgradeAvailable }),
@@ -1127,6 +1158,7 @@ export async function startReviewServer(
                 captureDiffFingerprint();
                 return Response.json({
                   rawPatch: currentPatch,
+                  aiReviewContext: buildCurrentAiReviewContext(),
                   gitRef: currentGitRef,
                   prDiffScope: currentPRDiffScope,
                   ...(layerPatchIncomplete && { prPatchIncomplete: true, prPatchUpgradeAvailable: layerUpgradeAvailable }),
@@ -1166,6 +1198,7 @@ export async function startReviewServer(
 
               return Response.json({
                 rawPatch: currentPatch,
+                aiReviewContext: buildCurrentAiReviewContext(),
                 gitRef: currentGitRef,
                 prDiffScope: currentPRDiffScope,
                 semanticDiff: await getSemanticDiffAdvert(),
@@ -1290,6 +1323,7 @@ export async function startReviewServer(
 
               return Response.json({
                 rawPatch: currentPatch,
+                aiReviewContext: buildCurrentAiReviewContext(),
                 gitRef: currentGitRef,
                 prMetadata: pr.metadata,
                 // The new PR's checkout (null while warming) so Open-in re-roots

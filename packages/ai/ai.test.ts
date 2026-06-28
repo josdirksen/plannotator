@@ -1041,6 +1041,31 @@ describe("mapCodexAppServerEvent", () => {
     ).toEqual([{ type: "error", error: "boom", code: "turn_failed" }]);
   });
 
+  test("error notification reads the nested error.message (not generic Unknown error)", () => {
+    // Codex's ErrorNotification carries the text under `error` (a TurnError).
+    expect(
+      mapCodexAppServerEvent(
+        { method: "error", params: { error: { message: "usage limit reached" }, willRetry: false } },
+        "thr-1",
+      ),
+    ).toEqual([{ type: "error", error: "usage limit reached", code: "codex_error" }]);
+  });
+
+  test("error notification falls back to Unknown error when no message present", () => {
+    expect(
+      mapCodexAppServerEvent({ method: "error", params: {} }, "thr-1"),
+    ).toEqual([{ type: "error", error: "Unknown error", code: "codex_error" }]);
+  });
+
+  test("transient error (willRetry) is not surfaced — Codex retries and the turn continues", () => {
+    expect(
+      mapCodexAppServerEvent(
+        { method: "error", params: { error: { message: "blip" }, willRetry: true } },
+        "thr-1",
+      ),
+    ).toEqual([]);
+  });
+
   test("process_exited maps to a provider error", () => {
     const result = mapCodexAppServerEvent({ method: "process_exited", params: {} }, "thr-1");
     expect(result[0].type).toBe("error");

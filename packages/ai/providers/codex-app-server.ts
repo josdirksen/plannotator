@@ -55,6 +55,9 @@ const RPC_TIMEOUT_MS = 30_000;
 
 const CMD_APPROVAL_METHOD = "item/commandExecution/requestApproval";
 const FILE_APPROVAL_METHOD = "item/fileChange/requestApproval";
+// Permission-profile escalation (extra network/filesystem access). Distinct
+// response shape from the two above ({permissions} grant, not {decision}).
+const PERMISSIONS_APPROVAL_METHOD = "item/permissions/requestApproval";
 
 /** Display labels for Codex's reasoning-effort ids. `xhigh` is shown verbatim
  *  (Codex's own term), not "Max" or "Extra High". */
@@ -182,12 +185,20 @@ export function mapCodexAppServerEvent(
       return [{ type: "result", sessionId, success: true }];
     }
 
-    case "error":
+    case "error": {
+      // Transient errors carry willRetry=true: Codex retries on its own and the
+      // turn keeps going, so don't surface them — that would flash a spurious
+      // failure right before the real answer arrives.
+      if (params.willRetry === true) return [];
+      // Codex's ErrorNotification nests the text under `error` (a TurnError with
+      // a `message`); fall back to a top-level message for forward-compat.
+      const errObj = params.error as { message?: string } | undefined;
       return [{
         type: "error",
-        error: (params.message as string) ?? "Unknown error",
+        error: errObj?.message ?? (params.message as string) ?? "Unknown error",
         code: "codex_error",
       }];
+    }
 
     case "process_exited":
       return [{
@@ -730,6 +741,15 @@ class CodexAppServerSession extends BaseSession {
       }
     });
     const unsubRequests = proc.onRequest((method, id, params) => {
+      // Permission-profile escalation (network/fs). Ask AI runs read-only, so
+      // deny it by granting nothing — this is exactly Codex's own cancel
+      // response (empty profile + turn scope), which lets the turn continue
+      // sandboxed instead of failing with "Unsupported request". An interactive
+      // grant card is deferred (Phase 2). Answered regardless of generation.
+      if (method === PERMISSIONS_APPROVAL_METHOD) {
+        proc.respond(id, { permissions: {}, scope: "turn" });
+        return;
+      }
       const isApproval = method === CMD_APPROVAL_METHOD || method === FILE_APPROVAL_METHOD;
       // Cancel approvals from a superseded generation or a different turn
       // (e.g. a just-aborted turn) instead of surfacing them to this UI.

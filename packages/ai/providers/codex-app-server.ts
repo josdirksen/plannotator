@@ -52,6 +52,11 @@ const IDLE_TIMEOUT_MS = 10 * 60_000;
 /** Reject a JSON-RPC request that gets no response in this long (RPC acks are
  *  fast — turn output streams via notifications, not the turn/start response). */
 const RPC_TIMEOUT_MS = 30_000;
+/** Model discovery must not gate the AI panel: cap its handshake + model/list
+ *  RPCs much shorter than RPC_TIMEOUT_MS so a codex that's installed but not
+ *  logged in (or otherwise unresponsive) falls back to the static model list
+ *  fast instead of blocking /api/ai/capabilities for the full timeout. */
+const MODEL_DISCOVERY_TIMEOUT_MS = 6_000;
 
 const CMD_APPROVAL_METHOD = "item/commandExecution/requestApproval";
 const FILE_APPROVAL_METHOD = "item/fileChange/requestApproval";
@@ -294,10 +299,11 @@ class CodexAppServerProcess {
   private _alive = false;
   private startPromise: Promise<void> | null = null;
 
-  /** Spawn + JSON-RPC initialize handshake, once. */
-  start(codexPath: string, cwd: string): Promise<void> {
+  /** Spawn + JSON-RPC initialize handshake, once. `initTimeoutMs` bounds the
+   *  initialize wait (model discovery passes a short value so it can't hang). */
+  start(codexPath: string, cwd: string, initTimeoutMs?: number): Promise<void> {
     if (!this.startPromise) {
-      this.startPromise = this.doStart(codexPath, cwd).catch((err) => {
+      this.startPromise = this.doStart(codexPath, cwd, initTimeoutMs).catch((err) => {
         this.startPromise = null;
         throw err;
       });
@@ -305,7 +311,7 @@ class CodexAppServerProcess {
     return this.startPromise;
   }
 
-  private async doStart(codexPath: string, cwd: string): Promise<void> {
+  private async doStart(codexPath: string, cwd: string, initTimeoutMs?: number): Promise<void> {
     const commandPath = resolveWindowsCommandShim(codexPath);
     const command =
       buildWindowsCommandScriptSpawnCommand(commandPath, ["app-server"]) ?? [
@@ -356,7 +362,7 @@ class CodexAppServerProcess {
       params: {
         clientInfo: { name: CLIENT_NAME, title: "Plannotator", version: "1.0.0" },
       },
-    });
+    }, initTimeoutMs);
     this.send({ method: "initialized", params: {} });
   }
 
@@ -534,6 +540,7 @@ export class CodexAppServerProvider implements AIProvider {
       await proc.start(
         this.config.codexExecutablePath ?? "codex",
         this.config.cwd ?? process.cwd(),
+        MODEL_DISCOVERY_TIMEOUT_MS,
       );
       // model/list is paginated (nextCursor); aggregate every page into one list
       // so larger model catalogs aren't silently truncated. The page guard is a
@@ -544,7 +551,7 @@ export class CodexAppServerProvider implements AIProvider {
         const res = await proc.sendAndWait({
           method: "model/list",
           params: { includeHidden: false, ...(cursor ? { cursor } : {}) },
-        });
+        }, MODEL_DISCOVERY_TIMEOUT_MS);
         data.push(...((res.data as RpcMessage[] | undefined) ?? []));
         cursor = (res.nextCursor as string | undefined) ?? undefined;
         if (!cursor) break;

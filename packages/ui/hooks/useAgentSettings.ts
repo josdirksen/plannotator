@@ -50,7 +50,10 @@ export type ReviewEngine = AgentEngine | 'cursor' | 'opencode';
 interface AgentSettingsState {
   selectedMode?: AgentMode;
   reviewEngine: ReviewEngine;
-  reviewProfileId: string;
+  // Selected review profile is tracked per review engine so each agent can have
+  // its own default (e.g. Claude runs one review, Cursor another) — mirrors how
+  // `model` is per-engine. The current value is reviewProfileByEngine[reviewEngine].
+  reviewProfileByEngine: Record<ReviewEngine, string>;
   tourEngine: AgentEngine;
   claude: ClaudeSection;
   codex: CodexSection;
@@ -60,10 +63,18 @@ interface AgentSettingsState {
   tourCodex: CodexSection;
 }
 
+const BUILTIN_DEFAULT_PROFILE = 'builtin:default';
+const REVIEW_ENGINES: ReviewEngine[] = ['claude', 'codex', 'cursor', 'opencode'];
+
 const initialState: AgentSettingsState = {
   selectedMode: 'review',
   reviewEngine: 'claude',
-  reviewProfileId: 'builtin:default',
+  reviewProfileByEngine: {
+    claude: BUILTIN_DEFAULT_PROFILE,
+    codex: BUILTIN_DEFAULT_PROFILE,
+    cursor: BUILTIN_DEFAULT_PROFILE,
+    opencode: BUILTIN_DEFAULT_PROFILE,
+  },
   tourEngine: 'claude',
   claude: { model: DEFAULT_CLAUDE_MODEL, perModel: {} },
   codex: { model: DEFAULT_CODEX_MODEL, perModel: {} },
@@ -107,6 +118,21 @@ function parseMode(value: unknown): AgentMode | undefined {
   return undefined;
 }
 
+// Parse the per-engine review map, migrating the old flat global `reviewProfileId`:
+// seed every engine with it so an existing pick isn't lost; engines diverge from there.
+export function parseReviewProfileByEngine(parsed: {
+  reviewProfileByEngine?: unknown;
+  reviewProfileId?: unknown;
+}): Record<ReviewEngine, string> {
+  const byEngine = parsed.reviewProfileByEngine as Record<string, unknown> | undefined;
+  const legacy = typeof parsed.reviewProfileId === 'string' ? parsed.reviewProfileId : BUILTIN_DEFAULT_PROFILE;
+  const out = {} as Record<ReviewEngine, string>;
+  for (const engine of REVIEW_ENGINES) {
+    out[engine] = typeof byEngine?.[engine] === 'string' ? (byEngine[engine] as string) : legacy;
+  }
+  return out;
+}
+
 function readCookie(): AgentSettingsState {
   const raw = getItem(COOKIE_KEY);
   if (!raw) return initialState;
@@ -115,7 +141,7 @@ function readCookie(): AgentSettingsState {
     return {
       selectedMode: parseMode(parsed.selectedMode) ?? initialState.selectedMode,
       reviewEngine: parseReviewEngine(parsed.reviewEngine),
-      reviewProfileId: typeof parsed.reviewProfileId === 'string' ? parsed.reviewProfileId : 'builtin:default',
+      reviewProfileByEngine: parseReviewProfileByEngine(parsed),
       tourEngine: parseEngine(parsed.tourEngine),
       claude: {
         model: typeof parsed.claude?.model === 'string' ? parsed.claude.model : DEFAULT_CLAUDE_MODEL,
@@ -160,8 +186,12 @@ export function useAgentSettings() {
     setState((s) => ({ ...s, reviewEngine: engine }));
   }, []);
 
+  // Writes the review for the CURRENTLY selected engine, so each engine keeps its own.
   const setReviewProfileId = useCallback((id: string) => {
-    setState((s) => ({ ...s, reviewProfileId: id }));
+    setState((s) => ({
+      ...s,
+      reviewProfileByEngine: { ...s.reviewProfileByEngine, [s.reviewEngine]: id },
+    }));
   }, []);
 
   const setTourEngine = useCallback((engine: AgentEngine) => {
@@ -268,7 +298,7 @@ export function useAgentSettings() {
   return {
     selectedMode: state.selectedMode,
     reviewEngine: state.reviewEngine,
-    reviewProfileId: state.reviewProfileId,
+    reviewProfileId: state.reviewProfileByEngine[state.reviewEngine] ?? BUILTIN_DEFAULT_PROFILE,
     tourEngine: state.tourEngine,
     claudeModel: state.claude.model,
     claudeEffort,

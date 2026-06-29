@@ -255,12 +255,13 @@ export function useAIChat({
   // it responds, so awaiting this guarantees a following query won't race it
   // into a session_busy error. Best-effort (never rejects).
   const postServerAbort = useCallback((): Promise<unknown> => {
-    if (!sessionIdRef.current) return Promise.resolve();
+    const sessionId = sessionIdRef.current; // capture the session being aborted now
+    if (!sessionId) return Promise.resolve();
     // Never reject: the await site (in ask()) relies on this resolving so a
     // superseding query can proceed even if the transport's abort throws —
     // synchronously (call deferred into .then) or asynchronously (.catch).
     return Promise.resolve()
-      .then(() => aiTransport.abort({ sessionId: sessionIdRef.current }))
+      .then(() => aiTransport.abort({ sessionId }))
       .catch(() => {});
   }, []);
 

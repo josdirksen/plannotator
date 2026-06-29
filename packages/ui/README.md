@@ -52,7 +52,7 @@ npm install @plannotator/ui @plannotator/core
 - `@plannotator/core` — pure utils + types, zero deps, browser-safe (CI enforces no `node:` imports). Published.
 - `@plannotator/ui` — React components/hooks + theme + `configure()`. Depends on `@plannotator/core` (exact-version lockstep). Published.
 - `@plannotator/shared`, `@plannotator/ai` — stay private to the monorepo; `shared` re-exports `core`'s modules via shims so Plannotator's internals are untouched.
-- Versioned in lockstep with the repo. Publish `core` then `ui` together with **`bun publish`** (not `npm` — bun resolves `workspace:*` to the exact version at pack time).
+- Versioned in lockstep with the repo. Publish `core` then `ui`: build each tarball with **`bun pm pack`** (resolves `workspace:*` to the exact version at pack time), then **`npm publish *.tgz --provenance --access public`** — the repo's existing flow.
 
 ## The one rule
 

@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test
 import * as ImageThumbnail from './components/ImageThumbnail';
 import * as InlineMarkdown from './components/InlineMarkdown';
 import * as storage from './utils/storage';
+import * as upload from './utils/upload';
 import * as identity from './utils/identity';
 import * as useFileBrowser from './hooks/useFileBrowser';
 import * as useAnnotationDraft from './hooks/useAnnotationDraft';
@@ -13,6 +14,7 @@ import { configStore } from './config';
 import type { ImageSrcResolver } from './components/ImageThumbnail';
 import type { DocPreviewFetcher } from './components/InlineMarkdown';
 import type { StorageBackend } from './utils/storage';
+import type { UploadTransport } from './utils/upload';
 import type { IdentityProvider } from './utils/identity';
 import type { FileTreeBackend } from './hooks/useFileBrowser';
 import type { DraftTransport } from './hooks/useAnnotationDraft';
@@ -29,6 +31,8 @@ const realSetDocPreviewFetcher = InlineMarkdown.setDocPreviewFetcher;
 const realResetDocPreviewFetcher = InlineMarkdown.resetDocPreviewFetcher;
 const realSetStorageBackend = storage.setStorageBackend;
 const realResetStorageBackend = storage.resetStorageBackend;
+const realSetUploadTransport = upload.setUploadTransport;
+const realResetUploadTransport = upload.resetUploadTransport;
 const realSetIdentityProvider = identity.setIdentityProvider;
 const realResetIdentityProvider = identity.resetIdentityProvider;
 const realSetFileTreeBackend = useFileBrowser.setFileTreeBackend;
@@ -44,6 +48,7 @@ const realResetAITransport = useAIChat.resetAITransport;
 const setImageSrcResolver = mock((_: ImageSrcResolver) => {});
 const setDocPreviewFetcher = mock((_: DocPreviewFetcher) => {});
 const setStorageBackend = mock((_: StorageBackend) => {});
+const setUploadTransport = mock((_: UploadTransport) => {});
 const setIdentityProvider = mock((_: IdentityProvider) => {});
 const setFileTreeBackend = mock((_: FileTreeBackend) => {});
 const setDraftTransport = mock((_: DraftTransport) => {});
@@ -59,6 +64,7 @@ const loadFromBackend = spyOn(configStore, 'loadFromBackend').mockImplementation
 const imageSrcResolver: ImageSrcResolver = (path) => path;
 const docPreviewFetcher: DocPreviewFetcher = async () => null;
 const storageBackend: StorageBackend = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+const uploadTransport: UploadTransport = { upload: async () => ({ path: '/tmp/x.png' }) };
 const identityProvider: IdentityProvider = { getIdentity: () => 'tater', isCurrentUser: () => false };
 const fileTreeBackend: FileTreeBackend = {
   loadTree: async () => new Response('{}'),
@@ -114,6 +120,11 @@ describe('configurePlannotatorUI routing', () => {
       setStorageBackend,
       resetStorageBackend: realResetStorageBackend,
     }));
+    mock.module('./utils/upload', () => ({
+      ...upload,
+      setUploadTransport,
+      resetUploadTransport: realResetUploadTransport,
+    }));
     mock.module('./utils/identity', () => ({
       ...identity,
       setIdentityProvider,
@@ -160,6 +171,11 @@ describe('configurePlannotatorUI routing', () => {
       setStorageBackend: realSetStorageBackend,
       resetStorageBackend: realResetStorageBackend,
     }));
+    mock.module('./utils/upload', () => ({
+      ...upload,
+      setUploadTransport: realSetUploadTransport,
+      resetUploadTransport: realResetUploadTransport,
+    }));
     mock.module('./utils/identity', () => ({
       ...identity,
       setIdentityProvider: realSetIdentityProvider,
@@ -193,6 +209,7 @@ describe('configurePlannotatorUI routing', () => {
     configurePlannotatorUI({
       imageSrcResolver,
       storageBackend,
+      uploadTransport,
       docPreviewFetcher,
       fileTreeBackend,
       identityProvider,
@@ -206,6 +223,7 @@ describe('configurePlannotatorUI routing', () => {
     expect(setImageSrcResolver).toHaveBeenCalledWith(imageSrcResolver);
     expect(setDocPreviewFetcher).toHaveBeenCalledWith(docPreviewFetcher);
     expect(setStorageBackend).toHaveBeenCalledWith(storageBackend);
+    expect(setUploadTransport).toHaveBeenCalledWith(uploadTransport);
     expect(setIdentityProvider).toHaveBeenCalledWith(identityProvider);
     expect(setFileTreeBackend).toHaveBeenCalledWith(fileTreeBackend);
     expect(setDraftTransport).toHaveBeenCalledWith(draftTransport);
@@ -224,9 +242,9 @@ describe('configurePlannotatorUI routing', () => {
     const { configurePlannotatorUI } = await import('./configure');
 
     [
-      setImageSrcResolver, setDocPreviewFetcher, setStorageBackend, setIdentityProvider,
-      setFileTreeBackend, setDraftTransport, setExternalAnnotationTransport, setAITransport,
-      setServerSync, loadFromBackend,
+      setImageSrcResolver, setDocPreviewFetcher, setStorageBackend, setUploadTransport,
+      setIdentityProvider, setFileTreeBackend, setDraftTransport, setExternalAnnotationTransport,
+      setAITransport, setServerSync, loadFromBackend,
     ].forEach((m) => m.mockClear());
 
     configurePlannotatorUI({ storageBackend });

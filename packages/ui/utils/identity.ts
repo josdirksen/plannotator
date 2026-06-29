@@ -26,6 +26,15 @@ export interface IdentityProvider {
   getIdentity(): string;
   /** Whether an annotation's `author` is the current user (drives the `(me)` badge). */
   isCurrentUser(author: string | undefined): boolean;
+  /**
+   * Whether the user may change their own display name from the Settings UI.
+   * Default (Plannotator's cookie identity) is editable. A host whose identity
+   * is owned by its auth system (e.g. a logged-in Workspaces user, whose author
+   * is the server-stamped account id) returns `false` so the rename/regenerate
+   * controls are hidden — preventing a locally-chosen name from diverging from
+   * the server-stamped author. Optional for backward-compat: absent ⇒ editable.
+   */
+  isEditable?(): boolean;
 }
 
 /**
@@ -39,6 +48,9 @@ const defaultIdentityProvider: IdentityProvider = {
   isCurrentUser(author: string | undefined): boolean {
     if (!author) return false;
     return author === configStore.get('displayName');
+  },
+  isEditable(): boolean {
+    return true;
   },
 };
 
@@ -88,4 +100,13 @@ export function regenerateIdentity(): string {
  */
 export function isCurrentUser(author: string | undefined): boolean {
   return identityProvider.isCurrentUser(author);
+}
+
+/**
+ * Whether the current identity is user-editable (drives whether the Settings
+ * rename/regenerate controls are shown). Delegates to the active provider;
+ * defaults to editable when the provider doesn't implement `isEditable`.
+ */
+export function isIdentityEditable(): boolean {
+  return identityProvider.isEditable ? identityProvider.isEditable() : true;
 }

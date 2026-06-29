@@ -87,7 +87,7 @@ describe('AITransport seam', () => {
         queryBodies.push(body);
         return makeSseResponse('hello');
       },
-      abort: () => {},
+      abort: async () => {},
       permission: () => {},
     };
 
@@ -115,7 +115,7 @@ describe('AITransport seam', () => {
     const fake: AITransport = {
       session: async () => { fakeCalls.push('session'); return new Response('{}', { status: 200 }); },
       query: async () => { fakeCalls.push('query'); return new Response('', { status: 200 }); },
-      abort: () => { fakeCalls.push('abort'); },
+      abort: async () => { fakeCalls.push('abort'); },
       permission: () => { fakeCalls.push('permission'); },
     };
 

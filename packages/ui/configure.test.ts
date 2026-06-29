@@ -81,7 +81,7 @@ const externalAnnotationTransport: ExternalAnnotationTransport<{ id: string; sou
 const aiTransport: AITransport = {
   session: async () => new Response(),
   query: async () => new Response(),
-  abort: () => {},
+  abort: async () => {},
   permission: () => {},
 };
 const serverSync = (_payload: Record<string, unknown>) => {};

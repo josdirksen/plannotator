@@ -88,23 +88,25 @@ describe('configStore.loadFromBackend seam', () => {
     expect(configStore.get('displayName')).toBe('prefetched-workspace-user');
   });
 
-  it('keys absent from the backend are left at their prior value (not overwritten with undefined)', () => {
+  it('seeds the backend with resolved defaults for keys it lacks (first-run host store)', () => {
     // First set a known value for 'displayName'.
     configStore.set('displayName', 'prior-value');
 
-    // Install a backend that returns null for every key (simulates a backend
-    // that has no opinion on this setting).
-    const emptyBackend = {
-      getItem: (_key: string) => null,
-      setItem: () => {},
-      removeItem: () => {},
+    // Install a fresh, empty host store (first-run host: nothing prefetched).
+    const store = new Map<string, string>();
+    const seedBackend = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+      removeItem: (key: string) => { store.delete(key); },
     };
 
-    setStorageBackend(emptyBackend);
+    setStorageBackend(seedBackend);
     configStore.loadFromBackend();
 
-    // 'prior-value' must be preserved — loadFromBackend only overwrites when
-    // fromCookie() returns a non-undefined result.
+    // In-memory value is preserved (not overwritten with undefined)...
     expect(configStore.get('displayName')).toBe('prior-value');
+    // ...AND the empty host backend is now seeded with the resolved default, so a
+    // reload reads it back from this backend instead of regenerating it.
+    expect(store.get('plannotator-identity')).toBe('prior-value');
   });
 });

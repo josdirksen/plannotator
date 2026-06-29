@@ -88,6 +88,13 @@ class ConfigStore {
       const fromBackend = def.fromCookie();
       if (fromBackend !== undefined) {
         this.values.set(name, fromBackend);
+      } else {
+        // Seed the host backend with the resolved default. The constructor ran
+        // at module load — before the host installed its StorageBackend — so its
+        // default-seeding writes went to the pre-install (cookie) backend, not
+        // this one. Without this, a fresh host store is never populated, so
+        // generated defaults (e.g. displayName) regenerate on every reload.
+        def.toCookie(this.values.get(name) as never);
       }
     }
     this.notify();

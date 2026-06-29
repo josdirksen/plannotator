@@ -180,6 +180,19 @@ export const resetAITransport = (): void => {
   aiTransport = defaultAITransport;
 };
 
+/**
+ * Dispatch the abort transport without ever rejecting. A host transport whose
+ * `abort` throws — synchronously (deferred into `.then`) or asynchronously
+ * (`.catch`) — must not surface as an unhandled rejection, and the await site in
+ * ask() relies on this resolving. Single-sourced so every abort call site stays
+ * hardened. Reads `aiTransport` at call time so a late override is honored.
+ */
+function safeAbort(sessionId: string): Promise<unknown> {
+  return Promise.resolve()
+    .then(() => aiTransport.abort({ sessionId }))
+    .catch(() => {});
+}
+
 export function useAIChat({
   context,
   providerId,
@@ -236,11 +249,7 @@ export function useAIChat({
 
       const data = await res.json() as { sessionId: string };
       if (signal.aborted || epoch !== sessionEpochRef.current) {
-        // Fire-and-forget, hardened like postServerAbort: a host transport whose
-        // abort throws (sync or async) must not surface as an unhandled rejection.
-        Promise.resolve()
-          .then(() => aiTransport.abort({ sessionId: data.sessionId }))
-          .catch(() => {});
+        void safeAbort(data.sessionId); // fire-and-forget cleanup of the orphaned session
         throw createAbortError('AI session creation was superseded');
       }
       setSessionId(data.sessionId);
@@ -261,12 +270,7 @@ export function useAIChat({
   const postServerAbort = useCallback((): Promise<unknown> => {
     const sessionId = sessionIdRef.current; // capture the session being aborted now
     if (!sessionId) return Promise.resolve();
-    // Never reject: the await site (in ask()) relies on this resolving so a
-    // superseding query can proceed even if the transport's abort throws —
-    // synchronously (call deferred into .then) or asynchronously (.catch).
-    return Promise.resolve()
-      .then(() => aiTransport.abort({ sessionId }))
-      .catch(() => {});
+    return safeAbort(sessionId);
   }, []);
 
   const ask = useCallback(async (params: AskAIParams) => {

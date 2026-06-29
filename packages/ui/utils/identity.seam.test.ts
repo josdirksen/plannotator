@@ -20,6 +20,7 @@ const setIdentityProvider = identityModule.setIdentityProvider;
 const resetIdentityProvider = identityModule.resetIdentityProvider;
 const getIdentity = identityModule.getIdentity;
 const isCurrentUser = identityModule.isCurrentUser;
+const isIdentityEditable = identityModule.isIdentityEditable;
 
 afterEach(() => {
   resetIdentityProvider();
@@ -56,6 +57,28 @@ describe('IdentityProvider seam', () => {
     expect(isCurrentUser('user@example.com')).toBe(true);
     expect(isCurrentUser('other@example.com')).toBe(false);
     expect(checked).toEqual(['user@example.com', 'other@example.com']);
+  });
+
+  it('isIdentityEditable() reflects the fake provider (host owns identity ⇒ false)', () => {
+    setIdentityProvider({
+      getIdentity: () => 'workspace-user',
+      isCurrentUser: () => false,
+      isEditable: () => false,
+    });
+    expect(isIdentityEditable()).toBe(false);
+  });
+
+  it('isIdentityEditable() defaults to true when the provider omits isEditable', () => {
+    setIdentityProvider({
+      getIdentity: () => 'legacy-host',
+      isCurrentUser: () => false,
+    });
+    expect(isIdentityEditable()).toBe(true);
+  });
+
+  it('default (tater) provider is editable', () => {
+    resetIdentityProvider();
+    expect(isIdentityEditable()).toBe(true);
   });
 
   it('resetIdentityProvider restores the default (ConfigStore-backed) provider', () => {

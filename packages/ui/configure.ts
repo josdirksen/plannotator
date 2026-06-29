@@ -1,6 +1,7 @@
 import { setImageSrcResolver, type ImageSrcResolver } from './components/ImageThumbnail';
 import { setDocPreviewFetcher, type DocPreviewFetcher } from './components/InlineMarkdown';
 import { setStorageBackend, type StorageBackend } from './utils/storage';
+import { setUploadTransport, type UploadTransport } from './utils/upload';
 import { setIdentityProvider, type IdentityProvider } from './utils/identity';
 import { setFileTreeBackend, type FileTreeBackend } from './hooks/useFileBrowser';
 import { setDraftTransport, type DraftTransport } from './hooks/useAnnotationDraft';
@@ -14,6 +15,7 @@ type ExternalAnnotationBase = { id: string; source?: string };
 export interface PlannotatorUIConfig {
   imageSrcResolver?: ImageSrcResolver;
   storageBackend?: StorageBackend;
+  uploadTransport?: UploadTransport;
   docPreviewFetcher?: DocPreviewFetcher;
   fileTreeBackend?: FileTreeBackend;
   identityProvider?: IdentityProvider;
@@ -34,6 +36,7 @@ export interface PlannotatorUIConfig {
 export function configurePlannotatorUI(config: PlannotatorUIConfig): void {
   if (config.imageSrcResolver) setImageSrcResolver(config.imageSrcResolver);
   if (config.storageBackend) setStorageBackend(config.storageBackend);
+  if (config.uploadTransport) setUploadTransport(config.uploadTransport);
   if (config.docPreviewFetcher) setDocPreviewFetcher(config.docPreviewFetcher);
   if (config.fileTreeBackend) setFileTreeBackend(config.fileTreeBackend);
   if (config.identityProvider) setIdentityProvider(config.identityProvider);

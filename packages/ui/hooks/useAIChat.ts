@@ -257,8 +257,11 @@ export function useAIChat({
   const postServerAbort = useCallback((): Promise<unknown> => {
     if (!sessionIdRef.current) return Promise.resolve();
     // Never reject: the await site (in ask()) relies on this resolving so a
-    // superseding query can proceed even if the transport's abort throws.
-    return Promise.resolve(aiTransport.abort({ sessionId: sessionIdRef.current })).catch(() => {});
+    // superseding query can proceed even if the transport's abort throws —
+    // synchronously (call deferred into .then) or asynchronously (.catch).
+    return Promise.resolve()
+      .then(() => aiTransport.abort({ sessionId: sessionIdRef.current }))
+      .catch(() => {});
   }, []);
 
   const ask = useCallback(async (params: AskAIParams) => {

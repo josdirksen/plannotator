@@ -69,9 +69,11 @@ function createDefaultTransport<T extends { id: string; source?: string }>(): Ex
       if (res.status === 304) return null; // No changes
       if (!res.ok) return null;
       const data = await res.json();
-      const annotations = Array.isArray(data.annotations) ? data.annotations : [];
-      const version = typeof data.version === 'number' ? data.version : 0;
-      return { annotations, version };
+      // Skip (don't apply) on a malformed 200 — preserves existing annotations
+      // and the version cursor instead of clearing them, matching the
+      // pre-seam fetchSnapshot which only updated on well-formed payloads.
+      if (!Array.isArray(data.annotations) || typeof data.version !== 'number') return null;
+      return { annotations: data.annotations, version: data.version };
     },
     async add(items) {
       await fetch(SNAPSHOT_URL, {

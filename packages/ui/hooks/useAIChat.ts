@@ -236,7 +236,11 @@ export function useAIChat({
 
       const data = await res.json() as { sessionId: string };
       if (signal.aborted || epoch !== sessionEpochRef.current) {
-        aiTransport.abort({ sessionId: data.sessionId });
+        // Fire-and-forget, hardened like postServerAbort: a host transport whose
+        // abort throws (sync or async) must not surface as an unhandled rejection.
+        Promise.resolve()
+          .then(() => aiTransport.abort({ sessionId: data.sessionId }))
+          .catch(() => {});
         throw createAbortError('AI session creation was superseded');
       }
       setSessionId(data.sessionId);

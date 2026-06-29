@@ -216,7 +216,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   const [isCodeBlockToolbarExiting, setIsCodeBlockToolbarExiting] = useState(false);
   const [hoveredTable, setHoveredTable] = useState<{ block: Block; element: HTMLElement } | null>(null);
   const [isTableToolbarExiting, setIsTableToolbarExiting] = useState(false);
-  const tableHoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const tableHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [popoutTable, setPopoutTable] = useState<Block | null>(null);
   // Viewer-specific comment popover state (global comments + code blocks)
   const [viewerCommentPopover, setViewerCommentPopover] = useState<{
@@ -232,7 +232,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
     anchorEl: HTMLElement;
     codeBlock: { block: Block; element: HTMLElement };
   } | null>(null);
-  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stickySentinelRef = useRef<HTMLDivElement>(null);
   const lastAutoScrolledHashRef = useRef<string | null>(null);
   const [isStuck, setIsStuck] = useState(false);

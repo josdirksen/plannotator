@@ -386,8 +386,8 @@ const PR_CONTEXT_GRAPHQL_QUERY = `
 query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
-      comments(first: 100) { nodes { author { __typename login avatarUrl } } }
-      reviews(first: 100) { nodes { author { __typename login avatarUrl } } }
+      comments(first: 100) { nodes { author { __typename login avatarUrl(size: 48) } } }
+      reviews(first: 100) { nodes { author { __typename login avatarUrl(size: 48) } } }
       reviewThreads(first: 100) {
         nodes {
           id
@@ -401,7 +401,7 @@ query($owner: String!, $repo: String!, $number: Int!) {
             nodes {
               id
               body
-              author { __typename login avatarUrl }
+              author { __typename login avatarUrl(size: 48) }
               createdAt
               url
               diffHunk

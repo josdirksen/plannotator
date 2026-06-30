@@ -37,6 +37,15 @@ function Avatar({ src, name, size = 22 }: { src?: string; name: string; size?: n
   );
 }
 
+/** Small muted "bot" tag shown next to automation-account authors. */
+function BotTag() {
+  return (
+    <span className="shrink-0 text-[9px] uppercase tracking-wide font-semibold px-1 py-px rounded bg-muted text-muted-foreground/70">
+      bot
+    </span>
+  );
+}
+
 /** Labeled on/off switch row for the Filters popover (checked = shown). */
 function FilterSwitch({ label, checked, onChange }: { label: string; checked: boolean; onChange: () => void }) {
   return (
@@ -486,7 +495,7 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
                       {entry.data.author || 'unknown'}
                     </span>
                     {entry.data.isBot && (
-                      <span className="text-[9px] uppercase tracking-wide font-semibold px-1 py-px rounded bg-muted text-muted-foreground/70 flex-shrink-0">bot</span>
+                      <BotTag />
                     )}
                     {style && (
                       <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex-shrink-0 ${style.bg} ${style.text}`}>
@@ -570,7 +579,7 @@ function ThreadCard({ thread, isSelected, isCollapsed, onSelect, onToggleCollaps
             {first.author || 'unknown'}
           </span>
           {first.isBot && (
-            <span className="text-[9px] uppercase tracking-wide font-semibold px-1 py-px rounded bg-muted text-muted-foreground/70 flex-shrink-0">bot</span>
+            <BotTag />
           )}
           {thread.isOutdated && (
             <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning/15 text-warning flex-shrink-0">
@@ -644,7 +653,7 @@ function ThreadCard({ thread, isSelected, isCollapsed, onSelect, onToggleCollaps
                     <Avatar src={reply.avatarUrl} name={reply.author} size={16} />
                     <span className="text-[11px] font-semibold text-foreground">{reply.author}</span>
                     {reply.isBot && (
-                      <span className="text-[9px] uppercase tracking-wide font-semibold px-1 py-px rounded bg-muted text-muted-foreground/70">bot</span>
+                      <BotTag />
                     )}
                     <span className="text-[10px] text-muted-foreground">{formatRelativeTime(reply.createdAt)}</span>
                   </div>

@@ -36,9 +36,9 @@
   --dv-group-view-background-color: var(--background);
   --dv-tabs-and-actions-container-background-color: var(--muted);
   --dv-activegroup-visiblepanel-tab-background-color: var(--background);
-  --dv-activegroup-hiddenpanel-tab-background-color: var(--muted);
+  --dv-activegroup-hiddenpanel-tab-background-color: transparent;
   --dv-inactivegroup-visiblepanel-tab-background-color: var(--background);
-  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--muted);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
   --dv-tab-divider-color: var(--border);
   --dv-activegroup-visiblepanel-tab-color: var(--foreground);
   --dv-activegroup-hiddenpanel-tab-color: var(--muted-foreground);
@@ -106,6 +106,24 @@
   opacity: 1;
   background: var(--muted);
   color: var(--foreground);
+}
+
+/* Chrome-style dock tabs — rounded top corners with the tabs inset slightly
+   into the muted strip. Inactive tabs are transparent (blend into the strip,
+   via the --dv-* vars above); the active tab takes the panel background so it
+   reads as connected to the content below. This rule handles shape + spacing +
+   hover only; the per-state background colors come from the bridge vars. */
+.dv-dockview .dv-tabs-and-actions-container {
+  padding: 5px 6px 0;
+}
+
+.dv-dockview .dv-tab {
+  border-radius: 8px 8px 0 0;
+  margin-right: 2px;
+}
+
+.dv-dockview .dv-tab.dv-inactive-tab:hover {
+  background-color: color-mix(in oklch, var(--foreground) 6%, transparent) !important;
 }
 
 /* @pierre/diffs theme integration — pass plannotator theme colors into shadow DOM */

@@ -261,9 +261,21 @@ export async function fetchGlMRContext(
   const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 
   // --- MR details ---
-  let mr: Record<string, unknown> = {};
-  if (mrResult.exitCode === 0) {
-    try { mr = JSON.parse(mrResult.stdout); } catch { /* non-JSON response */ }
+  if (mrResult.exitCode !== 0) {
+    throw new Error(
+      `Failed to fetch MR context: ${mrResult.stderr.trim() || `exit code ${mrResult.exitCode}`}`,
+    );
+  }
+
+  let mr: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(mrResult.stdout);
+    if (!isRecord(parsed)) {
+      throw new Error("non-object MR response");
+    }
+    mr = parsed;
+  } catch {
+    throw new Error("Failed to fetch MR context: invalid MR response");
   }
 
   // Normalize state: GitLab uses "opened"/"closed"/"merged" → uppercase
@@ -418,6 +430,10 @@ export async function fetchGlMRContext(
     checks,
     linkedIssues,
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 // --- File Content ---

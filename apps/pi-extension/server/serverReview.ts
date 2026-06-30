@@ -19,9 +19,16 @@ import {
 	getMRNumberLabel,
 	isSameProject,
 	type PRMetadata,
+	type PRRef,
 	type PRReviewFileComment,
 	prRefFromMetadata,
 } from "../generated/pr-types.js";
+import {
+	PR_CONTEXT_HEARTBEAT_COMMENT,
+	PR_CONTEXT_HEARTBEAT_INTERVAL_MS,
+	createPRContextLiveCache,
+	serializePRContextSSEEvent,
+} from "../generated/pr-context-live.js";
 import {
 	type DiffType,
 	type GitContext,
@@ -275,11 +282,16 @@ export async function startReviewServer(options: {
 		});
 	}
 	const prStackTreeCache = new Map<string, import("../generated/pr-types.js").PRStackTree | null>();
+	const prContextLive = createPRContextLiveCache({ fetchContext: fetchPRContext });
+	const warmPRContext = (url: string, ref: PRRef): void => {
+		prContextLive.warm(url, ref);
+	};
 
 	// Fetch full stack tree (best-effort — always try in PR mode so root PRs
 	// that target the default branch can still discover descendant PRs)
 	let prStackTree: import("../generated/pr-types.js").PRStackTree | null = null;
 	if (prRef && prMeta) {
+		warmPRContext(prMeta.url, prRef);
 		try {
 			prStackTree = await fetchPRStack(prRef, prMeta);
 		} catch {
@@ -1154,6 +1166,7 @@ export async function startReviewServer(options: {
 				prScopeEpoch++;
 				prMeta = pr.metadata;
 				prRef = prRefFromMetadata(pr.metadata);
+				warmPRContext(pr.metadata.url, prRef);
 				currentPatch = pr.rawPatch;
 				currentGitRef = `${getMRLabel(pr.metadata)} ${getMRNumberLabel(pr.metadata)}`;
 				currentError = undefined;
@@ -1243,12 +1256,12 @@ export async function startReviewServer(options: {
 				return json(res, { error: "Failed to fetch PR list" }, 500);
 			}
 		} else if (url.pathname === "/api/pr-context" && req.method === "GET") {
-			if (!isPRMode || !prRef) {
+			if (!isPRMode || !prRef || !prMeta) {
 				json(res, { error: "Not in PR mode" }, 400);
 				return;
 			}
 			try {
-				const context = await fetchPRContext(prRef);
+				const context = await prContextLive.getContext(prMeta.url, prRef);
 				json(res, context);
 			} catch (err) {
 				json(
@@ -1297,6 +1310,7 @@ export async function startReviewServer(options: {
 					fileComments,
 				);
 				console.error(`[pr-action] Success`);
+				prContextLive.refreshAfterWrite(targetUrl, targetRef);
 				json(res, { ok: true, prUrl: targetUrl });
 			} catch (err) {
 				const message = err instanceof Error ? err.message : "Failed to submit PR review";
@@ -1638,6 +1652,38 @@ export async function startReviewServer(options: {
 		} else if (url.pathname === "/favicon.svg") {
 			handleFavicon(res);
 		} else if (await editorAnnotations.handle(req, res, url)) {
+			return;
+		} else if (url.pathname === "/api/pr-context/stream" && req.method === "GET") {
+			if (!isPRMode || !prRef || !prMeta) {
+				json(res, { error: "Not in PR mode" }, 400);
+				return;
+			}
+
+			res.writeHead(200, {
+				"Content-Type": "text/event-stream",
+				"Cache-Control": "no-cache",
+				Connection: "keep-alive",
+			});
+			res.setTimeout(0);
+
+			const activeRef = prRef;
+			const activeUrl = prMeta.url;
+			const unsubscribe = prContextLive.watch(activeUrl, activeRef, (event) => {
+				res.write(serializePRContextSSEEvent(event));
+			});
+			const heartbeatTimer = setInterval(() => {
+				try {
+					res.write(PR_CONTEXT_HEARTBEAT_COMMENT);
+				} catch {
+					clearInterval(heartbeatTimer);
+					unsubscribe();
+				}
+			}, PR_CONTEXT_HEARTBEAT_INTERVAL_MS);
+
+			res.on("close", () => {
+				clearInterval(heartbeatTimer);
+				unsubscribe();
+			});
 			return;
 		} else if (await externalAnnotations.handle(req, res, url)) {
 			return;

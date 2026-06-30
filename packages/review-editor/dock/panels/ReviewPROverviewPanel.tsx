@@ -15,7 +15,7 @@ import { getMRLabel } from '@plannotator/shared/pr-types';
  * disclosure; the right column is the full-height comments timeline.
  *
  * Reuses the existing PRSummaryTab / PRChecksTab / PRCommentsTab components and
- * the single shared /api/pr-context fetch from ReviewStateContext.
+ * the single shared live PR context state from ReviewStateContext.
  */
 
 /** Region label header shared by the panel's regions, with an optional right-aligned action. */
@@ -99,7 +99,7 @@ export const ReviewPROverviewPanel: React.FC<IDockviewPanelProps> = () => {
     return <div className="h-full flex items-center justify-center text-muted-foreground text-sm">No PR metadata</div>;
   }
 
-  if (isPRContextLoading) {
+  if (isPRContextLoading && !prContext) {
     return (
       <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
         Loading PR…
@@ -107,7 +107,7 @@ export const ReviewPROverviewPanel: React.FC<IDockviewPanelProps> = () => {
     );
   }
 
-  if (prContextError) {
+  if (prContextError && !prContext) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3 px-6 text-center">
         <div className="text-destructive text-sm">{prContextError}</div>
@@ -125,41 +125,48 @@ export const ReviewPROverviewPanel: React.FC<IDockviewPanelProps> = () => {
   if (!prContext) return null;
 
   return (
-    <div className="h-full flex gap-3 p-3 bg-background">
-      {/* Left column — Summary (description) with checks embedded at the bottom. */}
-      <section className="flex-1 min-w-0 flex flex-col rounded-lg border border-border/30 bg-surface-0 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
-        <RegionHeader
-          action={
-            <a
-              href={prMetadata.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 normal-case tracking-normal font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Open {getMRLabel(prMetadata)}
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-            </a>
-          }
-        >
-          Summary
-        </RegionHeader>
-        <OverlayScrollArea className="flex-1 min-h-0 scroll-fade">
-          <PRSummaryTab context={prContext} metadata={prMetadata} />
-          <div className="px-8 pb-4 max-w-2xl">
-            <ChecksDisclosure context={prContext} />
-          </div>
-        </OverlayScrollArea>
-      </section>
-
-      {/* Right column — Comments (full height; owns its own scroll). */}
-      <section className="flex-1 min-w-0 flex flex-col rounded-lg border border-border/30 bg-surface-0 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
-        <RegionHeader>Comments</RegionHeader>
-        <div className="flex-1 min-h-0">
-          <PRCommentsTab context={prContext} platformUser={platformUser} />
+    <div className="h-full flex flex-col gap-2 p-3 bg-background">
+      {prContextError && (
+        <div className="shrink-0 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
+          PR context may be stale: {prContextError}
         </div>
-      </section>
+      )}
+      <div className="flex-1 min-h-0 flex gap-3">
+        {/* Left column — Summary (description) with checks embedded at the bottom. */}
+        <section className="flex-1 min-w-0 flex flex-col rounded-lg border border-border/30 bg-surface-0 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+          <RegionHeader
+            action={
+              <a
+                href={prMetadata.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 normal-case tracking-normal font-medium text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Open {getMRLabel(prMetadata)}
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </a>
+            }
+          >
+            Summary
+          </RegionHeader>
+          <OverlayScrollArea className="flex-1 min-h-0 scroll-fade">
+            <PRSummaryTab context={prContext} metadata={prMetadata} />
+            <div className="px-8 pb-4 max-w-2xl">
+              <ChecksDisclosure context={prContext} />
+            </div>
+          </OverlayScrollArea>
+        </section>
+
+        {/* Right column — Comments (full height; owns its own scroll). */}
+        <section className="flex-1 min-w-0 flex flex-col rounded-lg border border-border/30 bg-surface-0 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+          <RegionHeader>Comments</RegionHeader>
+          <div className="flex-1 min-h-0">
+            <PRCommentsTab context={prContext} platformUser={platformUser} />
+          </div>
+        </section>
+      </div>
     </div>
   );
 };

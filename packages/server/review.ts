@@ -69,7 +69,13 @@ import {
   extractMarkerNonce,
 } from "./marker-review";
 import { loadConfig, saveConfig, detectGitUser, getServerConfig } from "./config";
-import { type PRMetadata, type PRReviewFileComment, type PRStackTree, type PRListItem, fetchPR, fetchPRFileContent, fetchPRContext, submitPRReview, fetchPRViewedFiles, markPRFilesViewed, fetchPRStack, fetchPRList, getPRUser, parsePRUrl, prRefFromMetadata, isSameProject, getDisplayRepo, getMRLabel, getMRNumberLabel } from "./pr";
+import { type PRMetadata, type PRRef, type PRReviewFileComment, type PRStackTree, type PRListItem, fetchPR, fetchPRFileContent, fetchPRContext, submitPRReview, fetchPRViewedFiles, markPRFilesViewed, fetchPRStack, fetchPRList, getPRUser, parsePRUrl, prRefFromMetadata, isSameProject, getDisplayRepo, getMRLabel, getMRNumberLabel } from "./pr";
+import {
+  PR_CONTEXT_HEARTBEAT_COMMENT,
+  PR_CONTEXT_HEARTBEAT_INTERVAL_MS,
+  createPRContextLiveCache,
+  serializePRContextSSEEvent,
+} from "@plannotator/shared/pr-context-live";
 import { AI_QUERY_ENDPOINT, createAIRuntime } from "./ai-runtime";
 import type { AIEndpoints } from "@plannotator/ai";
 import { isWSL } from "./browser";
@@ -227,6 +233,10 @@ export async function startReviewServer(
     });
   }
   const prStackTreeCache = new Map<string, PRStackTree | null>();
+  const prContextLive = createPRContextLiveCache({ fetchContext: fetchPRContext });
+  const warmPRContext = (url: string, ref: PRRef): void => {
+    prContextLive.warm(url, ref);
+  };
   // Tracks the base branch the user picked from the UI. Agent review prompts
   // read this (not gitContext.defaultBranch) so they analyze the same diff
   // the reviewer is currently looking at. Honors an explicit initialBase from
@@ -804,6 +814,9 @@ export async function startReviewServer(
 
   // Fetch current platform user (for own-PR/MR detection)
   let prRef = isPRMode && prMetadata ? prRefFromMetadata(prMetadata) : null;
+  if (prRef && prMetadata) {
+    warmPRContext(prMetadata.url, prRef);
+  }
   const platformUser = prRef ? await getPRUser(prRef) : null;
   let prStackInfo = prMetadata ? getPRStackInfo(prMetadata) : null;
   let prDiffScopeOptions = prMetadata
@@ -1259,6 +1272,7 @@ export async function startReviewServer(
               prScopeEpoch++;
               prMetadata = pr.metadata;
               prRef = prRefFromMetadata(pr.metadata);
+              warmPRContext(pr.metadata.url, prRef);
               currentPatch = pr.rawPatch;
               currentGitRef = `${getMRLabel(pr.metadata)} ${getMRNumberLabel(pr.metadata)}`;
               currentError = undefined;
@@ -1348,14 +1362,14 @@ export async function startReviewServer(
 
           // API: Fetch PR context (comments, checks, merge status) — PR mode only
           if (url.pathname === "/api/pr-context" && req.method === "GET") {
-            if (!isPRMode) {
+            if (!isPRMode || !prRef || !prMetadata) {
               return Response.json(
                 { error: "Not in PR mode" },
                 { status: 400 },
               );
             }
             try {
-              const context = await fetchPRContext(prRef!);
+              const context = await prContextLive.getContext(prMetadata.url, prRef);
               return Response.json(context);
             } catch (err) {
               const message =
@@ -1637,6 +1651,57 @@ export async function startReviewServer(
           const editorResponse = await editorAnnotations.handle(req, url);
           if (editorResponse) return editorResponse;
 
+          // API: Live PR context stream (comments, checks, merge state)
+          if (url.pathname === "/api/pr-context/stream" && req.method === "GET") {
+            if (!isPRMode || !prRef || !prMetadata) {
+              return Response.json(
+                { error: "Not in PR mode" },
+                { status: 400 },
+              );
+            }
+
+            server.timeout(req, 0);
+
+            const encoder = new TextEncoder();
+            const activeRef = prRef;
+            const activeUrl = prMetadata.url;
+            let unsubscribe: (() => void) | null = null;
+            let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+            const stream = new ReadableStream({
+              start(controller) {
+                unsubscribe = prContextLive.watch(activeUrl, activeRef, (event) => {
+                  controller.enqueue(encoder.encode(serializePRContextSSEEvent(event)));
+                });
+
+                heartbeatTimer = setInterval(() => {
+                  try {
+                    controller.enqueue(encoder.encode(PR_CONTEXT_HEARTBEAT_COMMENT));
+                  } catch {
+                    if (heartbeatTimer) clearInterval(heartbeatTimer);
+                    heartbeatTimer = null;
+                    unsubscribe?.();
+                    unsubscribe = null;
+                  }
+                }, PR_CONTEXT_HEARTBEAT_INTERVAL_MS);
+              },
+              cancel() {
+                if (heartbeatTimer) clearInterval(heartbeatTimer);
+                heartbeatTimer = null;
+                unsubscribe?.();
+                unsubscribe = null;
+              },
+            });
+
+            return new Response(stream, {
+              headers: {
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                Connection: "keep-alive",
+              },
+            });
+          }
+
           // API: External annotations (SSE-based, for any external tool)
           const externalResponse = await externalAnnotations.handle(req, url, {
             disableIdleTimeout: () => server.timeout(req, 0),
@@ -1729,6 +1794,7 @@ export async function startReviewServer(
               );
 
               console.error(`[pr-action] Success`);
+              prContextLive.refreshAfterWrite(targetUrl, targetRef);
               return Response.json({ ok: true, prUrl: targetUrl });
             } catch (err) {
               const message =

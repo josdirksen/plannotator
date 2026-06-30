@@ -302,9 +302,12 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
     );
   }
 
-  const hasFilters = !!searchQuery.trim() || excludedAuthors.size > 0 || hideResolved || hideOutdated || hideBots;
+  // hideBots only counts as an active filter when the PR actually has bots —
+  // otherwise the (default-on) bot filter is invisible (its toggle is hidden)
+  // and effect-less, so it shouldn't show in the badge/count.
+  const hasFilters = !!searchQuery.trim() || excludedAuthors.size > 0 || hideResolved || hideOutdated || (hasBots && hideBots);
   const activeFilterCount =
-    excludedAuthors.size + (hideBots ? 1 : 0) + (hideResolved ? 1 : 0) + (hideOutdated ? 1 : 0);
+    excludedAuthors.size + (hasBots && hideBots ? 1 : 0) + (hideResolved ? 1 : 0) + (hideOutdated ? 1 : 0);
   const allCollapsed = displayTimeline.length > 0 && displayTimeline.every((e) => collapsedIds.has(e.data.id));
 
   return (

@@ -310,7 +310,7 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
       </div>
 
       {/* ── Timeline ── */}
-      <OverlayScrollArea className="flex-1 min-h-0">
+      <OverlayScrollArea className="flex-1 min-h-0 scroll-fade">
       <div className="px-8 py-4">
         <div className="space-y-3 max-w-2xl">
         {displayTimeline.length === 0 ? (

@@ -1497,3 +1497,55 @@ diffs-container {
 .code-nav-peek .hljs {
   background: transparent !important;
 }
+
+/* =====================================================
+   Scroll-fade
+   Soft mask fade on the top/bottom edges of a scroll container so
+   content dissolves into the surface instead of hard-cutting at the
+   edge. Applied directly to the scrolling element (OverlayScrollArea
+   renders the scroll node), e.g. the PR Overview panel regions.
+
+   Scroll-aware where supported (top crisp at the start, bottom crisp
+   at the end, both faded mid-scroll); falls back to a static both-edge
+   fade otherwise. The mask is painted on the viewport box, so it stays
+   pinned to the edges while content scrolls underneath.
+   ===================================================== */
+@property --sf-top {
+  syntax: "<length-percentage>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --sf-bottom {
+  syntax: "<length-percentage>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+.scroll-fade {
+  --sf-size: min(2.5rem, 12%);
+  /* Fallback (no scroll-driven animations): static fade on both edges. */
+  --sf-top: var(--sf-size);
+  --sf-bottom: var(--sf-size);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--sf-top), #000 calc(100% - var(--sf-bottom)), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--sf-top), #000 calc(100% - var(--sf-bottom)), transparent 100%);
+}
+
+@supports (animation-timeline: scroll()) {
+  .scroll-fade {
+    --sf-top: 0px;
+    --sf-bottom: var(--sf-size);
+    animation: sf-fade-top linear both, sf-fade-bottom linear both;
+    animation-timeline: scroll(self y), scroll(self y);
+    animation-range: 0 var(--sf-reveal, 96px), calc(100% - var(--sf-reveal, 96px)) 100%;
+  }
+  @keyframes sf-fade-top { to { --sf-top: var(--sf-size); } }
+  @keyframes sf-fade-bottom { to { --sf-bottom: 0px; } }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-fade {
+    animation: none;
+    --sf-top: var(--sf-size);
+    --sf-bottom: var(--sf-size);
+  }
+}

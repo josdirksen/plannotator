@@ -101,6 +101,8 @@ export type PRMetadata = GithubPRMetadata | GitlabMRMetadata;
 export interface PRComment {
   id: string;
   author: string;
+  /** Author avatar image URL, when available. */
+  avatarUrl?: string;
   /** True when the author is a bot/automation account. */
   isBot?: boolean;
   body: string;
@@ -111,6 +113,8 @@ export interface PRComment {
 export interface PRReview {
   id: string;
   author: string;
+  /** Author avatar image URL, when available. */
+  avatarUrl?: string;
   /** True when the author is a bot/automation account. */
   isBot?: boolean;
   state: string;
@@ -136,6 +140,8 @@ export interface PRLinkedIssue {
 export interface PRThreadComment {
   id: string;
   author: string;
+  /** Author avatar image URL, when available. */
+  avatarUrl?: string;
   /** True when the author is a bot/automation account. */
   isBot?: boolean;
   body: string;

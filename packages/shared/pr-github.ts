@@ -361,11 +361,17 @@ export async function fetchGhPRContext(
   // gives the login only). Non-blocking failure: degrade to no threads / no bot
   // tags rather than failing the whole context.
   try {
-    const { threads, botLogins } = await fetchGhThreadsAndBots(runtime, ref);
+    const { threads, botLogins, avatarByLogin } = await fetchGhThreadsAndBots(runtime, ref);
     context.reviewThreads = threads;
-    if (botLogins.size > 0) {
-      for (const c of context.comments) if (botLogins.has(c.author)) c.isBot = true;
-      for (const r of context.reviews) if (botLogins.has(r.author)) r.isBot = true;
+    for (const c of context.comments) {
+      if (botLogins.has(c.author)) c.isBot = true;
+      const a = avatarByLogin.get(c.author);
+      if (a) c.avatarUrl = a;
+    }
+    for (const r of context.reviews) {
+      if (botLogins.has(r.author)) r.isBot = true;
+      const a = avatarByLogin.get(r.author);
+      if (a) r.avatarUrl = a;
     }
   } catch {
     context.reviewThreads = [];
@@ -380,8 +386,8 @@ const PR_CONTEXT_GRAPHQL_QUERY = `
 query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
-      comments(first: 100) { nodes { author { __typename login } } }
-      reviews(first: 100) { nodes { author { __typename login } } }
+      comments(first: 100) { nodes { author { __typename login avatarUrl } } }
+      reviews(first: 100) { nodes { author { __typename login avatarUrl } } }
       reviewThreads(first: 100) {
         nodes {
           id
@@ -395,7 +401,7 @@ query($owner: String!, $repo: String!, $number: Int!) {
             nodes {
               id
               body
-              author { __typename login }
+              author { __typename login avatarUrl }
               createdAt
               url
               diffHunk
@@ -417,7 +423,7 @@ query($owner: String!, $repo: String!, $number: Int!) {
 async function fetchGhThreadsAndBots(
   runtime: PRRuntime,
   ref: GhPRRef,
-): Promise<{ threads: PRReviewThread[]; botLogins: Set<string> }> {
+): Promise<{ threads: PRReviewThread[]; botLogins: Set<string>; avatarByLogin: Map<string, string> }> {
   const result = await runtime.runCommand("gh", hostnameArgs(ref.host, [
     "api", "graphql",
     "-f", `query=${PR_CONTEXT_GRAPHQL_QUERY}`,
@@ -426,7 +432,7 @@ async function fetchGhThreadsAndBots(
     "-F", `number=${ref.number}`,
   ]));
 
-  const empty = { threads: [] as PRReviewThread[], botLogins: new Set<string>() };
+  const empty = { threads: [] as PRReviewThread[], botLogins: new Set<string>(), avatarByLogin: new Map<string, string>() };
   if (result.exitCode !== 0) return empty;
 
   const data = JSON.parse(result.stdout);
@@ -434,13 +440,15 @@ async function fetchGhThreadsAndBots(
   if (!pr) return empty;
 
   const botLogins = new Set<string>();
-  const collectBot = (author: any) => {
-    if (author && author.__typename === 'Bot' && author.login) {
-      botLogins.add(String(author.login));
-    }
+  const avatarByLogin = new Map<string, string>();
+  const collect = (author: any) => {
+    if (!author?.login) return;
+    const login = String(author.login);
+    if (author.__typename === 'Bot') botLogins.add(login);
+    if (author.avatarUrl && !avatarByLogin.has(login)) avatarByLogin.set(login, String(author.avatarUrl));
   };
-  for (const n of (pr.comments?.nodes ?? [])) collectBot(n?.author);
-  for (const n of (pr.reviews?.nodes ?? [])) collectBot(n?.author);
+  for (const n of (pr.comments?.nodes ?? [])) collect(n?.author);
+  for (const n of (pr.reviews?.nodes ?? [])) collect(n?.author);
 
   const threadNodes = pr.reviewThreads?.nodes;
   const threads: PRReviewThread[] = Array.isArray(threadNodes)
@@ -454,11 +462,12 @@ async function fetchGhThreadsAndBots(
         diffSide: t.diffSide === 'LEFT' || t.diffSide === 'RIGHT' ? t.diffSide : null,
         comments: Array.isArray(t.comments?.nodes)
           ? t.comments.nodes.map((c: any): PRThreadComment => {
-              collectBot(c?.author);
+              collect(c?.author);
               return {
                 id: String(c.id ?? ''),
                 author: c.author?.login ? String(c.author.login) : '',
                 ...(c.author?.__typename === 'Bot' ? { isBot: true } : {}),
+                ...(c.author?.avatarUrl ? { avatarUrl: String(c.author.avatarUrl) } : {}),
                 body: String(c.body ?? ''),
                 createdAt: String(c.createdAt ?? ''),
                 url: String(c.url ?? ''),
@@ -469,7 +478,7 @@ async function fetchGhThreadsAndBots(
       }))
     : [];
 
-  return { threads, botLogins };
+  return { threads, botLogins, avatarByLogin };
 }
 
 // --- File Content ---

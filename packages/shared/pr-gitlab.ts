@@ -349,6 +349,7 @@ export async function fetchGlMRContext(
         notes.push({
           id: String(n.id ?? ""),
           author: str(n.author?.username),
+          ...(n.author?.avatar_url ? { avatarUrl: str(n.author.avatar_url) } : {}),
           ...(isGitlabBot(n.author) ? { isBot: true } : {}),
           body: str(n.body),
           createdAt: str(n.created_at),
@@ -374,6 +375,7 @@ export async function fetchGlMRContext(
         reviews.push({
           id: String(user.id ?? ""),
           author: str(user.username),
+          ...(user.avatar_url ? { avatarUrl: str(user.avatar_url) } : {}),
           ...(isGitlabBot(user) ? { isBot: true } : {}),
           state: "APPROVED",
           body: "",

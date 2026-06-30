@@ -9,6 +9,34 @@ import * as Popover from '@radix-ui/react-popover';
 
 const HIDE_BOTS_KEY = 'plannotator-pr-hide-bots';
 
+/** Round author avatar with an initials fallback (and broken-image fallback). */
+function Avatar({ src, name, size = 22 }: { src?: string; name: string; size?: number }) {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) {
+    return (
+      <span
+        aria-hidden
+        className="shrink-0 inline-flex items-center justify-center rounded-full bg-muted text-muted-foreground font-semibold select-none"
+        style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}
+      >
+        {(name || '?').charAt(0).toUpperCase()}
+      </span>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt=""
+      width={size}
+      height={size}
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className="shrink-0 rounded-full bg-muted object-cover"
+      style={{ width: size, height: size }}
+    />
+  );
+}
+
 /** Labeled on/off switch row for the Filters popover (checked = shown). */
 function FilterSwitch({ label, checked, onChange }: { label: string; checked: boolean; onChange: () => void }) {
   return (
@@ -87,6 +115,12 @@ function getEntryBody(entry: TimelineEntry): string {
 function entryIsBot(entry: TimelineEntry): boolean {
   if (entry.kind === 'thread') return entry.data.comments[0]?.isBot === true;
   return entry.data.isBot === true;
+}
+
+/** Author avatar URL for the entry (threads key off the first comment). */
+function getEntryAvatar(entry: TimelineEntry): string | undefined {
+  if (entry.kind === 'thread') return entry.data.comments[0]?.avatarUrl;
+  return entry.data.avatarUrl;
 }
 
 function matchesSearch(entry: TimelineEntry, query: string): boolean {
@@ -436,20 +470,24 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
                 key={id}
                 data-comment-id={id}
                 onClick={() => setSelectedId(isSelected ? null : id)}
-                className={`group/card rounded bg-card border p-3 cursor-pointer transition-all duration-150 shadow-[0_1px_3px_rgba(0,0,0,0.06)] ${
+                className={`group/card rounded-lg border bg-card px-3 py-2.5 cursor-pointer transition-colors shadow-[0_1px_2px_rgba(0,0,0,0.04)] ${
                   isSelected
-                    ? 'border-primary/20 bg-primary/5 ring-1 ring-primary/10'
-                    : 'border-border/40 hover:shadow-[0_2px_6px_rgba(0,0,0,0.08)]'
+                    ? 'border-primary/30 bg-primary/5 ring-1 ring-primary/10'
+                    : 'border-border/40 hover:border-border/70'
                 }`}
               >
                 <div
-                  className="flex items-center justify-between"
+                  className="flex items-center gap-2.5"
                   onClick={(e) => { e.stopPropagation(); toggleCollapsed(id); }}
                 >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-xs font-semibold text-foreground truncate">
+                  <Avatar src={getEntryAvatar(entry)} name={entry.data.author} />
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                    <span className="text-[13px] font-semibold text-foreground truncate">
                       {entry.data.author || 'unknown'}
                     </span>
+                    {entry.data.isBot && (
+                      <span className="text-[9px] uppercase tracking-wide font-semibold px-1 py-px rounded bg-muted text-muted-foreground/70 flex-shrink-0">bot</span>
+                    )}
                     {style && (
                       <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex-shrink-0 ${style.bg} ${style.text}`}>
                         {style.label}
@@ -457,7 +495,7 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
                     )}
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-[10px] text-muted-foreground">
+                    <span className="text-[10px] text-muted-foreground tabular-nums">
                       {formatRelativeTime(getEntryTime(entry))}
                     </span>
                     <svg className={`w-3 h-3 text-muted-foreground/40 transition-transform duration-150 ${isCollapsed ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -467,8 +505,8 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
                 </div>
 
                 {!isCollapsed && entry.data.body && (
-                  <div className="mt-2 text-xs text-foreground/80 leading-relaxed review-comment-markdown">
-                    <MarkdownBody markdown={entry.data.body} />
+                  <div className="mt-2 review-comment-markdown">
+                    <MarkdownBody markdown={entry.data.body} textClassName="text-[13px]" />
                   </div>
                 )}
 
@@ -513,23 +551,27 @@ function ThreadCard({ thread, isSelected, isCollapsed, onSelect, onToggleCollaps
     <div
       data-comment-id={thread.id}
       onClick={onSelect}
-      className={`group/card rounded border p-3 cursor-pointer transition-all duration-150 ${
-        isDimmed ? 'bg-card/50 shadow-[0_1px_2px_rgba(0,0,0,0.03)]' : 'bg-card shadow-[0_1px_3px_rgba(0,0,0,0.06)]'
+      className={`group/card rounded-lg border px-3 py-2.5 cursor-pointer transition-colors shadow-[0_1px_2px_rgba(0,0,0,0.04)] ${
+        isDimmed ? 'bg-card/50' : 'bg-card'
       } ${
         isSelected
-          ? 'border-primary/20 bg-primary/5 ring-1 ring-primary/10'
-          : 'border-border/40 hover:shadow-[0_2px_6px_rgba(0,0,0,0.08)]'
+          ? 'border-primary/30 bg-primary/5 ring-1 ring-primary/10'
+          : 'border-border/40 hover:border-border/70'
       }`}
     >
       {/* Header */}
       <div
-        className="flex items-center justify-between"
+        className="flex items-center gap-2.5"
         onClick={(e) => { e.stopPropagation(); onToggleCollapse(); }}
       >
-        <div className="flex items-center gap-2 min-w-0">
-          <span className={`text-xs font-semibold truncate ${thread.isResolved ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+        <Avatar src={first.avatarUrl} name={first.author} />
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          <span className={`text-[13px] font-semibold truncate ${thread.isResolved ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
             {first.author || 'unknown'}
           </span>
+          {first.isBot && (
+            <span className="text-[9px] uppercase tracking-wide font-semibold px-1 py-px rounded bg-muted text-muted-foreground/70 flex-shrink-0">bot</span>
+          )}
           {thread.isOutdated && (
             <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning/15 text-warning flex-shrink-0">
               Outdated
@@ -574,8 +616,8 @@ function ThreadCard({ thread, isSelected, isCollapsed, onSelect, onToggleCollaps
           {/* First comment body — truncated with fade for resolved/outdated */}
           {first.body && (
             <div className={`relative mt-2 ${isDimmed && !isExpanded ? 'max-h-16 overflow-hidden' : ''}`}>
-              <div className={`text-xs leading-relaxed review-comment-markdown ${isDimmed && !isExpanded ? 'text-muted-foreground' : 'text-foreground/80'}`}>
-                <MarkdownBody markdown={first.body} />
+              <div className={`leading-relaxed review-comment-markdown ${isDimmed && !isExpanded ? 'text-muted-foreground' : 'text-foreground/85'}`}>
+                <MarkdownBody markdown={first.body} textClassName="text-[13px]" />
               </div>
               {isDimmed && !isExpanded && (
                 <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-card to-transparent pointer-events-none" />
@@ -595,15 +637,19 @@ function ThreadCard({ thread, isSelected, isCollapsed, onSelect, onToggleCollaps
 
           {/* Replies — only shown when expanded or not dimmed */}
           {(!isDimmed || isExpanded) && replies.length > 0 && (
-            <div className="mt-2 ml-4 space-y-2 border-l border-border/30 pl-3">
+            <div className="mt-2.5 ml-3 space-y-2.5 border-l border-border/30 pl-3">
               {replies.map((reply) => (
                 <div key={reply.id}>
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[10px] font-semibold text-foreground">{reply.author}</span>
+                    <Avatar src={reply.avatarUrl} name={reply.author} size={16} />
+                    <span className="text-[11px] font-semibold text-foreground">{reply.author}</span>
+                    {reply.isBot && (
+                      <span className="text-[9px] uppercase tracking-wide font-semibold px-1 py-px rounded bg-muted text-muted-foreground/70">bot</span>
+                    )}
                     <span className="text-[10px] text-muted-foreground">{formatRelativeTime(reply.createdAt)}</span>
                   </div>
-                  <div className="text-xs text-foreground/80 leading-relaxed review-comment-markdown">
-                    <MarkdownBody markdown={reply.body} />
+                  <div className="pl-6 leading-relaxed review-comment-markdown text-foreground/85">
+                    <MarkdownBody markdown={reply.body} textClassName="text-[13px]" />
                   </div>
                 </div>
               ))}

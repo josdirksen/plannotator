@@ -53,11 +53,11 @@ function renderContent(content: string): React.ReactNode {
 }
 
 /** Render a simplified block-level markdown view (no annotation infrastructure). */
-export function MarkdownBody({ markdown }: { markdown: string }) {
+export function MarkdownBody({ markdown, textClassName = 'text-xs' }: { markdown: string; textClassName?: string }) {
   const blocks = useMemo(() => parseMarkdownToBlocks(markdown), [markdown]);
 
   return (
-    <div className="space-y-2.5 text-xs text-foreground/90 leading-relaxed">
+    <div className={`space-y-2.5 ${textClassName} text-foreground/90 leading-relaxed`}>
       {blocks.map((block) => {
         switch (block.type) {
           case 'heading': {
@@ -195,7 +195,7 @@ export const PRSummaryTab: React.FC<PRSummaryTabProps> = React.memo(({ context, 
           <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Description
           </h3>
-          <MarkdownBody markdown={context.body} />
+          <MarkdownBody markdown={context.body} textClassName="text-[13px]" />
         </div>
       ) : (
         <p className="text-xs text-muted-foreground italic">No description provided.</p>

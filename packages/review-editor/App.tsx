@@ -815,8 +815,12 @@ const ReviewApp: React.FC = () => {
   useEffect(() => {
     if (!dockApi || !needsInitialDiffPanel.current || files.length === 0) return;
     needsInitialDiffPanel.current = false;
-    openAllFilesPanel();
-  }, [dockApi, files, openAllFilesPanel]);
+    // PR reviews land on the combined PR Overview by default; other reviews
+    // open the all-files diff. (prMetadata is set in the same /api/diff handler
+    // tick as files, so it's already populated here for PRs.)
+    if (prMetadata) openPROverviewPanel();
+    else openAllFilesPanel();
+  }, [dockApi, files, openAllFilesPanel, openPROverviewPanel, prMetadata]);
 
   // Global keyboard shortcuts
   useEffect(() => {

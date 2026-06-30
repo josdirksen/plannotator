@@ -4,6 +4,9 @@ import { MarkdownBody } from './PRSummaryTab';
 import { CopyButton } from './CopyButton';
 import { DiffHunkPreview } from './DiffHunkPreview';
 import { OverlayScrollArea } from '@plannotator/ui/components/OverlayScrollArea';
+import { getItem, setItem } from '@plannotator/ui/utils/storage';
+
+const HIDE_BOTS_KEY = 'plannotator-pr-hide-bots';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,6 +64,12 @@ function getEntryBody(entry: TimelineEntry): string {
   return entry.data.body;
 }
 
+/** True when the entry's author is a bot (threads key off the first comment). */
+function entryIsBot(entry: TimelineEntry): boolean {
+  if (entry.kind === 'thread') return entry.data.comments[0]?.isBot === true;
+  return entry.data.isBot === true;
+}
+
 function matchesSearch(entry: TimelineEntry, query: string): boolean {
   const q = query.toLowerCase();
   const author = getEntryAuthor(entry).toLowerCase();
@@ -87,6 +96,7 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
   const [sortNewestFirst, setSortNewestFirst] = useState(false);
   const [hideResolved, setHideResolved] = useState(false);
   const [hideOutdated, setHideOutdated] = useState(false);
+  const [hideBots, setHideBots] = useState(() => getItem(HIDE_BOTS_KEY) !== 'false'); // default on
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [excludedAuthors, setExcludedAuthors] = useState<Set<string>>(new Set());
@@ -109,13 +119,24 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
     return entries;
   }, [context.comments, context.reviews, context.reviewThreads]);
 
+  const hasBots = useMemo(() => baseTimeline.some(entryIsBot), [baseTimeline]);
+
+  // Author pills hide bot authors while bots are hidden (their rows aren't shown).
   const uniqueAuthors = useMemo(
-    () => [...new Set(baseTimeline.map((e) => getEntryAuthor(e)).filter(Boolean))].sort(),
-    [baseTimeline],
+    () => [...new Set(
+      baseTimeline
+        .filter((e) => !hideBots || !entryIsBot(e))
+        .map((e) => getEntryAuthor(e))
+        .filter(Boolean),
+    )].sort(),
+    [baseTimeline, hideBots],
   );
 
   const filteredTimeline = useMemo(() => {
     let result = baseTimeline;
+    if (hideBots) {
+      result = result.filter((e) => !entryIsBot(e));
+    }
     if (hideResolved) {
       result = result.filter((e) => e.kind !== 'thread' || !e.data.isResolved);
     }
@@ -129,7 +150,7 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
       result = result.filter((e) => matchesSearch(e, searchQuery.trim()));
     }
     return result;
-  }, [baseTimeline, searchQuery, excludedAuthors, hideResolved, hideOutdated]);
+  }, [baseTimeline, searchQuery, excludedAuthors, hideResolved, hideOutdated, hideBots]);
 
   const displayTimeline = useMemo(
     () => sortNewestFirst ? [...filteredTimeline].reverse() : filteredTimeline,
@@ -184,12 +205,22 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
     }
   }, [searchQuery]);
 
+  const toggleHideBots = useCallback(() => {
+    setHideBots((v) => {
+      const next = !v;
+      setItem(HIDE_BOTS_KEY, String(next));
+      return next;
+    });
+  }, []);
+
   // --- Clear all filters ---
   const clearFilters = useCallback(() => {
     setSearchQuery('');
     setExcludedAuthors(new Set());
     setHideResolved(false);
     setHideOutdated(false);
+    setHideBots(false);
+    setItem(HIDE_BOTS_KEY, 'false');
   }, []);
 
   // --- Empty state (no comments at all) ---
@@ -206,7 +237,7 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
     );
   }
 
-  const hasFilters = !!searchQuery.trim() || excludedAuthors.size > 0 || hideResolved || hideOutdated;
+  const hasFilters = !!searchQuery.trim() || excludedAuthors.size > 0 || hideResolved || hideOutdated || hideBots;
 
   return (
     <div ref={containerRef} className="h-full flex flex-col">
@@ -274,6 +305,15 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
 
           {/* Filter + sort + collapse controls */}
           <div className="flex items-center gap-1 flex-shrink-0">
+            {hasBots && (
+              <button
+                onClick={toggleHideBots}
+                className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${hideBots ? 'bg-muted-foreground/15 text-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'}`}
+                title={hideBots ? 'Show bot comments' : 'Hide bot comments'}
+              >
+                Bots
+              </button>
+            )}
             <button
               onClick={() => setHideResolved((v) => !v)}
               className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${hideResolved ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground hover:text-foreground'}`}

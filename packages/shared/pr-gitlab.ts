@@ -241,6 +241,26 @@ export async function fetchGlMR(
 
 // --- MR Context ---
 
+/**
+ * Best-effort GitLab bot detection. GitLab's note/approval user objects don't
+ * reliably carry a `bot` flag (unlike GitHub's `__typename`), so check it when
+ * present and otherwise fall back to the username conventions GitLab uses for
+ * automation accounts: project/group access-token bots (`project_<id>_bot…`,
+ * `group_<id>_bot…`), a `_bot`/`[bot]` suffix, and the `ghost` placeholder.
+ * Conservative on purpose — better to miss a bot than hide a real person.
+ */
+function isGitlabBot(user: any): boolean {
+  if (!user) return false;
+  if (user.bot === true) return true;
+  const name = String(user.username ?? "").toLowerCase();
+  return (
+    /^(project|group)_\d+_bot/.test(name) ||
+    name.endsWith("_bot") ||
+    name.endsWith("[bot]") ||
+    name === "ghost"
+  );
+}
+
 export async function fetchGlMRContext(
   runtime: PRRuntime,
   ref: GlMRRef,
@@ -329,6 +349,7 @@ export async function fetchGlMRContext(
         notes.push({
           id: String(n.id ?? ""),
           author: str(n.author?.username),
+          ...(isGitlabBot(n.author) ? { isBot: true } : {}),
           body: str(n.body),
           createdAt: str(n.created_at),
           url: str(n.web_url) || "",
@@ -353,6 +374,7 @@ export async function fetchGlMRContext(
         reviews.push({
           id: String(user.id ?? ""),
           author: str(user.username),
+          ...(isGitlabBot(user) ? { isBot: true } : {}),
           state: "APPROVED",
           body: "",
           submittedAt: "",

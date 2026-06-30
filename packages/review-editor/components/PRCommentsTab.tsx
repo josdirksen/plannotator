@@ -5,8 +5,27 @@ import { CopyButton } from './CopyButton';
 import { DiffHunkPreview } from './DiffHunkPreview';
 import { OverlayScrollArea } from '@plannotator/ui/components/OverlayScrollArea';
 import { getItem, setItem } from '@plannotator/ui/utils/storage';
+import * as Popover from '@radix-ui/react-popover';
 
 const HIDE_BOTS_KEY = 'plannotator-pr-hide-bots';
+
+/** Labeled on/off switch row for the Filters popover (checked = shown). */
+function FilterSwitch({ label, checked, onChange }: { label: string; checked: boolean; onChange: () => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={onChange}
+      className="w-full flex items-center justify-between gap-2 px-1 py-1 group"
+    >
+      <span className="min-w-0 truncate text-xs text-foreground/90 group-hover:text-foreground transition-colors">{label}</span>
+      <span className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${checked ? 'bg-primary' : 'bg-muted-foreground/25'}`}>
+        <span className={`inline-block h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${checked ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+      </span>
+    </button>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -121,15 +140,16 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
 
   const hasBots = useMemo(() => baseTimeline.some(entryIsBot), [baseTimeline]);
 
-  // Author pills hide bot authors while bots are hidden (their rows aren't shown).
-  const uniqueAuthors = useMemo(
+  // Per-author filtering covers humans only; bots are toggled wholesale via the
+  // "Bot comments" switch, so they don't clutter the author list.
+  const humanAuthors = useMemo(
     () => [...new Set(
       baseTimeline
-        .filter((e) => !hideBots || !entryIsBot(e))
+        .filter((e) => !entryIsBot(e))
         .map((e) => getEntryAuthor(e))
         .filter(Boolean),
     )].sort(),
-    [baseTimeline, hideBots],
+    [baseTimeline],
   );
 
   const filteredTimeline = useMemo(() => {
@@ -240,6 +260,9 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
   }
 
   const hasFilters = !!searchQuery.trim() || excludedAuthors.size > 0 || hideResolved || hideOutdated || hideBots;
+  const activeFilterCount =
+    excludedAuthors.size + (hideBots ? 1 : 0) + (hideResolved ? 1 : 0) + (hideOutdated ? 1 : 0);
+  const allCollapsed = displayTimeline.length > 0 && displayTimeline.every((e) => collapsedIds.has(e.data.id));
 
   return (
     <div ref={containerRef} className="h-full flex flex-col">
@@ -279,72 +302,93 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
 
         {/* Controls row */}
         <div className="flex items-center justify-between gap-2">
-          {/* Author pills — click to exclude, click again to re-include */}
-          <div className="flex items-center gap-1 overflow-x-auto min-w-0">
-            {excludedAuthors.size > 0 && (
+          {/* Filters popover — show/hide categories + per-author toggles */}
+          <Popover.Root>
+            <Popover.Trigger asChild>
               <button
-                onClick={() => setExcludedAuthors(new Set())}
-                className="text-[10px] px-1.5 py-0.5 rounded text-primary hover:underline whitespace-nowrap"
+                type="button"
+                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground hover:text-foreground transition-colors data-[state=open]:bg-background data-[state=open]:text-foreground data-[state=open]:shadow-sm"
+                title="Filter comments"
               >
-                Show all
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 5h18M6 12h12M10 19h4" />
+                </svg>
+                Filters
+                {activeFilterCount > 0 && (
+                  <span className="ml-0.5 inline-flex items-center justify-center min-w-3.5 h-3.5 px-1 rounded-full bg-primary/20 text-primary text-[9px] font-semibold tabular-nums">
+                    {activeFilterCount}
+                  </span>
+                )}
+                <svg className="w-2.5 h-2.5 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
               </button>
-            )}
-            {uniqueAuthors.map((author) => (
-              <AuthorPill
-                key={author}
-                label={author === platformUser ? `${author} (you)` : author}
-                excluded={excludedAuthors.has(author)}
-                onClick={() => {
-                  setExcludedAuthors((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(author)) next.delete(author); else next.add(author);
-                    return next;
-                  });
-                }}
-              />
-            ))}
-          </div>
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content
+                align="start"
+                sideOffset={6}
+                className="z-50 w-56 bg-popover text-popover-foreground border border-border rounded-lg shadow-lg origin-[var(--radix-popover-content-transform-origin)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+              >
+                <div className="p-2 space-y-1">
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70 px-1">Show</div>
+                  {hasBots && (
+                    <FilterSwitch label="Bot comments" checked={!hideBots} onChange={toggleHideBots} />
+                  )}
+                  <FilterSwitch label="Resolved threads" checked={!hideResolved} onChange={() => setHideResolved((v) => !v)} />
+                  <FilterSwitch label="Outdated threads" checked={!hideOutdated} onChange={() => setHideOutdated((v) => !v)} />
 
-          {/* Filter + sort + collapse controls */}
+                  {humanAuthors.length > 0 && (
+                    <>
+                      <div className="border-t border-border/50 my-1" />
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Authors</span>
+                        {excludedAuthors.size > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setExcludedAuthors(new Set())}
+                            className="text-[10px] text-primary hover:underline"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
+                      <div className="max-h-44 overflow-y-auto pr-0.5">
+                        {humanAuthors.map((author) => (
+                          <FilterSwitch
+                            key={author}
+                            label={author === platformUser ? `${author} (you)` : author}
+                            checked={!excludedAuthors.has(author)}
+                            onChange={() => setExcludedAuthors((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(author)) next.delete(author); else next.add(author);
+                              return next;
+                            })}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
+
+          {/* Sort + collapse */}
           <div className="flex items-center gap-1 flex-shrink-0">
-            {hasBots && (
-              <button
-                onClick={toggleHideBots}
-                className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${hideBots ? 'bg-muted-foreground/15 text-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'}`}
-                title={hideBots ? 'Show bot comments' : 'Hide bot comments'}
-              >
-                Bots
-              </button>
-            )}
-            <button
-              onClick={() => setHideResolved((v) => !v)}
-              className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${hideResolved ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground hover:text-foreground'}`}
-              title={hideResolved ? 'Show resolved threads' : 'Hide resolved threads'}
-            >
-              Resolved
-            </button>
-            <button
-              onClick={() => setHideOutdated((v) => !v)}
-              className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${hideOutdated ? 'bg-warning/15 text-warning' : 'bg-muted text-muted-foreground hover:text-foreground'}`}
-              title={hideOutdated ? 'Show outdated threads' : 'Hide outdated threads'}
-            >
-              Outdated
-            </button>
-            <div className="w-px h-3 bg-border/30 mx-0.5" />
             <button
               onClick={() => setSortNewestFirst((v) => !v)}
               className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground hover:text-foreground transition-colors"
             >
               {sortNewestFirst ? 'Newest' : 'Oldest'}
             </button>
-            <button onClick={collapseAll} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors" title="Collapse all">
+            <button
+              onClick={() => allCollapsed ? expandAll() : collapseAll()}
+              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+              title={allCollapsed ? 'Expand all' : 'Collapse all'}
+            >
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 14h16M4 10h16" />
-              </svg>
-            </button>
-            <button onClick={expandAll} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors" title="Expand all">
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                <path strokeLinecap="round" strokeLinejoin="round" d={allCollapsed ? 'M4 6h16M4 12h16M4 18h16' : 'M4 14h16M4 10h16'} />
               </svg>
             </button>
           </div>
@@ -595,21 +639,5 @@ function PRCommentLinkActions({ url, body }: { url?: string; body: string }) {
       )}
       <CopyButton text={body} variant="inline" label="Copy" />
     </div>
-  );
-}
-
-function AuthorPill({ label, excluded, onClick }: { label: string; excluded: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap transition-colors ${
-        excluded
-          ? 'bg-muted/50 text-muted-foreground/40 line-through'
-          : 'bg-muted text-muted-foreground hover:text-foreground'
-      }`}
-      title={excluded ? `Show ${label}` : `Hide ${label}`}
-    >
-      {label}
-    </button>
   );
 }

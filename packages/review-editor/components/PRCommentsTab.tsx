@@ -385,15 +385,23 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
                       <div className="border-t border-border/50 my-1" />
                       <div className="flex items-center justify-between px-1">
                         <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Authors</span>
-                        {excludedAuthors.size > 0 && (
+                        <div className="flex items-center gap-1.5 text-[10px]">
                           <button
                             type="button"
                             onClick={() => setExcludedAuthors(new Set())}
-                            className="text-[10px] text-primary hover:underline"
+                            className="text-primary hover:underline"
                           >
-                            Reset
+                            All
                           </button>
-                        )}
+                          <span className="text-muted-foreground/30">·</span>
+                          <button
+                            type="button"
+                            onClick={() => setExcludedAuthors(new Set(humanAuthors))}
+                            className="text-primary hover:underline"
+                          >
+                            None
+                          </button>
+                        </div>
                       </div>
                       <div className="max-h-44 overflow-y-auto pr-0.5">
                         {humanAuthors.map((author) => (

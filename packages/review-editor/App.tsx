@@ -170,7 +170,7 @@ const ReviewApp: React.FC = () => {
     document.documentElement.style.setProperty('--diffs-tab-size', String(diffTabSize));
   }, [diffFontFamily, diffFontSize, diffTabSize]);
 
-  const reviewSidebar = useSidebar<ReviewSidebarTab>(true, 'annotations');
+  const reviewSidebar = useSidebar<ReviewSidebarTab>(false, 'annotations');
   const [isFileTreeOpen, setIsFileTreeOpen] = useState(true);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [copyRawDiffStatus, setCopyRawDiffStatus] = useState<'idle' | 'success' | 'error'>('idle');

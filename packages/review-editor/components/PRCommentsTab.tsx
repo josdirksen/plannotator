@@ -323,7 +323,7 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={handleSearchKeyDown}
             placeholder="Search comments..."
-            className="w-full pl-8 py-1.5 pr-20 bg-muted rounded text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50"
+            className="w-full h-7 pl-8 pr-20 bg-muted rounded-md text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50"
           />
           <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
             {searchQuery.trim() && (
@@ -349,7 +349,7 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
             <Popover.Trigger asChild>
               <button
                 type="button"
-                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground hover:text-foreground transition-colors data-[state=open]:bg-background data-[state=open]:text-foreground data-[state=open]:shadow-sm"
+                className="inline-flex items-center gap-1 h-7 px-2 text-xs rounded-md bg-muted text-muted-foreground hover:text-foreground transition-colors data-[state=open]:bg-background data-[state=open]:text-foreground data-[state=open]:shadow-sm"
                 title="Filter comments"
               >
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -420,13 +420,13 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
           <div className="flex items-center gap-1 flex-shrink-0">
             <button
               onClick={() => setSortNewestFirst((v) => !v)}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              className="h-7 px-2 inline-flex items-center text-xs rounded-md bg-muted text-muted-foreground hover:text-foreground transition-colors"
             >
               {sortNewestFirst ? 'Newest' : 'Oldest'}
             </button>
             <button
               onClick={() => allCollapsed ? expandAll() : collapseAll()}
-              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+              className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-muted text-muted-foreground hover:text-foreground transition-colors"
               title={allCollapsed ? 'Expand all' : 'Collapse all'}
             >
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

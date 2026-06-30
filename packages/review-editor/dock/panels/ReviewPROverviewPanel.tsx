@@ -69,17 +69,17 @@ export const ReviewPROverviewPanel: React.FC<IDockviewPanelProps> = () => {
   if (!prContext) return null;
 
   return (
-    <div className="h-full grid grid-rows-1 grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] gap-3 p-3 bg-background">
-      {/* Left column — Summary fills, Checks pinned to the bottom (bounded). */}
-      <div className="min-h-0 grid grid-rows-[1fr_minmax(0,auto)] gap-3">
-        <section className="min-h-0 flex flex-col rounded-lg border border-border/30 bg-surface-0 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+    <div className="h-full flex gap-3 p-3 bg-background">
+      {/* Left column — Summary grows to fill, Checks pinned to the bottom at a bounded height. */}
+      <div className="flex-1 min-w-0 flex flex-col gap-3">
+        <section className="flex-1 min-h-0 flex flex-col rounded-lg border border-border/30 bg-surface-0 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
           <RegionHeader>Summary</RegionHeader>
           <OverlayScrollArea className="flex-1 min-h-0 scroll-fade">
             <PRSummaryTab context={prContext} metadata={prMetadata} />
           </OverlayScrollArea>
         </section>
 
-        <section className="min-h-0 max-h-[38%] flex flex-col rounded-lg border border-border/30 bg-surface-0 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+        <section className="flex-shrink-0 max-h-[38%] flex flex-col rounded-lg border border-border/30 bg-surface-0 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
           <RegionHeader>Checks</RegionHeader>
           <OverlayScrollArea className="flex-1 min-h-0 scroll-fade">
             <PRChecksTab context={prContext} />
@@ -88,7 +88,7 @@ export const ReviewPROverviewPanel: React.FC<IDockviewPanelProps> = () => {
       </div>
 
       {/* Right column — Comments (full height; owns its own scroll). */}
-      <section className="min-h-0 flex flex-col rounded-lg border border-border/30 bg-surface-0 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+      <section className="flex-1 min-w-0 flex flex-col rounded-lg border border-border/30 bg-surface-0 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
         <RegionHeader>Comments</RegionHeader>
         <div className="flex-1 min-h-0">
           <PRCommentsTab context={prContext} platformUser={platformUser} />

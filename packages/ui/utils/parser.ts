@@ -456,6 +456,32 @@ export const computeListIndices = (blocks: Block[]): (number | null)[] => {
   });
 };
 
+/** A run of blocks to render: a single block, or consecutive list items grouped
+ *  together so list numbering/indent can be computed across the run. */
+export type RenderGroup =
+  | { type: 'single'; block: Block }
+  | { type: 'list-group'; blocks: Block[]; key: string };
+
+/** Groups consecutive list-item blocks so a list renders as one unit. */
+export function groupBlocks(blocks: Block[]): RenderGroup[] {
+  const groups: RenderGroup[] = [];
+  let i = 0;
+  while (i < blocks.length) {
+    if (blocks[i].type === 'list-item') {
+      const listBlocks: Block[] = [];
+      while (i < blocks.length && blocks[i].type === 'list-item') {
+        listBlocks.push(blocks[i]);
+        i++;
+      }
+      groups.push({ type: 'list-group', blocks: listBlocks, key: `list-${listBlocks[0].id}` });
+    } else {
+      groups.push({ type: 'single', block: blocks[i] });
+      i++;
+    }
+  }
+  return groups;
+}
+
 /** Wrap feedback output with the deny preamble for pasting into agent sessions */
 export const wrapFeedbackForAgent = (feedback: string): string =>
   planDenyFeedback(feedback);

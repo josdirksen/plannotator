@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useEffect } from 'react';
 import DOMPurify from 'dompurify';
 import { parseMarkdownToBlocks } from '@plannotator/ui/utils/parser';
+import { RenderedMarkdown } from '@plannotator/ui/components/RenderedMarkdown';
 import { renderInlineMarkdown } from '../utils/renderInlineMarkdown';
 import type { PRContext, PRMetadata } from '@plannotator/shared/pr-types';
 
@@ -195,7 +196,7 @@ export const PRSummaryTab: React.FC<PRSummaryTabProps> = React.memo(({ context, 
           <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Description
           </h3>
-          <MarkdownBody markdown={context.body} textClassName="text-[13px]" />
+          <RenderedMarkdown markdown={context.body} className="md-compact" />
         </div>
       ) : (
         <p className="text-xs text-muted-foreground italic">No description provided.</p>

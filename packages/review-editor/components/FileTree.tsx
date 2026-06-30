@@ -10,6 +10,34 @@ import { WorktreePicker } from './WorktreePicker';
 import { getReviewSearchSideLabel, type ReviewSearchFileGroup, type ReviewSearchMatch } from '../utils/reviewSearch';
 import type { DiffFile } from '../types';
 import { OverlayScrollArea } from '@plannotator/ui/components/OverlayScrollArea';
+import { GitHubIcon } from '@plannotator/ui/components/GitHubIcon';
+
+/** Shared shell for the file-tree action rows (PR overview, Semantic diff, All files). */
+function SidebarActionRow({
+  active,
+  onClick,
+  title,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors mb-0.5 ${
+        active
+          ? 'bg-primary/15 text-primary font-medium'
+          : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
 
 interface FileTreeProps {
   files: DiffFile[];
@@ -60,6 +88,12 @@ interface FileTreeProps {
   activeSearchMatchId?: string | null;
   onSelectSearchMatch?: (matchId: string) => void;
   onStepSearchMatch?: (direction: 1 | -1) => void;
+  onSelectPROverview?: () => void;
+  isPROverviewActive?: boolean;
+  /** PR number label (e.g. "#123") for the PR overview row; omit in non-PR reviews. */
+  prOverviewNumber?: string;
+  /** PR title for the PR overview row. */
+  prOverviewTitle?: string;
   onSelectSemanticDiff?: () => void;
   isSemanticDiffActive?: boolean;
   semanticDiffAvailable?: boolean;
@@ -115,6 +149,10 @@ export const FileTree: React.FC<FileTreeProps> = ({
   activeSearchMatchId,
   onSelectSearchMatch,
   onStepSearchMatch,
+  onSelectPROverview,
+  isPROverviewActive = false,
+  prOverviewNumber,
+  prOverviewTitle,
   onSelectSemanticDiff,
   isSemanticDiffActive = false,
   semanticDiffAvailable = false,
@@ -456,28 +494,25 @@ export const FileTree: React.FC<FileTreeProps> = ({
           )
         ) : (
           <>
-          {semanticDiffAvailable && onSelectSemanticDiff && (
-            <button
-              onClick={onSelectSemanticDiff}
-              className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors mb-0.5 ${
-                isSemanticDiffActive
-                  ? 'bg-primary/15 text-primary font-medium'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              }`}
+          {prOverviewNumber && prOverviewTitle && onSelectPROverview && (
+            <SidebarActionRow
+              active={isPROverviewActive}
+              onClick={onSelectPROverview}
+              title={`${prOverviewNumber} · ${prOverviewTitle}`}
             >
+              <GitHubIcon className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="font-mono flex-shrink-0">{prOverviewNumber}</span>
+              <span className="truncate text-muted-foreground/80">{prOverviewTitle}</span>
+            </SidebarActionRow>
+          )}
+          {semanticDiffAvailable && onSelectSemanticDiff && (
+            <SidebarActionRow active={isSemanticDiffActive} onClick={onSelectSemanticDiff}>
               <span className="w-3.5 h-3.5 flex flex-shrink-0 items-center justify-center" aria-hidden="true">∆</span>
               <span>Semantic diff</span>
-            </button>
+            </SidebarActionRow>
           )}
           {onSelectAllFiles && (
-            <button
-              onClick={onSelectAllFiles}
-              className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors mb-0.5 ${
-                isAllFilesActive
-                  ? 'bg-primary/15 text-primary font-medium'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              }`}
-            >
+            <SidebarActionRow active={isAllFilesActive} onClick={onSelectAllFiles}>
               <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 6.878V6a2.25 2.25 0 012.25-2.25h7.5A2.25 2.25 0 0118 6v.878m-12 0c.235-.083.487-.128.75-.128h10.5c.263 0 .515.045.75.128m-12 0A2.25 2.25 0 004.5 9v.878m13.5-3A2.25 2.25 0 0119.5 9v.878m-13.5 0A2.25 2.25 0 003 12v3a2.25 2.25 0 002.25 2.25h13.5A2.25 2.25 0 0021 15v-3a2.25 2.25 0 00-2.25-2.25m-13.5 0h13.5" />
               </svg>
@@ -487,7 +522,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
                 {' '}
                 <span className="text-red-500">-{files.reduce((s, f) => s + f.deletions, 0)}</span>
               </span>
-            </button>
+            </SidebarActionRow>
           )}
           {tree.map(node => (
             <FileTreeNodeItem

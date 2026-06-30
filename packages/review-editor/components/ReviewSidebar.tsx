@@ -60,7 +60,6 @@ interface ReviewSidebarProps {
   onAgentKillAll?: () => void;
   externalAnnotations?: Array<{ source?: string }>;
   onOpenJobDetail?: (jobId: string) => void;
-  onOpenPRPanel?: (type: 'summary' | 'comments' | 'checks') => void;
 }
 
 const SuggestionPreview: React.FC<{ code: string; originalCode?: string; language?: string }> = ({ code, originalCode, language }) => {
@@ -146,7 +145,6 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
   onAgentKillAll,
   externalAnnotations,
   onOpenJobDetail,
-  onOpenPRPanel,
 }) => {
   const totalCount = annotations.length + (editorAnnotations?.length ?? 0);
   const [copied, setCopied] = useState(false);

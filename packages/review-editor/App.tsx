@@ -73,9 +73,7 @@ import {
   makeReviewAgentJobPanelId,
   getReviewDiffPanelFilePath,
   isReviewDiffPanelId,
-  REVIEW_PR_SUMMARY_PANEL_ID,
-  REVIEW_PR_COMMENTS_PANEL_ID,
-  REVIEW_PR_CHECKS_PANEL_ID,
+  REVIEW_PR_OVERVIEW_PANEL_ID,
   REVIEW_SEMANTIC_DIFF_PANEL_ID,
   REVIEW_ALL_FILES_PANEL_ID,
   REVIEW_CODE_NAV_PANEL_ID,
@@ -131,6 +129,7 @@ const ReviewApp: React.FC = () => {
   const isAllFilesActiveRef = useRef(isAllFilesActive);
   isAllFilesActiveRef.current = isAllFilesActive;
   const [isSemanticDiffActive, setIsSemanticDiffActive] = useState(false);
+  const [isPROverviewActive, setIsPROverviewActive] = useState(false);
   const [semanticDiffAvailable, setSemanticDiffAvailable] = useState(false);
   const [isDiffPanelActive, setIsDiffPanelActive] = useState(false);
   const [allFilesVisibleFile, setAllFilesVisibleFile] = useState<string | null>(null);
@@ -638,11 +637,13 @@ const ReviewApp: React.FC = () => {
       if (!panel) {
         setIsAllFilesActive(false);
         setIsSemanticDiffActive(false);
+        setIsPROverviewActive(false);
         setIsDiffPanelActive(false);
         return;
       }
       setIsAllFilesActive(panel.id === REVIEW_ALL_FILES_PANEL_ID);
       setIsSemanticDiffActive(panel.id === REVIEW_SEMANTIC_DIFF_PANEL_ID);
+      setIsPROverviewActive(panel.id === REVIEW_PR_OVERVIEW_PANEL_ID);
       setIsDiffPanelActive(isReviewDiffPanelId(panel.id));
       if (!isReviewDiffPanelId(panel.id)) return;
       const filePath = getReviewDiffPanelFilePath(panel.params);
@@ -730,24 +731,19 @@ const ReviewApp: React.FC = () => {
     }
   }, [agentJobs.jobs]);
 
-  // Open PR panel as center dock panel
-  const handleOpenPRPanel = useCallback((type: 'summary' | 'comments' | 'checks') => {
+  // Open the combined PR overview (summary + checks + comments) as a center dock panel
+  const openPROverviewPanel = useCallback(() => {
     const api = dockApi;
     if (!api) return;
-    const config = {
-      summary: { id: REVIEW_PR_SUMMARY_PANEL_ID, component: REVIEW_PANEL_TYPES.PR_SUMMARY, title: 'PR Summary' },
-      comments: { id: REVIEW_PR_COMMENTS_PANEL_ID, component: REVIEW_PANEL_TYPES.PR_COMMENTS, title: 'PR Comments' },
-      checks: { id: REVIEW_PR_CHECKS_PANEL_ID, component: REVIEW_PANEL_TYPES.PR_CHECKS, title: 'PR Checks' },
-    }[type];
-    const existing = api.getPanel(config.id);
+    const existing = api.getPanel(REVIEW_PR_OVERVIEW_PANEL_ID);
     if (existing) {
       existing.api.setActive();
       return;
     }
     api.addPanel({
-      id: config.id,
-      component: config.component,
-      title: config.title,
+      id: REVIEW_PR_OVERVIEW_PANEL_ID,
+      component: REVIEW_PANEL_TYPES.PR_OVERVIEW,
+      title: 'PR Overview',
     });
   }, [dockApi]);
 
@@ -2049,17 +2045,6 @@ const ReviewApp: React.FC = () => {
                   onSelectScope={handlePRDiffScopeSelect}
                   onNavigatePR={handlePRSwitch}
                 />
-                <div className="hidden md:flex items-center gap-0.5 ml-1">
-                  <button onClick={() => handleOpenPRPanel('summary')} className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/30 transition-colors duration-150" title="PR Summary">
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                  </button>
-                  <button onClick={() => handleOpenPRPanel('comments')} className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/30 transition-colors duration-150" title="PR Comments">
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
-                  </button>
-                  <button onClick={() => handleOpenPRPanel('checks')} className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/30 transition-colors duration-150" title="PR Checks">
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  </button>
-                </div>
               </div>
             ) : repoInfo ? (
               <div className="min-w-0 flex items-center gap-2 md:gap-3">
@@ -2427,6 +2412,10 @@ const ReviewApp: React.FC = () => {
               <FileTree
                 files={files}
                 activeFileIndex={activeFileIndex}
+                onSelectPROverview={openPROverviewPanel}
+                isPROverviewActive={isPROverviewActive}
+                prOverviewNumber={prMetadata ? mrNumberLabel : undefined}
+                prOverviewTitle={prMetadata?.title}
                 onSelectSemanticDiff={() => openSemanticDiffPanel()}
                 isSemanticDiffActive={isSemanticDiffActive}
                 semanticDiffAvailable={semanticDiffAvailable}
@@ -2601,7 +2590,6 @@ const ReviewApp: React.FC = () => {
                 onAgentKillAll={agentJobs.killAll}
                 externalAnnotations={externalAnnotations}
                 onOpenJobDetail={handleOpenJobDetail}
-                onOpenPRPanel={handleOpenPRPanel}
               />
             </div>
           )}

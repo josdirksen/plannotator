@@ -97,7 +97,7 @@ export const ReviewPROverviewPanel: React.FC<IDockviewPanelProps> = () => {
           </OverlayScrollArea>
         </section>
 
-        <section className="flex-shrink-0 max-h-[38%] flex flex-col rounded-lg border border-border/30 bg-surface-0 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+        <section className="flex-shrink-0 max-h-44 flex flex-col rounded-lg border border-border/30 bg-surface-0 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
           <RegionHeader>Checks</RegionHeader>
           <OverlayScrollArea className="flex-1 min-h-0 scroll-fade">
             <PRChecksTab context={prContext} />

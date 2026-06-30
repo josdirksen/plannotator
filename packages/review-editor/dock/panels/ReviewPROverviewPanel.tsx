@@ -131,9 +131,10 @@ export const ReviewPROverviewPanel: React.FC<IDockviewPanelProps> = () => {
           PR context may be stale: {prContextError}
         </div>
       )}
-      <div className="flex-1 min-h-0 flex gap-3">
+      {/* Stack vertically on small screens, side-by-side from md up. */}
+      <div className="flex-1 min-h-0 flex flex-col md:flex-row gap-3">
         {/* Left column — Summary (description) with checks embedded at the bottom. */}
-        <section className="flex-1 min-w-0 flex flex-col rounded-lg border border-border/30 bg-surface-0 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+        <section className="flex-1 min-w-0 min-h-0 flex flex-col rounded-lg border border-border/30 bg-surface-0 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
           <RegionHeader
             action={
               <a
@@ -160,7 +161,7 @@ export const ReviewPROverviewPanel: React.FC<IDockviewPanelProps> = () => {
         </section>
 
         {/* Right column — Comments (full height; owns its own scroll). */}
-        <section className="flex-1 min-w-0 flex flex-col rounded-lg border border-border/30 bg-surface-0 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+        <section className="flex-1 min-w-0 min-h-0 flex flex-col rounded-lg border border-border/30 bg-surface-0 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
           <RegionHeader>Comments</RegionHeader>
           <div className="flex-1 min-h-0">
             <PRCommentsTab context={prContext} platformUser={platformUser} />

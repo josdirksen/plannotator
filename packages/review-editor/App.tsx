@@ -2275,16 +2275,22 @@ const ReviewApp: React.FC = () => {
                       disabled={isSendingFeedback || isApproving || isExiting || isPlatformActioning}
                       isLoading={isExiting}
                     />
-                    <FeedbackButton
-                      onClick={() => openPlatformDialog('comment')}
-                      disabled={isSendingFeedback || isApproving || isPlatformActioning}
-                      isLoading={isSendingFeedback || isPlatformActioning}
-                      label="Post Comments"
-                      shortLabel="Post"
-                      loadingLabel="Posting..."
-                      shortLoadingLabel="Posting..."
-                      title="Post review to platform"
-                    />
+                    {/* Progressive disclosure: only show Post Comments once there
+                        are annotations to post — mirrors agent mode hiding Send
+                        Feedback when empty. With no annotations the keyboard
+                        shortcut routes to Approve, so this hides cleanly. */}
+                    {totalAnnotationCount > 0 && (
+                      <FeedbackButton
+                        onClick={() => openPlatformDialog('comment')}
+                        disabled={isSendingFeedback || isApproving || isPlatformActioning}
+                        isLoading={isSendingFeedback || isPlatformActioning}
+                        label="Post Comments"
+                        shortLabel="Post"
+                        loadingLabel="Posting..."
+                        shortLoadingLabel="Posting..."
+                        title="Post review to platform"
+                      />
+                    )}
                     <div className="relative group/approve">
                       <ApproveButton
                         onClick={() => {

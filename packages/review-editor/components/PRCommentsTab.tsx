@@ -214,13 +214,15 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
   }, []);
 
   // --- Clear all filters ---
+  // Resets the view transiently; does NOT persist hideBots (only the explicit
+  // toggle changes the saved default), so a one-off "clear" can't permanently
+  // disable bot-hiding for future PRs.
   const clearFilters = useCallback(() => {
     setSearchQuery('');
     setExcludedAuthors(new Set());
     setHideResolved(false);
     setHideOutdated(false);
     setHideBots(false);
-    setItem(HIDE_BOTS_KEY, 'false');
   }, []);
 
   // --- Empty state (no comments at all) ---

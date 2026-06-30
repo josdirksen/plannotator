@@ -279,6 +279,14 @@ export async function fetchGlMRContext(
 
   const str = (v: unknown): string => (typeof v === "string" ? v : "");
   const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+  // GitLab returns avatar URLs that are absolute on gitlab.com but often
+  // relative (`/uploads/...`) on self-hosted instances. A relative URL would
+  // resolve against our local server, not the GitLab host, so make it absolute.
+  const resolveAvatar = (v: unknown): string | undefined => {
+    const s = str(v);
+    if (!s) return undefined;
+    return s.startsWith("/") ? `https://${ref.host}${s}` : s;
+  };
 
   // --- MR details ---
   if (mrResult.exitCode !== 0) {
@@ -346,10 +354,11 @@ export async function fetchGlMRContext(
       const rawNotes = JSON.parse(notesResult.stdout) as any[];
       for (const n of rawNotes) {
         if (n.system) continue;
+        const avatarUrl = resolveAvatar(n.author?.avatar_url);
         notes.push({
           id: String(n.id ?? ""),
           author: str(n.author?.username),
-          ...(n.author?.avatar_url ? { avatarUrl: str(n.author.avatar_url) } : {}),
+          ...(avatarUrl ? { avatarUrl } : {}),
           ...(isGitlabBot(n.author) ? { isBot: true } : {}),
           body: str(n.body),
           createdAt: str(n.created_at),
@@ -372,10 +381,11 @@ export async function fetchGlMRContext(
       for (const a of approvedBy) {
         const user = (a as any)?.user;
         if (!user) continue;
+        const avatarUrl = resolveAvatar(user.avatar_url);
         reviews.push({
           id: String(user.id ?? ""),
           author: str(user.username),
-          ...(user.avatar_url ? { avatarUrl: str(user.avatar_url) } : {}),
+          ...(avatarUrl ? { avatarUrl } : {}),
           ...(isGitlabBot(user) ? { isBot: true } : {}),
           state: "APPROVED",
           body: "",

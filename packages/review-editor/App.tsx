@@ -6,7 +6,6 @@ import { ConfirmDialog } from '@plannotator/ui/components/ConfirmDialog';
 import { Settings } from '@plannotator/ui/components/Settings';
 import { FeedbackButton, ApproveButton, ExitButton } from '@plannotator/ui/components/ToolbarButtons';
 import { AgentReviewActions } from './components/AgentReviewActions';
-import { DiffOptionsPopover } from './components/DiffOptionsPopover';
 import { useUpdateCheck } from '@plannotator/ui/hooks/useUpdateCheck';
 import { storage } from '@plannotator/ui/utils/storage';
 import { CompletionOverlay } from '@plannotator/ui/components/CompletionOverlay';
@@ -67,6 +66,7 @@ import { ReviewStateProvider, type ReviewState } from './dock/ReviewStateContext
 import { JobLogsProvider } from './dock/JobLogsContext';
 import { reviewPanelComponents } from './dock/reviewPanelComponents';
 import { ReviewDockTabRenderer } from './dock/ReviewDockTabRenderer';
+import { ReviewDockRightActions } from './dock/ReviewDockRightActions';
 import { usePRContext } from './hooks/usePRContext';
 import {
   REVIEW_PANEL_TYPES,
@@ -668,29 +668,12 @@ const ReviewApp: React.FC = () => {
       }
     });
 
-    // Hide Dockview chrome only for the dedicated single diff tab.
-    // Any lone non-diff panel still needs a visible header so it can be
-    // dragged, closed, and used as a way back out of the dock.
-    const updateHeaders = () => {
-      const lonePanel =
-        event.api.totalPanels === 1 && event.api.groups.length === 1
-          ? event.api.groups[0]?.panels[0]
-          : undefined;
-      const hideHeaders =
-        lonePanel?.id === REVIEW_DIFF_PANEL_ID ||
-        lonePanel?.id === REVIEW_SEMANTIC_DIFF_PANEL_ID ||
-        lonePanel?.id === REVIEW_ALL_FILES_PANEL_ID;
-      for (const group of event.api.groups) {
-        group.header.hidden = hideHeaders;
-      }
-    };
-    event.api.onDidAddPanel(updateHeaders);
-    event.api.onDidRemovePanel(updateHeaders);
-    event.api.onDidAddGroup(updateHeaders);
-    event.api.onDidRemoveGroup(updateHeaders);
-    event.api.onDidMovePanel(updateHeaders);
-    event.api.onDidLayoutChange(updateHeaders);
-    updateHeaders();
+    // Note: we intentionally no longer hide the tab header for a lone diff /
+    // all-files / semantic panel. The Split/Unified toggle lives in the tab
+    // strip's right-actions slot (ReviewDockRightActions), so the header must
+    // stay visible in single-panel diff views — otherwise the toggle would
+    // vanish exactly when it's most needed. The trade is a single tab showing
+    // in those views, which is acceptable.
   }, []);
 
   // Open agent job detail as center dock panel
@@ -1004,10 +987,6 @@ const ReviewApp: React.FC = () => {
       setShowDiffTypeSetup(true);
     }
   }, [diffTypeSetupPending]);
-
-  const handleDiffStyleChange = useCallback((style: 'split' | 'unified') => {
-    configStore.set('diffStyle', style);
-  }, []);
 
   // Handle line selection from diff viewer
   const handleLineSelection = useCallback((range: SelectedLineRange | null) => {
@@ -2176,34 +2155,8 @@ const ReviewApp: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1 md:gap-2">
-            {/* Diff-display controls: Split/Unified toggle + settings cog in
-                one pill. The cog is an action (not a toggle segment), set off
-                by a divider so the grouping reads clearly. */}
-            <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
-              <button
-                onClick={() => handleDiffStyleChange('split')}
-                className={`px-2 py-1 text-xs rounded-md transition-colors ${
-                  diffStyle === 'split'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Split
-              </button>
-              <button
-                onClick={() => handleDiffStyleChange('unified')}
-                className={`px-2 py-1 text-xs rounded-md transition-colors ${
-                  diffStyle === 'unified'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Unified
-              </button>
-              <div className="w-px h-4 bg-border/60 mx-0.5" />
-              <DiffOptionsPopover />
-            </div>
-
+            {/* Split/Unified toggle + diff options moved to the dock tab strip
+                (rightHeaderActionsComponent → ReviewDockRightActions). */}
             {origin ? (
               <>
                 {/* Destination dropdown (PR mode only) */}
@@ -2604,6 +2557,7 @@ const ReviewApp: React.FC = () => {
                 className={`h-full ${resolvedMode === 'light' ? 'dockview-theme-light' : 'dockview-theme-dark'}`}
                 components={reviewPanelComponents}
                 defaultTabComponent={ReviewDockTabRenderer}
+                rightHeaderActionsComponent={ReviewDockRightActions}
                 onReady={handleDockReady}
                 disableFloatingGroups
               />

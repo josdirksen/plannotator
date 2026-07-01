@@ -8,11 +8,13 @@ const ALLOWED_TAGS = [
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre', 'code',
   'table', 'thead', 'tbody', 'tr', 'th', 'td',
   'a', 'img', 'div', 'section', 'article', 'aside', 'header', 'footer',
+  'video', 'source',
 ];
 
 const ALLOWED_ATTR = [
   'href', 'src', 'alt', 'title', 'rel', 'target', 'width', 'height', 'align',
   'open', // preserve <details open> default-expanded state
+  'controls', 'poster', 'muted', 'loop', 'autoplay', 'playsinline', 'type', // <video>/<source>
 ];
 
 /**

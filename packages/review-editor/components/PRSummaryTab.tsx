@@ -23,9 +23,10 @@ function sanitizeHtml(html: string): string {
       'details', 'summary', 'blockquote', 'ul', 'ol', 'li',
       'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre', 'code',
       'table', 'thead', 'tbody', 'tr', 'th', 'td',
-      'a', 'img', 'div',
+      'a', 'img', 'div', 'video', 'source',
     ],
-    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'rel', 'target', 'width', 'height', 'align'],
+    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'rel', 'target', 'width', 'height', 'align',
+      'controls', 'poster', 'muted', 'loop', 'autoplay', 'playsinline', 'type'],
   });
 }
 

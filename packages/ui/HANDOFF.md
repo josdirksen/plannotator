@@ -223,7 +223,7 @@ The renderer's `MathBlock` (and inline math) uses KaTeX. **KaTeX's stylesheet an
 
 1. **Self-hosted (recommended for production):** copy `katex/dist/katex.min.css` + `katex/dist/fonts/` to your own asset origin and add one `<link rel="stylesheet">`. No third-party dependency in your serving path; fonts download lazily, only on pages that actually render math.
 2. **CDN tag:** `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16/dist/katex.min.css">` in your HTML. Same lazy-font behavior; adds a third-party origin.
-3. **Bundler import:** `import 'katex/dist/katex.min.css';` next to your `styles.css` import — resolves out of the box (`katex` is already a dependency of `@plannotator/ui`) and your bundler ships the fonts as separate lazy-loaded files.
+3. **Bundler import:** `import 'katex/dist/katex.min.css';` next to your `styles.css` import — your bundler ships the fonts as separate lazy-loaded files. With npm/bun this resolves out of the box (`katex` is a dependency of `@plannotator/ui` and gets hoisted); under pnpm's strict `node_modules`, add `katex` to your own dependencies to import it directly.
 
 If you skip all three and render math, equations appear as broken-looking raw HTML — that's the symptom to recognize. If you never render math, do nothing.
 

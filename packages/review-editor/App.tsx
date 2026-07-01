@@ -1758,13 +1758,22 @@ const ReviewApp: React.FC = () => {
   }, [diffData]);
 
   const feedbackMarkdown = useMemo(() => {
-    let output = exportReviewFeedback(allAnnotations, prMetadata, feedbackDiffContext, prReviewScopeLabel);
+    // Only include the code-review section when there ARE code annotations —
+    // otherwise exportReviewFeedback([]) prepends "No feedback provided." ahead
+    // of the description/comment notes, which contradicts them.
+    const parts: string[] = [];
+    if (allAnnotations.length > 0) {
+      parts.push(exportReviewFeedback(allAnnotations, prMetadata, feedbackDiffContext, prReviewScopeLabel));
+    }
     if (editorAnnotations.length > 0) {
-      output += exportEditorAnnotations(editorAnnotations);
+      parts.push(exportEditorAnnotations(editorAnnotations).trim());
     }
     const prose = buildProseFeedback(descriptionAnnotations, commentAnnotations, prContext?.body);
-    if (prose) output += '\n\n' + prose;
-    return output;
+    if (prose) parts.push(prose);
+    // Fall back to the standard "no feedback" message only when there's nothing.
+    return parts.length > 0
+      ? parts.join('\n\n')
+      : exportReviewFeedback([], prMetadata, feedbackDiffContext, prReviewScopeLabel);
   }, [allAnnotations, prMetadata, feedbackDiffContext, prReviewScopeLabel, editorAnnotations, descriptionAnnotations, prContext?.body, commentAnnotations]);
 
   const totalAnnotationCount = allAnnotations.length + editorAnnotations.length + descriptionAnnotations.length + commentAnnotations.length;

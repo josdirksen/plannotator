@@ -582,6 +582,7 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
           anchorEl={annotating.anchorEl}
           contextText={annotating.body ? annotating.body.slice(0, 80) : `comment by ${annotating.author}`}
           isGlobal={false}
+          allowImages={false}
           onSubmit={(text) => {
             onAddCommentAnnotation(annotating.commentId, annotating.author, annotating.body, text);
             setAnnotating(null);

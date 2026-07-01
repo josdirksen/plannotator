@@ -66,6 +66,7 @@ export const AnnotatableDescription = React.memo(function AnnotatableDescription
             contextText={hook.commentPopover.contextText}
             initialText={hook.commentPopover.initialText}
             isGlobal={false}
+            allowImages={false}
             onSubmit={hook.handleCommentSubmit}
             onClose={hook.handleCommentClose}
             onAskAI={onAskAIForDescription}

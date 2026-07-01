@@ -1592,3 +1592,9 @@ diffs-container {
 .md-compact .text-sm { font-size: 0.8125rem; line-height: 1.55; }
 .md-compact hr { margin: 0.875rem 0; }
 .md-compact blockquote { margin: 0.5rem 0; }
+/* Code blocks: the plan-sized CodeBlock keeps text-[13px] + a 20px my-5 margin,
+   so it reads bulky next to the 13px body. Shrink the font below the body and
+   tighten the box. `.my-5` is unique to the code-block wrapper in this renderer. */
+.md-compact .my-5 { margin-top: 0.625rem; margin-bottom: 0.625rem; } /* was 20px */
+.md-compact pre { font-size: 0.75rem; }                              /* 12px, under the body */
+.md-compact pre code.hljs { padding: 0.5rem 0.625rem; }              /* tighter than hljs default */

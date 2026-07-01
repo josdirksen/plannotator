@@ -85,6 +85,8 @@ export interface ReviewState {
   onDeleteCommentAnnotation: (id: string) => void;
   /** Ask AI about a PR comment (file-less scope ask, comment body as text). */
   onAskAIForComment: CommentAskAIHandler;
+  /** Sidebar-initiated "reveal this comment" signal (token bumps per click). */
+  commentScrollTarget: { commentId: string; token: number } | null;
 
   // Viewed / staged
   viewedFiles: Set<string>;

@@ -168,7 +168,7 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
   const [excludedAuthors, setExcludedAuthors] = useState<Set<string>>(new Set());
 
   // Comment annotation: the "Annotate" button on a card opens one comment box.
-  const { onAddCommentAnnotation, onAskAIForComment } = useReviewState();
+  const { onAddCommentAnnotation, onAskAIForComment, commentScrollTarget } = useReviewState();
   const [annotating, setAnnotating] = useState<{ commentId: string; author: string; body: string; anchorEl: HTMLElement } | null>(null);
   const handleAnnotate = useCallback<AnnotateFn>((commentId, author, body, anchorEl) => {
     setAnnotating({ commentId, author, body, anchorEl });
@@ -237,6 +237,25 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
     const el = containerRef.current.querySelector(`[data-comment-id="${CSS.escape(selectedId)}"]`);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [selectedId]);
+
+  // --- Reveal a comment from the sidebar (clicking a "PR comment" annotation) ---
+  // Select + un-collapse + scroll. The token bumps per click, so re-selecting the
+  // same comment re-scrolls even though selectedId doesn't change.
+  useEffect(() => {
+    if (!commentScrollTarget) return;
+    const { commentId } = commentScrollTarget;
+    setSelectedId(commentId);
+    setCollapsedIds(prev => {
+      if (!prev.has(commentId)) return prev;
+      const next = new Set(prev);
+      next.delete(commentId);
+      return next;
+    });
+    requestAnimationFrame(() => {
+      const el = containerRef.current?.querySelector(`[data-comment-id="${CSS.escape(commentId)}"]`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, [commentScrollTarget]);
 
   // --- Keyboard ---
   useEffect(() => {

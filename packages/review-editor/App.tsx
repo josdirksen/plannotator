@@ -124,6 +124,9 @@ const ReviewApp: React.FC = () => {
   // PR comment annotations (notes attached to a whole comment/review/thread).
   const [commentAnnotations, setCommentAnnotations] = useState<CommentAnnotation[]>([]);
   const [selectedCommentAnnotationId, setSelectedCommentAnnotationId] = useState<string | null>(null);
+  // Sidebar → source-comment navigation signal; token bumps per click so
+  // re-selecting the same comment re-scrolls. Consumed by PRCommentsTab.
+  const [commentScrollTarget, setCommentScrollTarget] = useState<{ commentId: string; token: number } | null>(null);
   // Sidebar-initiated "scroll to this comment" signal. The token bumps on every
   // sidebar click so re-selecting the same comment re-navigates. Selecting a
   // comment in the diff sets selectedAnnotationId but NOT this — so it never
@@ -427,6 +430,8 @@ const ReviewApp: React.FC = () => {
   // Auto-save code annotation drafts
   const { draftBanner, restoreDraft, getDraftGeneration, dismissDraft } = useCodeAnnotationDraft({
     annotations: allAnnotations,
+    descriptionAnnotations,
+    commentAnnotations,
     viewedFiles,
     isApiMode: !!origin,
     submitted: !!submitted,
@@ -435,6 +440,8 @@ const ReviewApp: React.FC = () => {
   const handleRestoreDraft = useCallback(() => {
     const restored = restoreDraft();
     if (restored.annotations.length > 0) setAnnotations(restored.annotations);
+    if (restored.descriptionAnnotations.length > 0) setDescriptionAnnotations(restored.descriptionAnnotations);
+    if (restored.commentAnnotations.length > 0) setCommentAnnotations(restored.commentAnnotations);
     if (restored.viewedFiles.length > 0) setViewedFiles(new Set(restored.viewedFiles));
   }, [restoreDraft]);
 
@@ -1552,7 +1559,15 @@ const ReviewApp: React.FC = () => {
 
   const handleSelectCommentAnnotation = useCallback((id: string | null) => {
     setSelectedCommentAnnotationId(prev => (!id || prev === id ? null : id));
-  }, []);
+    if (!id) return;
+    // Reveal the source comment: open the PR Overview panel and signal
+    // PRCommentsTab to select + scroll to it.
+    const ann = commentAnnotations.find(a => a.id === id);
+    if (ann) {
+      openPROverviewPanel();
+      setCommentScrollTarget(prev => ({ commentId: ann.commentId, token: (prev?.token ?? 0) + 1 }));
+    }
+  }, [commentAnnotations, openPROverviewPanel]);
 
   const handleDeleteCommentAnnotation = useCallback((id: string) => {
     setCommentAnnotations(prev => prev.filter(a => a.id !== id));
@@ -1677,6 +1692,7 @@ const ReviewApp: React.FC = () => {
     onSelectCommentAnnotation: handleSelectCommentAnnotation,
     onDeleteCommentAnnotation: handleDeleteCommentAnnotation,
     onAskAIForComment: handleAskAIForComment,
+    commentScrollTarget,
     viewedFiles,
     onToggleViewed: handleToggleViewed,
     stagedFiles,
@@ -1729,7 +1745,7 @@ const ReviewApp: React.FC = () => {
     descriptionAnnotations, selectedDescriptionAnnotationId, handleAddDescriptionAnnotation,
     handleSelectDescriptionAnnotation, handleDeleteDescriptionAnnotation, handleAskAIForDescription,
     commentAnnotations, selectedCommentAnnotationId, handleAddCommentAnnotation,
-    handleSelectCommentAnnotation, handleDeleteCommentAnnotation, handleAskAIForComment,
+    handleSelectCommentAnnotation, handleDeleteCommentAnnotation, handleAskAIForComment, commentScrollTarget,
     selectedAnnotationId, scrollTargetAnnotation, pendingSelection, handleLineSelection,
     handleAddAnnotation, handleAddFileComment, handleAddFileCommentForFile, handleEditAnnotation,
     handleSelectAnnotation, handleNavigateToAnnotation, handleDeleteAnnotation, viewedFiles,
@@ -1762,24 +1778,6 @@ const ReviewApp: React.FC = () => {
     }
   }, [diffData]);
 
-  // Copy feedback markdown to clipboard
-  const handleCopyFeedback = useCallback(async () => {
-    if (allAnnotations.length === 0) {
-      setShowNoAnnotationsDialog(true);
-      return;
-    }
-    try {
-      const feedback = exportReviewFeedback(allAnnotations, prMetadata, feedbackDiffContext, prReviewScopeLabel);
-      await navigator.clipboard.writeText(feedback);
-      setCopyFeedback('Feedback copied!');
-      setTimeout(() => setCopyFeedback(null), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-      setCopyFeedback('Failed to copy');
-      setTimeout(() => setCopyFeedback(null), 2000);
-    }
-  }, [allAnnotations, prMetadata, feedbackDiffContext, prReviewScopeLabel]);
-
   const feedbackMarkdown = useMemo(() => {
     let output = exportReviewFeedback(allAnnotations, prMetadata, feedbackDiffContext, prReviewScopeLabel);
     if (editorAnnotations.length > 0) {
@@ -1801,6 +1799,25 @@ const ReviewApp: React.FC = () => {
   }, [allAnnotations, prMetadata, feedbackDiffContext, prReviewScopeLabel, editorAnnotations, descriptionAnnotations, prContext?.body, commentAnnotations]);
 
   const totalAnnotationCount = allAnnotations.length + editorAnnotations.length + descriptionAnnotations.length + commentAnnotations.length;
+
+  // Copy the same full feedback the agent gets (code + editor + PR description +
+  // PR comment notes), not just code annotations. Defined after feedbackMarkdown
+  // / totalAnnotationCount so it can depend on them.
+  const handleCopyFeedback = useCallback(async () => {
+    if (totalAnnotationCount === 0) {
+      setShowNoAnnotationsDialog(true);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(feedbackMarkdown);
+      setCopyFeedback('Feedback copied!');
+      setTimeout(() => setCopyFeedback(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+      setCopyFeedback('Failed to copy');
+      setTimeout(() => setCopyFeedback(null), 2000);
+    }
+  }, [totalAnnotationCount, feedbackMarkdown]);
 
   // Send feedback to OpenCode via API
   const handleSendFeedback = useCallback(async () => {
@@ -1985,9 +2002,26 @@ const ReviewApp: React.FC = () => {
       repo: getDisplayRepo(prMetadata),
     } : undefined;
     const plan = buildReviewSubmission(allAnnotations, editorAnnotations, prMetadata?.url, diffPaths, prMeta);
-    setPlatformGeneralComment('');
+    // PR description/comment notes aren't line-anchored, so they can't post as
+    // inline review comments — seed them into the review body instead (quoted),
+    // where the user can edit before submitting. Also means a review with only
+    // prose notes still has something to post.
+    const proseParts: string[] = [];
+    if (descriptionAnnotations.length > 0 && prContext?.body) {
+      proseParts.push(exportAnnotations(
+        parseMarkdownToBlocks(prContext.body),
+        descriptionAnnotations,
+        [],
+        'PR Description Feedback',
+        'PR description',
+      ));
+    }
+    if (commentAnnotations.length > 0) {
+      proseParts.push(exportCommentAnnotations(commentAnnotations));
+    }
+    setPlatformGeneralComment(proseParts.join('\n\n'));
     setPlatformCommentDialog({ action, plan });
-  }, [allAnnotations, editorAnnotations, files, prMetadata]);
+  }, [allAnnotations, editorAnnotations, files, prMetadata, descriptionAnnotations, commentAnnotations, prContext?.body]);
 
   // Double-tap Option/Alt to toggle review destination (PR mode only)
   useEffect(() => {

@@ -60,15 +60,15 @@ An unclosed video opener:
 A multi-line image (must render as one image, not leak attribute text):
 
 <img
-  src="https://example.com/diagram.png"
+  src="https://picsum.photos/600/200"
   alt="architecture diagram"
   width="600">
 
 A responsive picture (should render its image):
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://example.com/dark.png">
-  <img alt="logo" src="https://example.com/light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="https://placehold.co/600x200/222/fff.png?text=dark">
+  <img alt="logo" src="https://placehold.co/600x200/eee/222.png?text=light">
 </picture>
 
 ## 6. Mixed content + math in code (math here must NOT render)

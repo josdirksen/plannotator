@@ -8,7 +8,7 @@ const ALLOWED_TAGS = [
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre', 'code',
   'table', 'thead', 'tbody', 'tr', 'th', 'td',
   'a', 'img', 'div', 'section', 'article', 'aside', 'header', 'footer',
-  'video', 'source',
+  'video', 'source', 'picture',
 ];
 
 const ALLOWED_ATTR = [

@@ -1598,3 +1598,20 @@ diffs-container {
 .md-compact .my-5 { margin-top: 0.625rem; margin-bottom: 0.625rem; } /* was 20px */
 .md-compact pre { font-size: 0.75rem; }                              /* 12px, under the body */
 .md-compact pre code.hljs { padding: 0.5rem 0.625rem; }              /* tighter than hljs default */
+
+/* PR description + comment media: cap wide screenshots/videos to the card width
+   (GitHub embeds them at their natural size, e.g. width="1440"), and wrap long
+   unbroken tokens (Vercel bot hashes, long URLs) so content never bleeds past
+   the card edge. */
+.md-compact img,
+.md-compact video,
+.review-comment-markdown img,
+.review-comment-markdown video {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+.md-compact,
+.review-comment-markdown {
+  overflow-wrap: anywhere;
+}

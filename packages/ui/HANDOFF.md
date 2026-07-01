@@ -2,7 +2,7 @@
 
 This document is for the team building the commercial **Workspaces** app. It explains what this PR shipped, how the published packages are put together, and exactly how Workspaces plugs its own backend (storage, auth, realtime, AI) into the same document UI that Plannotator uses — without forking or rebuilding it.
 
-If you read nothing else, read **"The 60-second version"** and **"The seam catalog"**.
+If you read nothing else, read **"The 60-second version"**, **"Supported imports"**, and **"The seam catalog"**.
 
 ---
 
@@ -168,6 +168,86 @@ Grounded in a read of the Workspaces repo (`apps/app`, `apps/usercontent`, `apps
 
 ---
 
+## Supported imports (the allowlist)
+
+The exports map is broad (`./components/*`, `./hooks/*`, `./utils/*` — everything is importable), because Plannotator's own apps consume the package too. **Importable is not the same as supported for a host.** A number of exported modules still call Plannotator's local server directly, with no seam — they exist for Plannotator's plan-review/code-review apps and will break (failed fetches to `/api/*` on your origin) if a host renders them.
+
+We deliberately did **not** restructure the exports map in this PR (move-don't-rewrite); this list is the contract instead.
+
+### Supported — safe for a host that configures the seams
+
+| Import | Notes |
+|---|---|
+| `configure` (`configurePlannotatorUI`) | The front door. |
+| `theme` / `styles.css` | Theme tokens + precompiled stylesheet. |
+| `types` | `Annotation`, `Block`, `AnnotationType`, etc. |
+| `utils/parser` (`parseMarkdownToBlocks`, `exportAnnotations`) | Pure — no backend. |
+| `components/BlockRenderer` + the block components it renders (`TableBlock`, `HtmlBlock`, `Callout`, `MermaidBlock`, `MathBlock`, …) | Pure rendering. |
+| `components/InlineMarkdown` | Code-file hover previews route through the `docPreviewFetcher` seam. |
+| `components/Viewer` | The full annotatable document. **Pass `disableCodePathValidation` unless you implement `/api/doc/exists`** — code-path validation is a prop-level opt-out, not a `configure` seam. |
+| `components/MarkdownEditor` | Theme-bridging wrapper over `@plannotator/markdown-editor`. See the Yjs note below. |
+| `components/CommentPopover` | Anchor capture + comment entry. Ask-AI UI renders only if you pass `onAskAI`. |
+| `components/AnnotationPanel` | Renders from your annotation state; no fetches of its own. |
+| `components/ThemeProvider` | Color-mode context. |
+| `components/ImageThumbnail` / `getImageSrc` | Routes through `imageSrcResolver`. |
+| `components/AttachmentsButton` | Routes through `uploadTransport`. |
+| Seam-backed hooks: `useAnnotationHighlighter`, `useAnnotationDraft`, `useCodeAnnotationDraft`, `useExternalAnnotations`, `useFileBrowser` | Their network access goes through the seams in the catalog above. |
+| `config` (`ConfigStore`) | Persists through `storageBackend`. |
+
+**AI is fully avoidable** (re-verified after the final rebase): there is no top-level barrel export, no supported import above pulls in `useAIChat` (it is imported only by `components/ai/DocumentAIChatPanel` and `useAIProviderConfig`, neither of which any supported component imports), and `CommentPopover`'s Ask-AI affordance exists only behind the optional `onAskAI` prop. Don't import `components/ai/*` and you carry no AI code.
+
+### Unsupported — calls Plannotator's local server, no seam
+
+Don't import these in a host. Each hits hardcoded Plannotator endpoints:
+
+- `components/sidebar/VersionBrowser`, `hooks/usePlanDiff`, `components/plan-diff/*` — `/api/plan/version(s)` (Plannotator's version history; Workspaces builds its own versions UI anyway).
+- `hooks/useArchive`, `components/sidebar/ArchiveBrowser` — `/api/archive/*`.
+- `hooks/useAgents`, `hooks/useAgentJobs`, `components/AgentsTab` — `/api/agents/*`.
+- `components/Settings`, `components/settings/HooksTab` — Plannotator-specific tabs (Obsidian vaults, hooks, integrations).
+- `components/ExportModal`, `components/OpenInAppButton` — `/api/save-notes`, `/api/open-in` (Obsidian/Bear/editor integrations).
+- `components/goal-setup/*` — Plannotator's goal-package scaffolding endpoints.
+- `hooks/useEditorAnnotations` — `/api/editor-annotations` (VS Code extension only).
+- `hooks/useLinkedDoc` — `/api/doc` directly (the `docPreviewFetcher` seam covers `InlineMarkdown`'s hover previews, **not** this full linked-doc overlay).
+- `hooks/useValidatedCodePaths` — `/api/doc/exists` (this is what `Viewer`'s `disableCodePathValidation` turns off).
+- `utils/sharing` — Plannotator's public paste service (share-URL feature).
+- `hooks/useUpdateCheck`, `components/MenuVersionSection`, `components/PlanHeaderMenu` — Plannotator release checks.
+- `utils/planAgentInstructions`, `utils/reviewAgentInstructions` — generate agent instructions that curl Plannotator's local API.
+
+If Workspaces ever wants one of these surfaces, the path is the same as everything else: add a seam to the module in a Plannotator PR, don't fork the component.
+
+---
+
+## The annotation anchor schema (what you're storing)
+
+When a host persists annotations (your REST comment API), the anchor fields on `Annotation` are the de facto contract. Store them as opaque JSON and round-trip them unchanged — but you should know what they are and when they go stale.
+
+From `@plannotator/ui/types`:
+
+```ts
+interface Annotation {
+  // ...
+  originalText: string;   // the exact text that was selected
+  startMeta?: { parentTagName: string; parentIndex: number; textOffset: number };
+  endMeta?:   { parentTagName: string; parentIndex: number; textOffset: number };
+  mathTargets?: Array<{ blockId: string; tex: string; displayMode: boolean }>; // math selections only
+}
+```
+
+`startMeta`/`endMeta` are **web-highlighter's DOM anchors**, captured against the *rendered* document: the tag name of the element containing the selection endpoint, the index of that element among all same-tag elements in the rendered DOM (document order), and the character offset within that element's text. They are positional, not content-addressed — they encode "the 14th `P`, character 32", not "this sentence".
+
+**Reattachment order** (in `useAnnotationHighlighter`, when a stored annotation is re-applied to a rendered document):
+
+1. **Math targets first** — if `mathTargets` is present, the matching KaTeX elements are located by `blockId` + exact `tex` string.
+2. **Anchor restore** — `highlighter.fromStore(startMeta, endMeta, originalText, id)`. Works when the rendered DOM structure matches what it was at capture time.
+3. **Text-search fallback** — if the anchors produce nothing (DOM changed shape), the hook searches the rendered text for an exact, whitespace-normalized occurrence of `originalText` and wraps it manually. This finds the **first** occurrence — if the selected text appears more than once, the highlight can attach to the wrong instance.
+4. **Failure** — if the text is gone too, the hook logs a `console.warn` and applies **no highlight**. The annotation is *not* deleted: it still appears in the annotation panel and in exported feedback, it just has no visual anchor in the document body.
+
+**What this means for a host:** anchors survive re-renders of the *same* markdown. Once the document body is edited, the anchors are best-effort — `originalText` is the real recovery key, and an annotation whose text was deleted degrades to a panel-only comment. If you build "comments follow the text through edits" on top of this (Workspaces will, with live editing), plan to re-anchor server-side or via your Yjs layer; don't expect these DOM anchors to do it.
+
+**Honesty note:** the failure path (step 4) is exercised in real use but is **not covered by automated tests** — nothing in the suite asserts the stale-anchor behavior. Treat the described degradation as accurate-but-unverified-by-CI, and test it in your integration if you depend on it.
+
+---
+
 ## Known rough edges (and why they're fine for now)
 
 1. **`AITransport` / `FileTreeBackend` leak `Response`.** They return raw fetch `Response` objects instead of clean domain types (`{ sessionId }`, `AsyncIterable<AIMessage>`, `{ tree, workspaceStatus }`). A reviewer correctly flagged this. We kept it deliberately: the goal of this PR was **move-don't-rewrite**, and reshaping these contracts is exactly the kind of redesign that's better driven by the real consumer (Workspaces) once you feel the pain. Plan a v2 pass on these two once you've wired them.
@@ -176,13 +256,15 @@ Grounded in a read of the Workspaces repo (`apps/app`, `apps/usercontent`, `apps
 
 3. **Module-level singletons, not a Provider.** Covered above — safe because Workspaces is client-side, not SSR. Only revisit if SSR is added.
 
+4. **The markdown editor can't take live-collab extensions yet.** Live multi-user editing is a hard requirement for Workspaces (its ADR 0010), and the underlying editor (`@atomic-editor/editor`, CodeMirror 6) supports extensions — but **neither wrapper layer exposes them**: `@plannotator/markdown-editor`'s `MarkdownEditorProps` has no `extensions` prop, and `@plannotator/ui`'s `MarkdownEditor` wrapper therefore can't pass one. So today you cannot thread `y-codemirror.next` (or any CM6 extension) into the editor. **Do not treat live editing as available in this release.** The plan of record: (1) merge this PR; (2) import `@plannotator/markdown-editor` into this monorepo; (3) one atomic PR threading an optional `extensions?` prop through both layers. Single-user editing works today; the first Workspaces UI slice doesn't need live collab.
+
 None of these block adoption. They're the honest "here's what we'd polish next" list.
 
 ---
 
 ## Publishing & versioning
 
-- `@plannotator/core` and `@plannotator/ui` are versioned **in lockstep with the repo** (currently `0.21.3`).
+- `@plannotator/core` and `@plannotator/ui` are versioned **in lockstep with the repo** (currently `0.21.4`).
 - They depend on each other via `workspace:*`. At publish time that must resolve to the **exact** version in the tarball, so publish with a tool that does that resolution (the repo's existing flow uses `bun pm pack` to build the tarball, then `npm publish *.tgz --provenance --access public`). Publish **`core` first, then `ui`**.
 - `styles.css` is built by the `prepack` script (`bun run build:css`) so the published tarball always carries fresh precompiled CSS.
 - There is **no CI publish job for these two packages yet** — first publish is manual from `main` after merge. (Wiring a CI publish job is a follow-up.)

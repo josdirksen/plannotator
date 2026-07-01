@@ -1,6 +1,7 @@
-import type { CodeAnnotation, ConventionalLabel, ConventionalDecoration, CommentAnnotation } from '@plannotator/ui/types';
+import type { CodeAnnotation, ConventionalLabel, ConventionalDecoration, CommentAnnotation, Annotation } from '@plannotator/ui/types';
 import type { PRMetadata } from '@plannotator/shared/pr-types';
 import { getMRLabel, getMRNumberLabel, getDisplayRepo } from '@plannotator/shared/pr-types';
+import { exportAnnotations, parseMarkdownToBlocks } from '@plannotator/ui/utils/parser';
 
 /**
  * Format a conventional comment prefix per the Conventional Comments spec:
@@ -248,6 +249,32 @@ export function exportReviewFeedback(
 
   output += generalSection;
   return output;
+}
+
+/**
+ * The prose-annotation feedback block (PR description notes + PR comment notes),
+ * joined. Shared by the agent feedback (feedbackMarkdown) and the GitHub review
+ * body seed, so the two never drift. Returns '' when there are no prose notes.
+ */
+export function buildProseFeedback(
+  descriptionAnnotations: Annotation[],
+  commentAnnotations: CommentAnnotation[],
+  descriptionBody: string | undefined,
+): string {
+  const parts: string[] = [];
+  if (descriptionAnnotations.length > 0 && descriptionBody) {
+    parts.push(exportAnnotations(
+      parseMarkdownToBlocks(descriptionBody),
+      descriptionAnnotations,
+      [],
+      'PR Description Feedback',
+      'PR description',
+    ));
+  }
+  if (commentAnnotations.length > 0) {
+    parts.push(exportCommentAnnotations(commentAnnotations));
+  }
+  return parts.join('\n\n');
 }
 
 /**

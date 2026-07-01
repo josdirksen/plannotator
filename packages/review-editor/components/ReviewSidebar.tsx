@@ -286,12 +286,27 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
 
   // Prose annotations on the PR description — comment-only, anchored to selected
   // text (no file/line). Mirrors renderAnnotationCard for visual consistency.
-  function renderDescriptionAnnotationCard(annotation: Annotation) {
-    const isSelected = selectedDescriptionAnnotationId === annotation.id;
+  // Shared card shell for prose annotations (PR description + PR comment): a
+  // scope label, the quoted source text, the reviewer's note, select + delete.
+  // Thin per-type call sites below map their fields onto it.
+  function renderProseAnnotationCard(opts: {
+    id: string;
+    label: string;
+    quote?: string;
+    quoteClamp?: string;
+    note?: string;
+    author?: string;
+    createdAt: number;
+    source?: string;
+    isSelected: boolean;
+    onSelect: () => void;
+    onDelete: () => void;
+  }) {
+    const { id, label, quote, quoteClamp = 'line-clamp-2', note, author, createdAt, source, isSelected, onSelect, onDelete } = opts;
     return (
       <div
-        key={annotation.id}
-        onClick={() => onSelectDescriptionAnnotation?.(annotation.id)}
+        key={id}
+        onClick={onSelect}
         className={`group relative p-2.5 rounded border cursor-pointer transition-colors duration-150 ${
           isSelected ? 'bg-primary/5 border-primary/30' : 'border-transparent hover:bg-muted/30'
         }`}
@@ -299,69 +314,53 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
         <CommentMeta
           leading={
             <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-              PR description
+              {label}
             </span>
           }
-          source={annotation.source}
-          author={annotation.author}
-          createdAt={annotation.createdA}
+          source={source}
+          author={author}
+          createdAt={createdAt}
         />
-        {annotation.originalText && (
-          <div className="mt-1 mb-1 border-l-2 border-border/40 pl-1.5 text-[11px] italic text-muted-foreground/80 line-clamp-1">
-            {annotation.originalText}
+        {quote && (
+          <div className={`mt-1 mb-1 border-l-2 border-border/40 pl-1.5 text-[11px] italic text-muted-foreground/80 ${quoteClamp}`}>
+            {quote}
           </div>
         )}
-        {annotation.text && (
+        {note && (
           <div className="text-xs text-foreground/80 line-clamp-2 review-comment-markdown">
-            {renderInlineMarkdown(annotation.text)}
+            {renderInlineMarkdown(note)}
           </div>
         )}
-        <CommentActions
-          copyText={annotation.text || undefined}
-          onDelete={() => onDeleteDescriptionAnnotation?.(annotation.id)}
-        />
+        <CommentActions copyText={note || undefined} onDelete={onDelete} />
       </div>
     );
   }
 
-  // Notes attached to a whole PR comment — shows which comment (author + snippet)
-  // plus the reviewer's note. Mirrors the description card.
-  function renderCommentAnnotationCard(annotation: CommentAnnotation) {
-    const isSelected = selectedCommentAnnotationId === annotation.id;
-    return (
-      <div
-        key={annotation.id}
-        onClick={() => onSelectCommentAnnotation?.(annotation.id)}
-        className={`group relative p-2.5 rounded border cursor-pointer transition-colors duration-150 ${
-          isSelected ? 'bg-primary/5 border-primary/30' : 'border-transparent hover:bg-muted/30'
-        }`}
-      >
-        <CommentMeta
-          leading={
-            <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-              PR comment
-            </span>
-          }
-          author={annotation.commentAuthor}
-          createdAt={annotation.createdAt}
-        />
-        {annotation.commentBody && (
-          <div className="mt-1 mb-1 border-l-2 border-border/40 pl-1.5 text-[11px] italic text-muted-foreground/80 line-clamp-2">
-            {annotation.commentBody}
-          </div>
-        )}
-        {annotation.text && (
-          <div className="text-xs text-foreground/80 line-clamp-2 review-comment-markdown">
-            {renderInlineMarkdown(annotation.text)}
-          </div>
-        )}
-        <CommentActions
-          copyText={annotation.text || undefined}
-          onDelete={() => onDeleteCommentAnnotation?.(annotation.id)}
-        />
-      </div>
-    );
-  }
+  const renderDescriptionAnnotationCard = (annotation: Annotation) => renderProseAnnotationCard({
+    id: annotation.id,
+    label: 'PR description',
+    quote: annotation.originalText,
+    quoteClamp: 'line-clamp-1',
+    note: annotation.text,
+    author: annotation.author,
+    createdAt: annotation.createdA,
+    source: annotation.source,
+    isSelected: selectedDescriptionAnnotationId === annotation.id,
+    onSelect: () => onSelectDescriptionAnnotation?.(annotation.id),
+    onDelete: () => onDeleteDescriptionAnnotation?.(annotation.id),
+  });
+
+  const renderCommentAnnotationCard = (annotation: CommentAnnotation) => renderProseAnnotationCard({
+    id: annotation.id,
+    label: 'PR comment',
+    quote: annotation.commentBody,
+    note: annotation.text,
+    author: annotation.commentAuthor,
+    createdAt: annotation.createdAt,
+    isSelected: selectedCommentAnnotationId === annotation.id,
+    onSelect: () => onSelectCommentAnnotation?.(annotation.id),
+    onDelete: () => onDeleteCommentAnnotation?.(annotation.id),
+  });
 
   return (
     <aside className="border-l border-border/50 bg-card/30 backdrop-blur-sm flex flex-col flex-shrink-0" style={{ width: width ?? 288 }}>

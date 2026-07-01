@@ -41,7 +41,7 @@ import { isTypingTarget, useReviewSearch, type ReviewSearchMatch } from './hooks
 import { useEditorAnnotations } from '@plannotator/ui/hooks/useEditorAnnotations';
 import { useExternalAnnotations } from '@plannotator/ui/hooks/useExternalAnnotations';
 import { useAgentJobs } from '@plannotator/ui/hooks/useAgentJobs';
-import { exportEditorAnnotations, exportAnnotations, parseMarkdownToBlocks } from '@plannotator/ui/utils/parser';
+import { exportEditorAnnotations } from '@plannotator/ui/utils/parser';
 import { ResizeHandle } from '@plannotator/ui/components/ResizeHandle';
 import { FolderTree } from 'lucide-react';
 import { DockviewReact, type DockviewReadyEvent, type DockviewApi } from 'dockview-react';
@@ -60,7 +60,7 @@ import { useDiffFreshness } from './hooks/useDiffFreshness';
 import { usePRSession, type PRSessionUpdate } from './hooks/usePRSession';
 import { useAnnotationFactory } from './hooks/useAnnotationFactory';
 import { DEMO_DIFF } from './demoData';
-import { exportReviewFeedback, exportCommentAnnotations } from './utils/exportFeedback';
+import { exportReviewFeedback, buildProseFeedback } from './utils/exportFeedback';
 import { parseDiffToFiles } from './utils/diffParser';
 import { ReviewSubmissionDialog, buildReviewSubmission, type ReviewSubmission, type SubmissionTarget } from './components/ReviewSubmissionDialog';
 import { ReviewStateProvider, type ReviewState } from './dock/ReviewStateContext';
@@ -1783,18 +1783,8 @@ const ReviewApp: React.FC = () => {
     if (editorAnnotations.length > 0) {
       output += exportEditorAnnotations(editorAnnotations);
     }
-    if (descriptionAnnotations.length > 0 && prContext?.body) {
-      output += '\n\n' + exportAnnotations(
-        parseMarkdownToBlocks(prContext.body),
-        descriptionAnnotations,
-        [],
-        'PR Description Feedback',
-        'PR description',
-      );
-    }
-    if (commentAnnotations.length > 0) {
-      output += '\n\n' + exportCommentAnnotations(commentAnnotations);
-    }
+    const prose = buildProseFeedback(descriptionAnnotations, commentAnnotations, prContext?.body);
+    if (prose) output += '\n\n' + prose;
     return output;
   }, [allAnnotations, prMetadata, feedbackDiffContext, prReviewScopeLabel, editorAnnotations, descriptionAnnotations, prContext?.body, commentAnnotations]);
 
@@ -2006,20 +1996,7 @@ const ReviewApp: React.FC = () => {
     // inline review comments — seed them into the review body instead (quoted),
     // where the user can edit before submitting. Also means a review with only
     // prose notes still has something to post.
-    const proseParts: string[] = [];
-    if (descriptionAnnotations.length > 0 && prContext?.body) {
-      proseParts.push(exportAnnotations(
-        parseMarkdownToBlocks(prContext.body),
-        descriptionAnnotations,
-        [],
-        'PR Description Feedback',
-        'PR description',
-      ));
-    }
-    if (commentAnnotations.length > 0) {
-      proseParts.push(exportCommentAnnotations(commentAnnotations));
-    }
-    setPlatformGeneralComment(proseParts.join('\n\n'));
+    setPlatformGeneralComment(buildProseFeedback(descriptionAnnotations, commentAnnotations, prContext?.body));
     setPlatformCommentDialog({ action, plan });
   }, [allAnnotations, editorAnnotations, files, prMetadata, descriptionAnnotations, commentAnnotations, prContext?.body]);
 

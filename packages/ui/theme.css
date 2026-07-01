@@ -677,3 +677,50 @@ body:has([data-popout="true"]) [data-sidebar-tabs="true"] {
   padding-left: 0.6rem;
   color: var(--muted-foreground);
 }
+
+/* Annotation highlights — shared by the plan editor and the code-review
+   description annotations. (Moved here from packages/editor/index.css so both
+   surfaces render web-highlighter marks identically.) */
+.annotation-highlight {
+  border-radius: 2px;
+  padding: 0 2px;
+  margin: 0 -2px;
+}
+
+.annotation-highlight.deletion {
+  background: oklch(from var(--destructive) l c h / 0.35);
+  text-decoration: line-through;
+  text-decoration-color: var(--destructive);
+  text-decoration-thickness: 2px;
+}
+
+.annotation-highlight.comment {
+  background: oklch(0.70 0.18 60 / 0.3);
+  border-bottom: 2px solid var(--accent);
+}
+
+/* Light mode: softer highlights */
+.light .annotation-highlight.deletion {
+  background: oklch(0.65 0.22 25 / 0.2);
+}
+
+.light .annotation-highlight.comment {
+  background: oklch(0.70 0.20 60 / 0.15);
+}
+
+.annotation-highlight.focused {
+  background: oklch(from var(--focus-highlight) l c h / 0.45) !important;
+  box-shadow: 0 0 8px oklch(from var(--focus-highlight) l c h / 0.4);
+  border-bottom: 2px solid var(--focus-highlight);
+  filter: none;
+}
+
+.light .annotation-highlight.focused {
+  background: oklch(0.70 0.22 200 / 0.3) !important;
+  box-shadow: 0 0 6px oklch(0.60 0.20 200 / 0.3);
+}
+
+.annotation-highlight:hover {
+  filter: brightness(1.2);
+  cursor: pointer;
+}

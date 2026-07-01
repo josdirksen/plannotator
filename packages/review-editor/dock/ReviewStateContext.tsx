@@ -1,5 +1,6 @@
 import React, { createContext, useContext } from 'react';
-import type { CodeAnnotation, CodeAnnotationType, SelectedLineRange, TokenAnnotationMeta, ConventionalLabel, ConventionalDecoration } from '@plannotator/ui/types';
+import type { CodeAnnotation, CodeAnnotationType, SelectedLineRange, TokenAnnotationMeta, ConventionalLabel, ConventionalDecoration, Annotation } from '@plannotator/ui/types';
+import type { CommentAskAIHandler } from '@plannotator/ui/components/CommentPopover';
 import type { AgentJobInfo } from '@plannotator/ui/types';
 import type { DiffFile, AnnotationScrollTarget } from '../types';
 import type { AIChatEntry } from '../hooks/useAIChat';
@@ -65,6 +66,16 @@ export interface ReviewState {
   /** Select AND scroll the diff to a comment (sidebar / findings-list click). */
   onNavigateToAnnotation: (id: string | null) => void;
   onDeleteAnnotation: (id: string) => void;
+
+  // PR description prose annotations (comment-only; text-anchored Annotation[],
+  // kept separate from the diff CodeAnnotation[] above).
+  descriptionAnnotations: Annotation[];
+  selectedDescriptionAnnotationId: string | null;
+  onAddDescriptionAnnotation: (ann: Annotation) => void;
+  onSelectDescriptionAnnotation: (id: string | null) => void;
+  onDeleteDescriptionAnnotation: (id: string) => void;
+  /** Ask AI about a selection in the PR description (file-less scope ask). */
+  onAskAIForDescription: CommentAskAIHandler;
 
   // Viewed / staged
   viewedFiles: Set<string>;

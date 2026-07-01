@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CodeAnnotation, type CodeAnnotationScope, type EditorAnnotation } from '@plannotator/ui/types';
+import { CodeAnnotation, type CodeAnnotationScope, type EditorAnnotation, type Annotation } from '@plannotator/ui/types';
 import { CommentMeta } from './CommentMeta';
 import { EditorAnnotationCard } from '@plannotator/ui/components/EditorAnnotationCard';
 import { CommentActions } from './CommentActions';
@@ -35,6 +35,11 @@ interface ReviewSidebarProps {
   width?: number;
   editorAnnotations?: EditorAnnotation[];
   onDeleteEditorAnnotation?: (id: string) => void;
+  // PR description prose annotations (comment-only) — shown in their own group.
+  descriptionAnnotations?: Annotation[];
+  selectedDescriptionAnnotationId?: string | null;
+  onSelectDescriptionAnnotation?: (id: string | null) => void;
+  onDeleteDescriptionAnnotation?: (id: string) => void;
   prMetadata?: PRMetadata | null;
   // AI props
   aiAvailable?: boolean;
@@ -122,6 +127,10 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
   width,
   editorAnnotations,
   onDeleteEditorAnnotation,
+  descriptionAnnotations,
+  selectedDescriptionAnnotationId,
+  onSelectDescriptionAnnotation,
+  onDeleteDescriptionAnnotation,
   prMetadata,
   aiAvailable = false,
   aiMessages = [],
@@ -146,7 +155,7 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
   externalAnnotations,
   onOpenJobDetail,
 }) => {
-  const totalCount = annotations.length + (editorAnnotations?.length ?? 0);
+  const totalCount = annotations.length + (editorAnnotations?.length ?? 0) + (descriptionAnnotations?.length ?? 0);
   const [copied, setCopied] = useState(false);
 
   const handleQuickCopy = async () => {
@@ -266,6 +275,46 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
     );
   }
 
+  // Prose annotations on the PR description — comment-only, anchored to selected
+  // text (no file/line). Mirrors renderAnnotationCard for visual consistency.
+  function renderDescriptionAnnotationCard(annotation: Annotation) {
+    const isSelected = selectedDescriptionAnnotationId === annotation.id;
+    return (
+      <div
+        key={annotation.id}
+        onClick={() => onSelectDescriptionAnnotation?.(annotation.id)}
+        className={`group relative p-2.5 rounded border cursor-pointer transition-colors duration-150 ${
+          isSelected ? 'bg-primary/5 border-primary/30' : 'border-transparent hover:bg-muted/30'
+        }`}
+      >
+        <CommentMeta
+          leading={
+            <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+              PR description
+            </span>
+          }
+          source={annotation.source}
+          author={annotation.author}
+          createdAt={annotation.createdA}
+        />
+        {annotation.originalText && (
+          <div className="mt-1 mb-1 border-l-2 border-border/40 pl-1.5 text-[11px] italic text-muted-foreground/80 line-clamp-1">
+            {annotation.originalText}
+          </div>
+        )}
+        {annotation.text && (
+          <div className="text-xs text-foreground/80 line-clamp-2 review-comment-markdown">
+            {renderInlineMarkdown(annotation.text)}
+          </div>
+        )}
+        <CommentActions
+          copyText={annotation.text || undefined}
+          onDelete={() => onDeleteDescriptionAnnotation?.(annotation.id)}
+        />
+      </div>
+    );
+  }
+
   return (
     <aside className="border-l border-border/50 bg-card/30 backdrop-blur-sm flex flex-col flex-shrink-0" style={{ width: width ?? 288 }}>
         {/* Header */}
@@ -378,6 +427,22 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
                       onDelete={() => onDeleteEditorAnnotation?.(ann.id)}
                     />
                   ))}
+                </>
+              )}
+
+              {/* PR description annotations */}
+              {descriptionAnnotations && descriptionAnnotations.length > 0 && (
+                <>
+                  {(annotations.length > 0 || (editorAnnotations?.length ?? 0) > 0) && (
+                    <div className="flex items-center gap-2 pt-2 pb-1">
+                      <div className="flex-1 border-t border-border/30" />
+                      <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/60">PR description</span>
+                      <div className="flex-1 border-t border-border/30" />
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    {descriptionAnnotations.map(renderDescriptionAnnotationCard)}
+                  </div>
                 </>
               )}
 

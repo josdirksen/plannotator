@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useEffect } from 'react';
-import DOMPurify from 'dompurify';
 import { parseMarkdownToBlocks } from '@plannotator/ui/utils/parser';
+import { sanitizeInlineHtml } from '@plannotator/ui/utils/sanitizeHtml';
 import { AnnotatableDescription } from './AnnotatableDescription';
 import { renderInlineMarkdown } from '../utils/renderInlineMarkdown';
 import type { PRContext, PRMetadata } from '@plannotator/shared/pr-types';
@@ -13,22 +13,6 @@ interface PRSummaryTabProps {
 /** Check if content contains HTML tags that should be rendered natively. */
 const HTML_TAG_RE = /<[a-z][a-z0-9]*[\s/>]/i;
 const containsHtml = (text: string) => HTML_TAG_RE.test(text);
-
-/** Sanitize HTML using DOMPurify — defense-in-depth for GitHub API content. */
-function sanitizeHtml(html: string): string {
-  return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: [
-      'sub', 'sup', 'b', 'i', 'em', 'strong', 'br', 'hr', 'p', 'span',
-      'del', 'ins', 'mark', 'small', 'abbr', 'kbd', 'var', 'samp',
-      'details', 'summary', 'blockquote', 'ul', 'ol', 'li',
-      'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre', 'code',
-      'table', 'thead', 'tbody', 'tr', 'th', 'td',
-      'a', 'img', 'div', 'video', 'source',
-    ],
-    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'rel', 'target', 'width', 'height', 'align',
-      'controls', 'poster', 'muted', 'loop', 'autoplay', 'playsinline', 'type'],
-  });
-}
 
 /** Renders sanitized HTML and hides broken images via ref (no inline event handlers). */
 function SafeHtml({ html, as: Tag = 'div' }: { html: string; as?: 'div' | 'span' }) {
@@ -49,7 +33,7 @@ function SafeHtml({ html, as: Tag = 'div' }: { html: string; as?: 'div' | 'span'
  */
 function renderContent(content: string): React.ReactNode {
   if (containsHtml(content)) {
-    return <SafeHtml html={sanitizeHtml(content)} as="span" />;
+    return <SafeHtml html={sanitizeInlineHtml(content)} as="span" />;
   }
   return renderInlineMarkdown(content);
 }
@@ -100,7 +84,7 @@ export function MarkdownBody({ markdown, textClassName = 'text-xs' }: { markdown
             if (!block.content) return null;
             // If the entire paragraph is HTML, sanitize and render
             if (containsHtml(block.content)) {
-              return <SafeHtml key={block.id} html={sanitizeHtml(block.content)} />;
+              return <SafeHtml key={block.id} html={sanitizeInlineHtml(block.content)} />;
             }
             return <p key={block.id}>{renderInlineMarkdown(block.content)}</p>;
         }

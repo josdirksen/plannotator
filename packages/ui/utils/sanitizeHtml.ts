@@ -14,7 +14,9 @@ const ALLOWED_TAGS = [
 const ALLOWED_ATTR = [
   'href', 'src', 'alt', 'title', 'rel', 'target', 'width', 'height', 'align',
   'open', // preserve <details open> default-expanded state
-  'controls', 'poster', 'muted', 'loop', 'autoplay', 'playsinline', 'type', // <video>/<source>
+  // <video>/<source> — deliberately no `autoplay`, so embedded clips don't play
+  // on their own when a comment/description scrolls into view.
+  'controls', 'poster', 'muted', 'loop', 'playsinline', 'type',
 ];
 
 /**
@@ -28,4 +30,13 @@ const ALLOWED_ATTR = [
 export function sanitizeBlockHtml(html: string): string {
   const rendered = marked.parse(html, { async: false, gfm: true, breaks: false }) as string;
   return DOMPurify.sanitize(rendered, { ALLOWED_TAGS, ALLOWED_ATTR });
+}
+
+/**
+ * Sanitize inline HTML that is already HTML (no markdown pass) — same allowlist
+ * as {@link sanitizeBlockHtml}. Used for inline GitHub content (e.g. PR comment
+ * spans) so the allowlist lives in exactly one place.
+ */
+export function sanitizeInlineHtml(html: string): string {
+  return DOMPurify.sanitize(html, { ALLOWED_TAGS, ALLOWED_ATTR });
 }

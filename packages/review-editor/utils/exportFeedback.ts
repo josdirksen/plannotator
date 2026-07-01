@@ -1,4 +1,4 @@
-import type { CodeAnnotation, ConventionalLabel, ConventionalDecoration } from '@plannotator/ui/types';
+import type { CodeAnnotation, ConventionalLabel, ConventionalDecoration, CommentAnnotation } from '@plannotator/ui/types';
 import type { PRMetadata } from '@plannotator/shared/pr-types';
 import { getMRLabel, getMRNumberLabel, getDisplayRepo } from '@plannotator/shared/pr-types';
 
@@ -248,4 +248,23 @@ export function exportReviewFeedback(
 
   output += generalSection;
   return output;
+}
+
+/**
+ * Format feedback from PR comment annotations. Unlike code (the agent can read
+ * the repo) a PR comment is invisible to the agent, so the full comment body is
+ * quoted inline alongside the reviewer's note.
+ */
+export function exportCommentAnnotations(annotations: CommentAnnotation[]): string {
+  if (annotations.length === 0) return '';
+  let output = '# PR Comment Feedback\n\n';
+  for (const ann of annotations) {
+    output += `## Comment by @${ann.commentAuthor}\n\n`;
+    if (ann.commentBody.trim()) {
+      const quoted = ann.commentBody.trim().split('\n').map(line => `> ${line}`).join('\n');
+      output += `${quoted}\n\n`;
+    }
+    output += `${ann.text}\n\n`;
+  }
+  return output.trimEnd() + '\n';
 }

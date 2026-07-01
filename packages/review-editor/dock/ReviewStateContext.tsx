@@ -1,5 +1,5 @@
 import React, { createContext, useContext } from 'react';
-import type { CodeAnnotation, CodeAnnotationType, SelectedLineRange, TokenAnnotationMeta, ConventionalLabel, ConventionalDecoration, Annotation } from '@plannotator/ui/types';
+import type { CodeAnnotation, CodeAnnotationType, SelectedLineRange, TokenAnnotationMeta, ConventionalLabel, ConventionalDecoration, Annotation, CommentAnnotation } from '@plannotator/ui/types';
 import type { CommentAskAIHandler } from '@plannotator/ui/components/CommentPopover';
 import type { AgentJobInfo } from '@plannotator/ui/types';
 import type { DiffFile, AnnotationScrollTarget } from '../types';
@@ -76,6 +76,15 @@ export interface ReviewState {
   onDeleteDescriptionAnnotation: (id: string) => void;
   /** Ask AI about a selection in the PR description (file-less scope ask). */
   onAskAIForDescription: CommentAskAIHandler;
+
+  // PR comment annotations (notes attached to a whole comment/review/thread).
+  commentAnnotations: CommentAnnotation[];
+  selectedCommentAnnotationId: string | null;
+  onAddCommentAnnotation: (commentId: string, commentAuthor: string, commentBody: string, text: string) => void;
+  onSelectCommentAnnotation: (id: string | null) => void;
+  onDeleteCommentAnnotation: (id: string) => void;
+  /** Ask AI about a PR comment (file-less scope ask, comment body as text). */
+  onAskAIForComment: CommentAskAIHandler;
 
   // Viewed / staged
   viewedFiles: Set<string>;

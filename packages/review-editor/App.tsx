@@ -27,7 +27,7 @@ import {
   markLookAndFeelAnnouncementSeen,
   needsLookAndFeelAnnouncement,
 } from '@plannotator/ui/utils/lookAndFeelAnnouncement';
-import { CodeAnnotation, CodeAnnotationType, SelectedLineRange, TokenAnnotationMeta, ConventionalLabel, ConventionalDecoration, Annotation } from '@plannotator/ui/types';
+import { CodeAnnotation, CodeAnnotationType, SelectedLineRange, TokenAnnotationMeta, ConventionalLabel, ConventionalDecoration, Annotation, CommentAnnotation } from '@plannotator/ui/types';
 import type { CommentAskAIHandler } from '@plannotator/ui/components/CommentPopover';
 import { useResizablePanel } from '@plannotator/ui/hooks/useResizablePanel';
 import { useCodeAnnotationDraft } from '@plannotator/ui/hooks/useCodeAnnotationDraft';
@@ -60,7 +60,7 @@ import { useDiffFreshness } from './hooks/useDiffFreshness';
 import { usePRSession, type PRSessionUpdate } from './hooks/usePRSession';
 import { useAnnotationFactory } from './hooks/useAnnotationFactory';
 import { DEMO_DIFF } from './demoData';
-import { exportReviewFeedback } from './utils/exportFeedback';
+import { exportReviewFeedback, exportCommentAnnotations } from './utils/exportFeedback';
 import { parseDiffToFiles } from './utils/diffParser';
 import { ReviewSubmissionDialog, buildReviewSubmission, type ReviewSubmission, type SubmissionTarget } from './components/ReviewSubmissionDialog';
 import { ReviewStateProvider, type ReviewState } from './dock/ReviewStateContext';
@@ -121,6 +121,9 @@ const ReviewApp: React.FC = () => {
   // PR description prose annotations (comment-only; separate from the diff store).
   const [descriptionAnnotations, setDescriptionAnnotations] = useState<Annotation[]>([]);
   const [selectedDescriptionAnnotationId, setSelectedDescriptionAnnotationId] = useState<string | null>(null);
+  // PR comment annotations (notes attached to a whole comment/review/thread).
+  const [commentAnnotations, setCommentAnnotations] = useState<CommentAnnotation[]>([]);
+  const [selectedCommentAnnotationId, setSelectedCommentAnnotationId] = useState<string | null>(null);
   // Sidebar-initiated "scroll to this comment" signal. The token bumps on every
   // sidebar click so re-selecting the same comment re-navigates. Selecting a
   // comment in the diff sets selectedAnnotationId but NOT this — so it never
@@ -1533,6 +1536,36 @@ const ReviewApp: React.FC = () => {
     });
   }, [askAI]);
 
+  // --- PR comment annotations (button-driven notes attached to a whole comment) ---
+  const handleAddCommentAnnotation = useCallback((commentId: string, commentAuthor: string, commentBody: string, text: string) => {
+    const ann: CommentAnnotation = {
+      id: crypto.randomUUID(),
+      commentId,
+      commentAuthor,
+      commentBody,
+      text,
+      createdAt: Date.now(),
+    };
+    setCommentAnnotations(prev => [...prev, ann]);
+    setSelectedCommentAnnotationId(ann.id);
+  }, []);
+
+  const handleSelectCommentAnnotation = useCallback((id: string | null) => {
+    setSelectedCommentAnnotationId(prev => (!id || prev === id ? null : id));
+  }, []);
+
+  const handleDeleteCommentAnnotation = useCallback((id: string) => {
+    setCommentAnnotations(prev => prev.filter(a => a.id !== id));
+    setSelectedCommentAnnotationId(prev => (prev === id ? null : prev));
+  }, []);
+
+  const handleAskAIForComment = useCallback<CommentAskAIHandler>((question, context) => {
+    askAI({
+      prompt: question,
+      scope: { kind: 'selection', label: context.label ?? 'PR comment', text: context.text },
+    });
+  }, [askAI]);
+
   // Sidebar navigation: select AND scroll-to the comment (DiffsHub "set +
   // scroll"). The token bump re-fires the panels' scroll effect even when the
   // same comment is clicked twice; in single-file mode it switches to the
@@ -1638,6 +1671,12 @@ const ReviewApp: React.FC = () => {
     onSelectDescriptionAnnotation: handleSelectDescriptionAnnotation,
     onDeleteDescriptionAnnotation: handleDeleteDescriptionAnnotation,
     onAskAIForDescription: handleAskAIForDescription,
+    commentAnnotations,
+    selectedCommentAnnotationId,
+    onAddCommentAnnotation: handleAddCommentAnnotation,
+    onSelectCommentAnnotation: handleSelectCommentAnnotation,
+    onDeleteCommentAnnotation: handleDeleteCommentAnnotation,
+    onAskAIForComment: handleAskAIForComment,
     viewedFiles,
     onToggleViewed: handleToggleViewed,
     stagedFiles,
@@ -1689,6 +1728,8 @@ const ReviewApp: React.FC = () => {
     allAnnotations, externalAnnotations,
     descriptionAnnotations, selectedDescriptionAnnotationId, handleAddDescriptionAnnotation,
     handleSelectDescriptionAnnotation, handleDeleteDescriptionAnnotation, handleAskAIForDescription,
+    commentAnnotations, selectedCommentAnnotationId, handleAddCommentAnnotation,
+    handleSelectCommentAnnotation, handleDeleteCommentAnnotation, handleAskAIForComment,
     selectedAnnotationId, scrollTargetAnnotation, pendingSelection, handleLineSelection,
     handleAddAnnotation, handleAddFileComment, handleAddFileCommentForFile, handleEditAnnotation,
     handleSelectAnnotation, handleNavigateToAnnotation, handleDeleteAnnotation, viewedFiles,
@@ -1753,10 +1794,13 @@ const ReviewApp: React.FC = () => {
         'PR description',
       );
     }
+    if (commentAnnotations.length > 0) {
+      output += '\n\n' + exportCommentAnnotations(commentAnnotations);
+    }
     return output;
-  }, [allAnnotations, prMetadata, feedbackDiffContext, prReviewScopeLabel, editorAnnotations, descriptionAnnotations, prContext?.body]);
+  }, [allAnnotations, prMetadata, feedbackDiffContext, prReviewScopeLabel, editorAnnotations, descriptionAnnotations, prContext?.body, commentAnnotations]);
 
-  const totalAnnotationCount = allAnnotations.length + editorAnnotations.length + descriptionAnnotations.length;
+  const totalAnnotationCount = allAnnotations.length + editorAnnotations.length + descriptionAnnotations.length + commentAnnotations.length;
 
   // Send feedback to OpenCode via API
   const handleSendFeedback = useCallback(async () => {
@@ -2628,6 +2672,10 @@ const ReviewApp: React.FC = () => {
                 selectedDescriptionAnnotationId={selectedDescriptionAnnotationId}
                 onSelectDescriptionAnnotation={handleSelectDescriptionAnnotation}
                 onDeleteDescriptionAnnotation={handleDeleteDescriptionAnnotation}
+                commentAnnotations={commentAnnotations}
+                selectedCommentAnnotationId={selectedCommentAnnotationId}
+                onSelectCommentAnnotation={handleSelectCommentAnnotation}
+                onDeleteCommentAnnotation={handleDeleteCommentAnnotation}
                 prMetadata={prMetadata}
                 aiAvailable={aiAvailable}
                 aiMessages={aiMessages}

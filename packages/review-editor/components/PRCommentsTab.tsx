@@ -6,6 +6,10 @@ import { DiffHunkPreview } from './DiffHunkPreview';
 import { OverlayScrollArea } from '@plannotator/ui/components/OverlayScrollArea';
 import { getItem, setItem } from '@plannotator/ui/utils/storage';
 import * as Popover from '@radix-ui/react-popover';
+import { CommentPopover } from '@plannotator/ui/components/CommentPopover';
+import { useReviewState } from '../dock/ReviewStateContext';
+
+type AnnotateFn = (commentId: string, author: string, body: string, anchorEl: HTMLElement) => void;
 
 const HIDE_BOTS_KEY = 'plannotator-pr-hide-bots';
 
@@ -162,6 +166,13 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [excludedAuthors, setExcludedAuthors] = useState<Set<string>>(new Set());
+
+  // Comment annotation: the "Annotate" button on a card opens one comment box.
+  const { onAddCommentAnnotation, onAskAIForComment } = useReviewState();
+  const [annotating, setAnnotating] = useState<{ commentId: string; author: string; body: string; anchorEl: HTMLElement } | null>(null);
+  const handleAnnotate = useCallback<AnnotateFn>((commentId, author, body, anchorEl) => {
+    setAnnotating({ commentId, author, body, anchorEl });
+  }, []);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -474,6 +485,7 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
                   isCollapsed={isCollapsed}
                   onSelect={() => setSelectedId(isSelected ? null : id)}
                   onToggleCollapse={() => toggleCollapsed(id)}
+                  onAnnotate={handleAnnotate}
                 />
               );
             }
@@ -533,6 +545,9 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
                   <PRCommentLinkActions
                     url={entry.kind === 'comment' ? (entry.data as PRComment).url : (entry.data as PRReview).url}
                     body={entry.data.body}
+                    commentId={id}
+                    author={entry.data.author || 'unknown'}
+                    onAnnotate={handleAnnotate}
                   />
                 )}
               </div>
@@ -542,6 +557,21 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
         </div>
       </div>
       </OverlayScrollArea>
+
+      {annotating && (
+        <CommentPopover
+          anchorEl={annotating.anchorEl}
+          contextText={annotating.body ? annotating.body.slice(0, 80) : `comment by ${annotating.author}`}
+          isGlobal={false}
+          onSubmit={(text) => {
+            onAddCommentAnnotation(annotating.commentId, annotating.author, annotating.body, text);
+            setAnnotating(null);
+          }}
+          onClose={() => setAnnotating(null)}
+          onAskAI={onAskAIForComment}
+          askAIContext={{ kind: 'selection', label: 'PR comment', text: annotating.body }}
+        />
+      )}
     </div>
   );
 });
@@ -550,12 +580,13 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
 // Subcomponents
 // ---------------------------------------------------------------------------
 
-function ThreadCard({ thread, isSelected, isCollapsed, onSelect, onToggleCollapse }: {
+function ThreadCard({ thread, isSelected, isCollapsed, onSelect, onToggleCollapse, onAnnotate }: {
   thread: PRReviewThread;
   isSelected: boolean;
   isCollapsed: boolean;
   onSelect: () => void;
   onToggleCollapse: () => void;
+  onAnnotate: AnnotateFn;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const first = thread.comments[0];
@@ -676,18 +707,42 @@ function ThreadCard({ thread, isSelected, isCollapsed, onSelect, onToggleCollaps
           )}
 
           {/* Actions */}
-          <PRCommentLinkActions url={first.url} body={first.body} />
+          <PRCommentLinkActions
+            url={first.url}
+            body={first.body}
+            commentId={thread.id}
+            author={first.author || 'unknown'}
+            onAnnotate={onAnnotate}
+          />
         </>
       )}
     </div>
   );
 }
 
-function PRCommentLinkActions({ url, body }: { url?: string; body: string }) {
-  if (!url && !body) return null;
+function PRCommentLinkActions({ url, body, commentId, author, onAnnotate }: {
+  url?: string;
+  body: string;
+  commentId?: string;
+  author?: string;
+  onAnnotate?: AnnotateFn;
+}) {
+  if (!url && !body && !onAnnotate) return null;
 
   return (
     <div className="mt-2 pt-2 border-t border-border/20 flex items-center justify-end gap-1 opacity-0 group-hover/card:opacity-100 transition-opacity duration-100">
+      {onAnnotate && commentId && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onAnnotate(commentId, author || 'unknown', body, e.currentTarget); }}
+          className="mr-auto flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded hover:bg-muted/30 transition-colors"
+        >
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+          </svg>
+          Annotate
+        </button>
+      )}
       {url && (
         <a
           href={url}

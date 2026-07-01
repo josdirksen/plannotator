@@ -101,6 +101,21 @@ export type ConventionalLabel =
 /** Conventional Comments decoration (parenthesized modifier) */
 export type ConventionalDecoration = 'blocking' | 'non-blocking' | 'if-minor';
 
+/**
+ * A note attached to a whole PR comment/review/thread (code-review Phase 2).
+ * Button-driven (not text-anchored): the reviewer clicks "Annotate" on a card
+ * and leaves a note. The comment body travels with it so the agent — which
+ * can't see PR discussion — receives the full context on export.
+ */
+export interface CommentAnnotation {
+  id: string;
+  commentId: string;      // the timeline entry id (matches data-comment-id on the card)
+  commentAuthor: string;
+  commentBody: string;
+  text: string;           // the reviewer's note
+  createdAt: number;
+}
+
 export interface CodeAnnotation {
   id: string;
   type: CodeAnnotationType;

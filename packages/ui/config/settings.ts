@@ -301,7 +301,10 @@ export const SETTINGS = {
       }
     },
   },
-} satisfies Record<string, SettingDef<unknown>>;
+  /* SettingDef<any>, not <unknown>: consumers compile this shipped source under
+     their own strictFunctionTypes, where a narrow `toCookie: (v: string) => void`
+     is contravariantly incompatible with `(value: unknown) => void`. */
+} satisfies Record<string, SettingDef<any>>;
 
 export type SettingsMap = typeof SETTINGS;
 export type SettingName = keyof SettingsMap;

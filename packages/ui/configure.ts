@@ -1,7 +1,7 @@
 import { setImageSrcResolver, type ImageSrcResolver } from './components/ImageThumbnail';
-import { setDocPreviewFetcher, type DocPreviewFetcher } from './components/InlineMarkdown';
+import { setDocPreviewFetcher, type DocPreviewFetcher, type DocPreviewResult } from './components/InlineMarkdown';
 import { setStorageBackend, type StorageBackend } from './utils/storage';
-import { setUploadTransport, type UploadTransport } from './utils/upload';
+import { setUploadTransport, type UploadTransport, type UploadResult } from './utils/upload';
 import { setIdentityProvider, type IdentityProvider } from './utils/identity';
 import { setFileTreeBackend, type FileTreeBackend } from './hooks/useFileBrowser';
 import { setDraftTransport, type DraftTransport } from './hooks/useAnnotationDraft';
@@ -9,6 +9,26 @@ import { setExternalAnnotationTransport, type ExternalAnnotationTransport } from
 import { setAITransport, type AITransport } from './hooks/useAIChat';
 import { configStore } from './config';
 import type { ServerSyncFn } from './config/configStore';
+import type { ExternalAnnotationEvent, VaultNode } from './types';
+
+// One-stop type barrel: every seam contract a host implements is importable
+// from this module, next to configurePlannotatorUI itself.
+export type {
+  ImageSrcResolver,
+  DocPreviewFetcher,
+  DocPreviewResult,
+  StorageBackend,
+  UploadTransport,
+  UploadResult,
+  IdentityProvider,
+  FileTreeBackend,
+  VaultNode,
+  DraftTransport,
+  ExternalAnnotationTransport,
+  ExternalAnnotationEvent,
+  AITransport,
+  ServerSyncFn,
+};
 
 type ExternalAnnotationBase = { id: string; source?: string };
 

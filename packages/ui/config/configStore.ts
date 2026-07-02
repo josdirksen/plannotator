@@ -56,10 +56,22 @@ class ConfigStore {
   private serverSyncTimer: ReturnType<typeof setTimeout> | null = null;
   private pagehideFlushRegistered = false;
   private serverSync: ServerSyncFn = defaultServerSync;
+  private loaded = false;
 
-  constructor() {
-    // Eagerly resolve all settings from synchronous sources (cookie > default).
-    // The store is safe to read from the moment it's created.
+  /**
+   * Resolve all settings from the LIVE storage backend (cookie > default) on
+   * first use — deliberately not in the constructor. The singleton is created
+   * at module import, which for a host app is before configurePlannotatorUI()
+   * can install its StorageBackend; resolving eagerly there would write every
+   * missing default (including a generated identity) as cookies onto the host's
+   * origin. Deferring to first use means a host that configures at startup gets
+   * its own backend for the initial resolution too — no cookies are ever
+   * written on a configured host. Plannotator is unchanged: same resolution,
+   * same default-seeding writes, on first settings access instead of at import.
+   */
+  private ensureLoaded(): void {
+    if (this.loaded) return;
+    this.loaded = true;
     for (const [name, def] of Object.entries(SETTINGS)) {
       const fromCookie = def.fromCookie();
       const defaultVal = typeof def.defaultValue === 'function'
@@ -84,16 +96,20 @@ class ConfigStore {
    * after init() would silently overwrite server-supplied settings.
    */
   loadFromBackend(): void {
+    this.ensureLoaded();
     for (const [name, def] of Object.entries(SETTINGS)) {
       const fromBackend = def.fromCookie();
       if (fromBackend !== undefined) {
         this.values.set(name, fromBackend);
       } else {
-        // Seed the host backend with the resolved default. The constructor ran
-        // at module load — before the host installed its StorageBackend — so its
-        // default-seeding writes went to the pre-install (cookie) backend, not
-        // this one. Without this, a fresh host store is never populated, so
-        // generated defaults (e.g. displayName) regenerate on every reload.
+        // Seed the host backend with the resolved default. This matters when
+        // the store was already resolved BEFORE the host installed its
+        // StorageBackend (e.g. something read a setting pre-configure): those
+        // default-seeding writes went to the earlier backend, not this one.
+        // Without this, a fresh host store is never populated, so generated
+        // defaults (e.g. displayName) regenerate on every reload. In the normal
+        // configure-at-startup flow ensureLoaded() above already resolved
+        // through the host backend and this loop is a no-op re-read.
         def.toCookie(this.values.get(name) as never);
       }
     }
@@ -108,6 +124,7 @@ class ConfigStore {
    * by the constructor. Settings without a server value are left untouched.
    */
   init(serverConfig?: Record<string, unknown>): void {
+    this.ensureLoaded();
     if (serverConfig) {
       for (const [name, def] of Object.entries(SETTINGS)) {
         if (def.serverKey && def.fromServer) {
@@ -124,11 +141,13 @@ class ConfigStore {
 
   /** Get a resolved config value. Works outside React. */
   get<K extends SettingName>(key: K): SettingValue<K> {
+    this.ensureLoaded();
     return this.values.get(key) as SettingValue<K>;
   }
 
   /** Set a config value. Writes cookie (sync), queues server write-back if applicable. */
   set<K extends SettingName>(key: K, value: SettingValue<K>): void {
+    this.ensureLoaded();
     const def = SETTINGS[key];
     this.values.set(key, value);
     def.toCookie(value as never);

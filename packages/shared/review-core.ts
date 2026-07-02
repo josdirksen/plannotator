@@ -451,7 +451,7 @@ export async function getGitContext(
   // old guard hid the active mode's option, trapping them. Unconditional
   // emission keeps the active option reachable in every flow.
   if (defaultBranch) {
-    diffOptions.push({ id: "merge-base", label: "Committed changes" });
+    diffOptions.push({ id: "merge-base", label: "Committed changes (PR view)" });
   }
 
   diffOptions.push({ id: "all", label: "All files (HEAD)" });

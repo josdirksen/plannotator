@@ -133,7 +133,7 @@ const DEFAULT_DIFF_TYPE_OPTIONS = [
   { value: 'uncommitted' as const, label: 'All Changes', description: "Everything you've changed since your last commit" },
   { value: 'unstaged' as const, label: 'Unstaged', description: "Only changes you haven't staged yet" },
   { value: 'staged' as const, label: 'Staged', description: "Only changes you've staged for commit" },
-  { value: 'merge-base' as const, label: 'Committed changes', description: "Everything you've committed on this branch" },
+  { value: 'merge-base' as const, label: 'Committed changes (PR view)', description: "Everything you've committed on this branch" },
   { value: 'all' as const, label: 'All Files (HEAD)', description: "Every tracked file at HEAD, shown as additions" },
 ];
 

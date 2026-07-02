@@ -36,7 +36,7 @@ const DIFF_OPTIONS: { value: DiffChoice; label: string; tag?: string; desc: stri
   { value: 'uncommitted', label: 'All changes', desc: "Everything you've changed since your last commit." },
   { value: 'unstaged', label: 'Unstaged', desc: "Only changes you haven't staged yet." },
   { value: 'staged', label: 'Staged', desc: "Only changes you've staged for commit." },
-  { value: 'merge-base', label: 'Committed changes', desc: 'Commits on this branch vs the base — the literal PR view.' },
+  { value: 'merge-base', label: 'Committed changes (PR view)', desc: 'Commits on this branch vs the base — the literal PR view.' },
   { value: 'all', label: 'All files (HEAD)', desc: 'Every tracked file at HEAD, shown as additions.' },
 ];
 

@@ -194,7 +194,7 @@ export function getLocalDiffInstruction(
       const base = defaultBranch || "main";
       return {
         target: `all changes since the merge-base with '${base}' — committed, uncommitted, and untracked; the full set a PR would show once it is all committed and pushed`,
-        inspect: `First find the common ancestor with \`git merge-base ${base} HEAD\`, then run \`git diff <merge-base>\` (no right-hand ref — it compares against the working tree) to inspect the changes; untracked files are included separately.`,
+        inspect: `First find the common ancestor with \`git merge-base ${base} HEAD\`, then run \`git diff <merge-base>\` (no right-hand ref — it compares against the working tree) to inspect committed + uncommitted changes. That diff does NOT include untracked files, so also list them with \`git status --porcelain\` (or \`git ls-files --others --exclude-standard\`) and read each new file directly — they are part of this review.`,
       };
     }
     case "uncommitted":

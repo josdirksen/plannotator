@@ -10,9 +10,33 @@ import {
   listRecentCommits,
   parseWorktreeDiffType,
   runGitDiff,
+  splitPorcelainRename,
   type DiffType,
   type ReviewGitRuntime,
 } from "./review-core";
+
+describe("splitPorcelainRename", () => {
+  test("splits a plain rename on the top-level separator", () => {
+    expect(splitPorcelainRename("old.txt -> new.txt")).toEqual(["old.txt", "new.txt"]);
+  });
+  test("returns a single token for a non-rename path", () => {
+    expect(splitPorcelainRename("src/app.ts")).toEqual(["src/app.ts"]);
+  });
+  test("does NOT split on ` -> ` inside a quoted filename", () => {
+    // A file literally named `weird -> file.txt` is git-quoted; the internal
+    // separator must be ignored so the real file keeps its entry.
+    expect(splitPorcelainRename('"weird -> file.txt"')).toEqual(['"weird -> file.txt"']);
+  });
+  test("splits a rename whose sides are both quoted and contain the separator", () => {
+    expect(splitPorcelainRename('"a -> b.txt" -> "c -> d.txt"')).toEqual([
+      '"a -> b.txt"',
+      '"c -> d.txt"',
+    ]);
+  });
+  test("splits a rename with only the from-side quoted", () => {
+    expect(splitPorcelainRename('"a b.txt" -> new.txt')).toEqual(['"a b.txt"', "new.txt"]);
+  });
+});
 
 const tempDirs: string[] = [];
 

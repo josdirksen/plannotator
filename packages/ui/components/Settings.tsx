@@ -133,7 +133,7 @@ const DEFAULT_DIFF_TYPE_OPTIONS = [
   { value: 'uncommitted' as const, label: 'All Changes', description: "Everything you've changed since your last commit" },
   { value: 'unstaged' as const, label: 'Unstaged', description: "Only changes you haven't staged yet" },
   { value: 'staged' as const, label: 'Staged', description: "Only changes you've staged for commit" },
-  { value: 'merge-base' as const, label: 'Committed', description: "Everything you've committed on this branch" },
+  { value: 'merge-base' as const, label: 'Committed changes', description: "Everything you've committed on this branch" },
   { value: 'all' as const, label: 'All Files (HEAD)', description: "Every tracked file at HEAD, shown as additions" },
 ];
 
@@ -226,7 +226,13 @@ const GitTab: React.FC = () => {
           <button
             key={opt.value}
             type="button"
-            onClick={() => configStore.set('defaultDiffType', opt.value)}
+            onClick={() => {
+              configStore.set('defaultDiffType', opt.value);
+              // Mirror the coupling the segmented control enforces, so the two
+              // controls can't disagree: since-base ⇒ Git-status view; any
+              // classic diff ⇒ Tree (the sections view only renders since-base).
+              configStore.set('reviewPanelView', opt.value === 'since-base' ? 'sections' : 'tree');
+            }}
             className={`w-full flex items-start gap-3 p-3 rounded-lg border transition-colors text-left ${
               defaultDiffType === opt.value
                 ? 'border-primary bg-primary/5'

@@ -484,15 +484,27 @@ export async function startReviewServer(options: {
 	// Decoupled startup probes (a forwarded initialBase must NOT suppress the
 	// staleness check — the Pi divergence): always probe remote staleness, and
 	// only upgrade currentBase to the upstream ref when no explicit base given.
+	// Upgrade currentBase to the upstream tracking ref ("origin/main") when no
+	// explicit base was requested, OR when the forwarded base is just the bare
+	// LOCAL name of that same default ("main"). Only origin/* is fetchable, so
+	// leaving currentBase as bare "main" makes the "behind GitHub" banner
+	// un-clearable (Fetch advances origin/main, not local main). Canonicalizing
+	// "main" -> "origin/main" never overrides a deliberately-chosen feature base.
 	if (options.gitContext && !isPRMode) {
-		if (!options.initialBase) {
-			detectRemoteDefaultCompareTarget(options.gitContext.cwd, sessionVcsType).then((remote) => {
-				if (remote && !baseEverSwitched) currentBase = remote;
+		detectRemoteDefaultCompareTarget(options.gitContext.cwd, sessionVcsType).then(
+			(remote) => {
+				if (remote && !baseEverSwitched) {
+					const localName = remote.replace(/^origin\//, "");
+					if (!options.initialBase || currentBase === localName || currentBase === remote) {
+						currentBase = remote;
+					}
+				}
 				void refreshRemoteBaseInfo().catch(() => {});
-			});
-		} else {
-			void refreshRemoteBaseInfo().catch(() => {});
-		}
+			},
+			() => {
+				void refreshRemoteBaseInfo().catch(() => {});
+			},
+		);
 	}
 
 	// Agent jobs — background process manager (late-binds serverUrl via getter)
@@ -1065,6 +1077,10 @@ export async function startReviewServer(options: {
 		} else if (url.pathname === "/api/semantic-diff" && req.method === "GET") {
 			json(res, await getSemanticDiff(url));
 		} else if (url.pathname === "/api/diff/switch" && req.method === "POST") {
+			// Capture the ordering token BEFORE any await — body delivery can
+			// finish out of arrival order under network jitter, so capturing after
+			// parseBody let a slow-body OLDER request overwrite a newer one.
+			const switchEpoch = ++diffSwitchEpoch;
 			if (!hasLocalAccess && !workspace) {
 				json(res, { error: "Not available without local file access" }, 400);
 				return;
@@ -1076,14 +1092,21 @@ export async function startReviewServer(options: {
 					json(res, { error: "Missing diffType" }, 400);
 					return;
 				}
-				if (typeof body.hideWhitespace === "boolean") {
-					currentHideWhitespace = body.hideWhitespace;
-				}
+				// Don't commit hideWhitespace to shared state until we win the
+				// epoch check — a superseded request must not leave its value.
+				const effectiveHideWhitespace = typeof body.hideWhitespace === "boolean"
+					? body.hideWhitespace
+					: currentHideWhitespace;
 				if (workspace) {
 					const snapshot = await workspace.rebuild({
 						diffType: newType,
-						hideWhitespace: currentHideWhitespace,
+						hideWhitespace: effectiveHideWhitespace,
 					});
+					if (switchEpoch !== diffSwitchEpoch) {
+						json(res, { superseded: true });
+						return;
+					}
+					currentHideWhitespace = effectiveHideWhitespace;
 					currentPatch = snapshot.rawPatch;
 					currentGitRef = snapshot.gitRef;
 					currentDiffType = workspace.diffType;
@@ -1109,15 +1132,15 @@ export async function startReviewServer(options: {
 					detectedBase,
 				);
 				const defaultCwd = options.gitContext?.cwd;
-				const switchEpoch = ++diffSwitchEpoch;
 				const result = await runVcsDiff(newType as DiffType, base, defaultCwd, {
-					hideWhitespace: currentHideWhitespace,
+					hideWhitespace: effectiveHideWhitespace,
 				});
 				// A newer switch superseded us — don't touch shared state.
 				if (switchEpoch !== diffSwitchEpoch) {
 					json(res, { superseded: true });
 					return;
 				}
+				currentHideWhitespace = effectiveHideWhitespace;
 				currentPatch = result.patch;
 				currentGitRef = result.label;
 				currentDiffType = newType;

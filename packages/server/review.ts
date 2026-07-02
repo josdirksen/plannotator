@@ -426,17 +426,28 @@ export async function startReviewServer(
   // Two independent startup probes (decoupled so a forwarded initialBase can't
   // suppress the staleness check — the Pi divergence):
   //  1. Always probe remote staleness once at boot.
-  //  2. Only when NO explicit base was requested, upgrade currentBase from the
-  //     local fallback ("main") to the upstream ref ("origin/main").
+  //  2. Upgrade currentBase to the upstream tracking ref ("origin/main") when
+  //     no explicit base was requested, OR when the forwarded base is just the
+  //     bare LOCAL name of that same default ("main"). Only origin/* is
+  //     fetchable — leaving currentBase as bare "main" makes the "behind GitHub"
+  //     banner un-clearable, since Fetch advances origin/main, not local main.
+  //     Canonicalizing "main" -> "origin/main" is safe; it never overrides a
+  //     deliberately-chosen different base (a feature branch is left as-is).
   if (gitContext && !isPRMode) {
-    if (!options.initialBase) {
-      detectRemoteDefaultCompareTarget(gitContext.cwd, sessionVcsType).then((remote) => {
-        if (remote && !baseEverSwitched) currentBase = remote;
+    detectRemoteDefaultCompareTarget(gitContext.cwd, sessionVcsType).then(
+      (remote) => {
+        if (remote && !baseEverSwitched) {
+          const localName = remote.replace(/^origin\//, "");
+          if (!options.initialBase || currentBase === localName || currentBase === remote) {
+            currentBase = remote;
+          }
+        }
         void refreshRemoteBaseInfo().catch(() => {});
-      });
-    } else {
-      void refreshRemoteBaseInfo().catch(() => {});
-    }
+      },
+      () => {
+        void refreshRemoteBaseInfo().catch(() => {});
+      },
+    );
   }
 
   // --- Since-base sections sidecar ------------------------------------------
@@ -1138,6 +1149,11 @@ export async function startReviewServer(
 
           // API: Switch diff type (requires local file access)
           if (url.pathname === "/api/diff/switch" && req.method === "POST") {
+            // Capture the ordering token BEFORE any await. Body delivery can
+            // finish out of arrival order under network jitter, so capturing the
+            // epoch after `await req.json()` let a slow-body OLDER request bump
+            // last and overwrite a newer, already-confirmed switch.
+            const switchEpoch = ++diffSwitchEpoch;
             if (!hasLocalAccess && !workspace) {
               return Response.json(
                 { error: "Not available without local file access" },
@@ -1155,15 +1171,22 @@ export async function startReviewServer(
                 );
               }
 
-              if (typeof body.hideWhitespace === "boolean") {
-                currentHideWhitespace = body.hideWhitespace;
-              }
+              // Don't commit hideWhitespace to shared state yet — a request that
+              // ends up superseded must not leave its value behind. Compute the
+              // diff with a local, then commit only if we win the epoch check.
+              const effectiveHideWhitespace = typeof body.hideWhitespace === "boolean"
+                ? body.hideWhitespace
+                : currentHideWhitespace;
 
               if (workspace) {
                 const snapshot = await workspace.rebuild({
                   diffType: newDiffType,
-                  hideWhitespace: currentHideWhitespace,
+                  hideWhitespace: effectiveHideWhitespace,
                 });
+                if (switchEpoch !== diffSwitchEpoch) {
+                  return Response.json({ superseded: true });
+                }
+                currentHideWhitespace = effectiveHideWhitespace;
                 currentPatch = snapshot.rawPatch;
                 currentGitRef = snapshot.gitRef;
                 currentDiffType = workspace.diffType;
@@ -1190,11 +1213,9 @@ export async function startReviewServer(
               const base = resolveReviewBase(requestedBase);
               const defaultCwd = gitContext?.cwd;
 
-              const switchEpoch = ++diffSwitchEpoch;
-
               // Run the new diff
               const result = await runVcsDiff(newDiffType as DiffType, base, defaultCwd, {
-                hideWhitespace: currentHideWhitespace,
+                hideWhitespace: effectiveHideWhitespace,
               });
 
               // A newer switch started while we computed — abandon before
@@ -1203,7 +1224,8 @@ export async function startReviewServer(
                 return Response.json({ superseded: true });
               }
 
-              // Update state
+              // Update state (commit hideWhitespace only now that we've won).
+              currentHideWhitespace = effectiveHideWhitespace;
               currentPatch = result.patch;
               currentGitRef = result.label;
               currentDiffType = newDiffType;

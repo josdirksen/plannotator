@@ -53,8 +53,9 @@ export const DiffTypePicker: React.FC<DiffTypePickerProps> = ({
   // base-dependent labels — the branch belongs in the picker.
   const displayLabel = (opt: DiffOption) => {
     if (!hasBasePicker) return opt.label;
-    if (opt.id === 'merge-base') return 'Committed changes (PR view)';
-    if (opt.id === 'since-base') return 'Since main';
+    if (opt.id === 'merge-base') return 'Committed changes';
+    // since-base falls through to opt.label — the dynamic "Since <base>" from
+    // getGitContext — so the dropdown matches the live header.
     return opt.label;
   };
 

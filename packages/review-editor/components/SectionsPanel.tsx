@@ -347,7 +347,7 @@ export const SectionsPanel: React.FC<SectionsPanelProps> = ({
   const renderRows = (list: SectionItem[]) =>
     list.map((item) => (
       <SectionRow
-        key={item.file.path}
+        key={item.index}
         item={item}
         isActive={item.index === activeFileIndex}
         isScrollActive={item.index !== activeFileIndex && scrollHighlightIndex != null && item.index === scrollHighlightIndex}

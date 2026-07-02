@@ -412,8 +412,26 @@ export async function getGitContext(
   // "Since <base>" — the composite default: merge-base(base, HEAD) vs the
   // working tree plus untracked. Everything a PR would show if pushed now.
   // Emitted first so it wins resolveInitialDiffType's diffOptions[0] fallback.
+  //
+  // Only offer it when the base ref actually resolves. getDefaultBranch returns
+  // a literal "master" as a last resort even when no such ref exists (a repo
+  // whose trunk is e.g. `trunk`, or a clone with no origin/HEAD). If we offered
+  // since-base there it would become the auto-default, then merge-base fails and
+  // the diff degrades to HEAD — silently hiding all committed branch work. When
+  // it's absent, resolveInitialDiffType falls through to `uncommitted`.
   if (defaultBranch) {
-    diffOptions.push({ id: "since-base", label: "Since main" });
+    const baseResolves = (
+      await runtime.runGit(
+        ["rev-parse", "--verify", "--quiet", "--end-of-options", `${defaultBranch}^{commit}`],
+        { cwd },
+      )
+    ).exitCode === 0;
+    if (baseResolves) {
+      // Dynamic label so it matches the live gitRef header ("Since origin/main"
+      // / "Since master") rather than a hardcoded "Since main" that contradicts
+      // it on non-main repos. The product/first-run copy keeps "Since main".
+      diffOptions.push({ id: "since-base", label: `Since ${displayRef(defaultBranch)}` });
+    }
   }
 
   diffOptions.push(
@@ -473,12 +491,37 @@ export async function getGitContext(
   };
 }
 
+/**
+ * Collect the repo-relative paths that already appear in a tracked diff (from
+ * its `--- a/…` / `+++ b/…` headers). Used to keep a path from being emitted
+ * twice in a composite patch — e.g. `git rm --cached f` shows f as a tracked
+ * deletion AND as an untracked file, and two diff entries for one path collide
+ * on the path-keyed dock/selection layer (wrong file opens, j/k nav loops).
+ */
+function extractTrackedPatchPaths(patch: string): Set<string> {
+  const paths = new Set<string>();
+  for (const line of patch.split("\n")) {
+    let rest: string | null = null;
+    if (line.startsWith("--- ")) rest = line.slice(4);
+    else if (line.startsWith("+++ ")) rest = line.slice(4);
+    else continue;
+    if (!rest || rest === "/dev/null") continue;
+    // The runtime forces core.quotePath=false so paths are normally unquoted;
+    // unquote defensively in case a caller runs without that wrapper.
+    const unq = rest.startsWith('"') ? unquoteGitPath(rest) : rest;
+    const stripped = unq.length > 2 ? unq.slice(2) : unq; // drop a/ or b/
+    if (stripped) paths.add(stripped);
+  }
+  return paths;
+}
+
 async function getUntrackedFileDiffs(
   runtime: ReviewGitRuntime,
   srcPrefix = "a/",
   dstPrefix = "b/",
   cwd?: string,
   options?: GitDiffOptions,
+  excludePaths?: Set<string>,
 ): Promise<string> {
   // git ls-files scopes to the CWD subtree and returns CWD-relative paths,
   // unlike git diff HEAD which always covers the full repo with root-relative
@@ -500,7 +543,10 @@ async function getUntrackedFileDiffs(
   const files = lsResult.stdout
     .trim()
     .split("\n")
-    .filter((file) => file.length > 0);
+    .filter((file) => file.length > 0)
+    // Skip untracked paths already represented in the tracked patch so a single
+    // path never yields two diff entries (see extractTrackedPatchPaths).
+    .filter((file) => !excludePaths || !excludePaths.has(file));
 
   if (files.length === 0) return "";
 
@@ -647,6 +693,7 @@ export async function runGitDiff(
           "b/",
           cwd,
           options,
+          extractTrackedPatchPaths(trackedPatch),
         );
         patch = trackedPatch + untrackedDiff;
         label = `Since ${displayRef(defaultBranch)}`;
@@ -677,6 +724,7 @@ export async function runGitDiff(
           "b/",
           cwd,
           options,
+          extractTrackedPatchPaths(trackedPatch),
         );
         patch = trackedPatch + untrackedDiff;
         label = "Uncommitted changes";
@@ -719,6 +767,7 @@ export async function runGitDiff(
           "b/",
           cwd,
           options,
+          extractTrackedPatchPaths(trackedDiff.stdout),
         );
         patch = trackedDiff.stdout + untrackedDiff;
         label = "Unstaged changes";
@@ -933,9 +982,18 @@ export async function getGitDiffFingerprint(
         // on disk (so the fingerprint would go blind to edits on those files).
         .map((line) => unquoteGitPath(line.slice(3).trim()))
         .slice(0, MAX_UNTRACKED_FINGERPRINT_FILES);
-      for (const path of untracked) {
-        const content = await runtime.readTextFile(cwd ? resolvePath(cwd, path) : path);
-        parts.push(content != null ? hashFingerprintPart(content) : "unreadable");
+      if (untracked.length > 0) {
+        // Porcelain paths are repo-root-relative, NOT cwd-relative. Resolve them
+        // against the git toplevel so a review launched from a subdirectory can
+        // still read (and hash edits to) untracked files — resolving against cwd
+        // double-prefixes the path, readTextFile returns null, and the untracked
+        // half of the fingerprint goes permanently blind.
+        const top = await runReadOnlyGit(["rev-parse", "--show-toplevel"]);
+        const baseDir = top.exitCode === 0 ? top.stdout.trim() : cwd;
+        for (const path of untracked) {
+          const content = await runtime.readTextFile(baseDir ? resolvePath(baseDir, path) : path);
+          parts.push(content != null ? hashFingerprintPart(content) : "unreadable");
+        }
       }
       return true;
     };
@@ -946,9 +1004,13 @@ export async function getGitDiffFingerprint(
         // in `parts`) catches commits that only re-partition the sections;
         // the status hash inside hashUntracked catches stage/unstage flips.
         if (headSha !== "no-head") {
+          // Degrade to HEAD when merge-base fails (base ref unresolvable, or the
+          // base and HEAD have unrelated histories). runGitDiff/getSinceBaseSections/
+          // getFileContentsForDiff all fall back to HEAD; the fingerprint must too,
+          // or `null` here would report "always fresh" and the staleness banner
+          // would never fire for the whole session on such repos.
           const mb = await runReadOnlyGit(["merge-base", "--end-of-options", defaultBranch, "HEAD"]);
-          if (mb.exitCode !== 0) return null;
-          const mergeBase = mb.stdout.trim();
+          const mergeBase = mb.exitCode === 0 ? mb.stdout.trim() : "HEAD";
           parts.push(mergeBase);
           if (!(await hashDiffOutput(["--end-of-options", mergeBase]))) return null;
         }
@@ -1020,7 +1082,11 @@ export async function getFileContentsForDiff(
   switch (effectiveDiffType) {
     case "since-base": {
       const mbResult = await runtime.runGit(["merge-base", "--end-of-options", defaultBranch, "HEAD"], { cwd });
-      const mb = mbResult.exitCode === 0 ? mbResult.stdout.trim() : defaultBranch;
+      // Degrade to HEAD (matching runGitDiff), not defaultBranch — when the base
+      // doesn't resolve, the patch is computed against HEAD, so the expanded
+      // old-side content must come from HEAD too or it won't match what the
+      // reviewer is reading.
+      const mb = mbResult.exitCode === 0 ? mbResult.stdout.trim() : "HEAD";
       return {
         oldContent: await gitShow(mb, oldFilePath),
         newContent: await readWorkingTree(filePath),
@@ -1092,6 +1158,31 @@ export interface SinceBaseSections {
 }
 
 /**
+ * Split a porcelain rename/copy path token (`<from> -> <to>`) into its two
+ * sides. Git independently double-quotes either side when it contains a space
+ * or special char, so the ` -> ` that separates them is the one OUTSIDE any
+ * quoted span — a filename that literally contains ` -> ` is always quoted, so
+ * its internal separator sits inside the quotes and must be skipped. Splitting
+ * on the raw string (naive indexOf) would tear such a filename into garbage
+ * tokens, leave the real file with no entry, and default it to "committed".
+ * Returns [from, to] for a rename/copy, or [token] otherwise.
+ */
+export function splitPorcelainRename(rest: string): string[] {
+  let searchFrom = 0;
+  if (rest.startsWith('"')) {
+    // Skip past the closing quote of the (quoted) from-path, honoring \" escapes.
+    let i = 1;
+    for (; i < rest.length; i++) {
+      if (rest[i] === "\\") { i++; continue; }
+      if (rest[i] === '"') { i++; break; }
+    }
+    searchFrom = i;
+  }
+  const sep = rest.indexOf(" -> ", searchFrom);
+  return sep !== -1 ? [rest.slice(0, sep), rest.slice(sep + 4)] : [rest];
+}
+
+/**
  * Partition the since-base file set by `git status` state:
  *  - `??`                → untracked
  *  - any other dirty XY  → changes (staged = column X is set)
@@ -1139,11 +1230,7 @@ export async function getSinceBaseSections(
       // chunks — recording only dest would leave the deleted `orig` half with
       // no sidecar entry, defaulting it to Committed. Both-sides prevents that.
       const staged = x !== " " && x !== "?";
-      const arrow = rest.indexOf(" -> ");
-      const paths = arrow !== -1
-        ? [rest.slice(0, arrow), rest.slice(arrow + 4)]
-        : [rest];
-      for (const token of paths) {
+      for (const token of splitPorcelainRename(rest)) {
         const path = unquoteGitPath(token.trim());
         if (path) files[path] = { group: "changes", staged };
       }

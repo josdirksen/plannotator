@@ -190,6 +190,13 @@ export function getLocalDiffInstruction(
   const effectiveDiffType = normalizeLocalDiffType(diffType);
 
   switch (effectiveDiffType) {
+    case "since-base": {
+      const base = defaultBranch || "main";
+      return {
+        target: `all changes since the merge-base with '${base}' — committed, uncommitted, and untracked; the full set a PR would show once it is all committed and pushed`,
+        inspect: `First find the common ancestor with \`git merge-base ${base} HEAD\`, then run \`git diff <merge-base>\` (no right-hand ref — it compares against the working tree) to inspect the changes; untracked files are included separately.`,
+      };
+    }
     case "uncommitted":
       return {
         target: "the current code changes (staged, unstaged, and untracked files)",

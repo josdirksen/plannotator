@@ -9,6 +9,10 @@ interface DiffTypePickerProps {
   onSelect: (diffType: string) => void;
   isLoading?: boolean;
   hasBasePicker: boolean;
+  /** Trigger label when the active diff type isn't in `options` — e.g. the
+   * tree view showing the since-base diff, whose mode lives in the sections
+   * view rather than this dropdown. */
+  activeLabelFallback?: string;
 }
 
 /**
@@ -16,6 +20,7 @@ interface DiffTypePickerProps {
  * Keep these short — they're hover hints, not docs.
  */
 const OPTION_HINTS: Record<string, string> = {
+  'since-base': "Everything since your branch split from the base — committed, uncommitted, and untracked. What a PR would show if you committed it all and pushed.",
   uncommitted: "All your local changes — anything you haven't committed yet.",
   staged: "Only what you've run `git add` on.",
   unstaged: "What `git diff` shows with no arguments.",
@@ -40,6 +45,7 @@ export const DiffTypePicker: React.FC<DiffTypePickerProps> = ({
   onSelect,
   isLoading,
   hasBasePicker,
+  activeLabelFallback,
 }) => {
   const [open, setOpen] = useState(false);
 
@@ -47,12 +53,13 @@ export const DiffTypePicker: React.FC<DiffTypePickerProps> = ({
   // base-dependent labels — the branch belongs in the picker.
   const displayLabel = (opt: DiffOption) => {
     if (!hasBasePicker) return opt.label;
-    if (opt.id === 'merge-base') return 'Committed changes';
+    if (opt.id === 'merge-base') return 'Committed changes (PR view)';
+    if (opt.id === 'since-base') return 'Since main';
     return opt.label;
   };
 
   const active = options.find((o) => o.id === activeDiffType);
-  const activeLabel = active ? displayLabel(active) : 'Select diff';
+  const activeLabel = active ? displayLabel(active) : (activeLabelFallback ?? 'Select diff');
 
   return (
     <DropdownMenu.Root open={open} onOpenChange={setOpen}>

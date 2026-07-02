@@ -123,7 +123,7 @@ export interface PreparedLocalReviewDiff {
   error?: string;
 }
 
-const GIT_DIFF_TYPES = new Set(["uncommitted", "staged", "unstaged", "last-commit", "branch", "merge-base", "all"]);
+const GIT_DIFF_TYPES = new Set(["since-base", "uncommitted", "staged", "unstaged", "last-commit", "branch", "merge-base", "all"]);
 const JJ_DIFF_TYPES = new Set(["jj-current", "jj-last", "jj-line", "jj-evolog", "jj-all"]);
 
 function selectNearestProvider(
@@ -181,7 +181,11 @@ export function createGitProvider(runtime: ReviewGitRuntime): VcsProvider {
 
     canStageFiles(diffType: string): boolean {
       const effectiveDiffType = parseWorktreeDiffType(diffType)?.subType ?? diffType;
-      return effectiveDiffType === "uncommitted" || effectiveDiffType === "unstaged";
+      return (
+        effectiveDiffType === "since-base" ||
+        effectiveDiffType === "uncommitted" ||
+        effectiveDiffType === "unstaged"
+      );
     },
 
     getContext(cwd?: string): Promise<GitContext> {

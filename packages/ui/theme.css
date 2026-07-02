@@ -431,7 +431,7 @@ html:not(.transitions-ready) * {
   gap: 0.5rem;
   padding: 0.25rem 0.5rem;
   border-radius: var(--radius-sm);
-  font-size: 0.75rem;
+  font-size: 0.8125rem; /* 13px — file rows felt small vs. the rest of the app */
   cursor: pointer;
   color: var(--muted-foreground);
 }

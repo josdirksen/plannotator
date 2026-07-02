@@ -20,6 +20,8 @@ export type {
   CompareTargetConfig,
   CompareTargetPickerCopy,
   RepositoryContext,
+  SinceBaseSectionEntry,
+  SinceBaseSections,
 } from "./review-core";
 
 export type {

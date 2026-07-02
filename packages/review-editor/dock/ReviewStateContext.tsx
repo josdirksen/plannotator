@@ -139,6 +139,14 @@ export interface ReviewState {
   openDiffFile: (filePath: string) => void;
   onAllFilesVisibleFileChange: (filePath: string | null) => void;
   isAllFilesActive: boolean;
+  // Which left panel drives the all-files item order ('list' = sections order).
+  allFilesOrder: 'tree' | 'list';
+  // All-files collapse-all toggle — the AllFilesCodeView registers its handler
+  // here; the dock header's button (ReviewDockRightActions) invokes it.
+  allFilesAllCollapsed: boolean;
+  onToggleAllFilesCollapsed: () => void;
+  registerAllFilesCollapseToggle: (toggle: (() => void) | null) => void;
+  onAllFilesCollapsedChange: (collapsed: boolean) => void;
   semanticDiffAvailable: boolean;
   isSemanticDiffActive: boolean;
   onSemanticDiffUnavailable: () => void;

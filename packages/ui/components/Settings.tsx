@@ -129,6 +129,7 @@ export const LINE_BG_INTENSITY_OPTIONS: { value: DiffLineBgIntensity; label: str
   { value: 'strong', label: 'Strong' },
 ];
 const DEFAULT_DIFF_TYPE_OPTIONS = [
+  { value: 'since-base' as const, label: 'Since Main (Recommended)', description: "Everything since your branch split from main — committed, uncommitted, and untracked" },
   { value: 'uncommitted' as const, label: 'All Changes', description: "Everything you've changed since your last commit" },
   { value: 'unstaged' as const, label: 'Unstaged', description: "Only changes you haven't staged yet" },
   { value: 'staged' as const, label: 'Staged', description: "Only changes you've staged for commit" },
@@ -192,8 +193,30 @@ function ToggleSwitch({ checked, onChange, label, description }: {
 
 const GitTab: React.FC = () => {
   const defaultDiffType = useConfigValue('defaultDiffType');
+  const reviewPanelView = useConfigValue('reviewPanelView');
   return (
-    <div className="space-y-2">
+    <div className="space-y-5">
+      <div className="space-y-2">
+        <div>
+          <div className="text-sm font-medium">Default review view</div>
+          <div className="text-xs text-muted-foreground">Which panel a code review opens in</div>
+        </div>
+        <SegmentedControl
+          options={[
+            { value: 'sections' as const, label: 'Git status' },
+            { value: 'tree' as const, label: 'Tree' },
+          ]}
+          value={reviewPanelView}
+          onChange={(v) => {
+            configStore.set('reviewPanelView', v);
+            // Keep the diff default coherent: Git-status view ⇒ since-base;
+            // Tree view ⇒ a classic diff (fall back if currently since-base).
+            if (v === 'sections') configStore.set('defaultDiffType', 'since-base');
+            else if (configStore.get('defaultDiffType') === 'since-base') configStore.set('defaultDiffType', 'uncommitted');
+          }}
+        />
+      </div>
+      <div className="space-y-2">
       <div>
         <div className="text-sm font-medium">Default Diff View</div>
         <div className="text-xs text-muted-foreground">Which changes to show when you open a code review</div>
@@ -223,6 +246,7 @@ const GitTab: React.FC = () => {
             </div>
           </button>
         ))}
+      </div>
       </div>
     </div>
   );

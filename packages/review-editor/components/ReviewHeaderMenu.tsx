@@ -15,6 +15,7 @@ import type { Origin } from '@plannotator/shared/agents';
 
 interface ReviewHeaderMenuProps {
   onOpenSettings: () => void;
+  onOpenReviewSetup?: () => void;
   onOpenExport: () => void;
   onCopyAgentInstructions: () => void;
   onToggleFileTree: () => void;
@@ -30,6 +31,7 @@ interface ReviewHeaderMenuProps {
 
 export const ReviewHeaderMenu: React.FC<ReviewHeaderMenuProps> = ({
   onOpenSettings,
+  onOpenReviewSetup,
   onOpenExport,
   onCopyAgentInstructions,
   onToggleFileTree,
@@ -115,6 +117,20 @@ export const ReviewHeaderMenu: React.FC<ReviewHeaderMenuProps> = ({
             icon={<SettingsIcon />}
             label="Settings"
           />
+          {onOpenReviewSetup && (
+            <ActionMenuItem
+              onClick={() => {
+                closeMenu();
+                onOpenReviewSetup();
+              }}
+              icon={(
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 5h16M4 10h16M4 15h16M4 20h10" />
+                </svg>
+              )}
+              label="Set up review view"
+            />
+          )}
           <ActionMenuItem
             onClick={() => {
               closeMenu();

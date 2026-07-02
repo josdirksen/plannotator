@@ -27,6 +27,7 @@ export function useDiffFreshness({
   enabled,
   resetKey,
   onAgentCwd,
+  onBaseBehindRemote,
 }: {
   enabled: boolean;
   /** Identity of the current diff snapshot (e.g. the rawPatch string). A new
@@ -37,12 +38,18 @@ export function useDiffFreshness({
    * switches without a page reload. A probe that omits the field leaves the
    * current value untouched (non-PR sessions never send it). */
   onAgentCwd?: (cwd: string | null) => void;
+  /** Called with the probe's baseBehindRemote flag (false when the field is
+   * omitted) — the local origin/<default> tracking ref is behind the actual
+   * remote, i.e. the baseline needs a fetch. */
+  onBaseBehindRemote?: (behind: boolean) => void;
 }): DiffFreshness {
   const [staleFingerprint, setStaleFingerprint] = useState<string | null>(null);
   const [dismissedFingerprint, setDismissedFingerprint] = useState<string | null>(null);
   // Latest callback in a ref so the polling effect never resubscribes for it.
   const onAgentCwdRef = useRef(onAgentCwd);
   onAgentCwdRef.current = onAgentCwd;
+  const onBaseBehindRemoteRef = useRef(onBaseBehindRemote);
+  onBaseBehindRemoteRef.current = onBaseBehindRemote;
 
   // New snapshot → clean slate.
   useEffect(() => {
@@ -72,6 +79,7 @@ export function useDiffFreshness({
             fresh: boolean;
             fingerprint?: string;
             agentCwd?: string | null;
+            baseBehindRemote?: boolean;
           };
           // Keep polling even while stale: a reverted edit flips back to
           // fresh, and a FURTHER change updates the fingerprint so a
@@ -80,6 +88,8 @@ export function useDiffFreshness({
           // PR mode re-advertises the live local checkout each probe; non-PR
           // probes omit the field entirely (leave agentCwd untouched).
           if ('agentCwd' in data) onAgentCwdRef.current?.(data.agentCwd ?? null);
+          // Baseline-behind flag: emitted as true or omitted (= false).
+          onBaseBehindRemoteRef.current?.(data.baseBehindRemote === true);
         }
       } catch {
         // Transient/network/server-gone: ignore — staleness is best-effort.

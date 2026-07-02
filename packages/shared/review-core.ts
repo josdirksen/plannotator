@@ -6,10 +6,12 @@
  */
 
 import { resolve as resolvePath } from "node:path";
+import { unquoteGitPath } from "./diff-paths";
 
 export const JJ_TRUNK_REVSET = "trunk()";
 
 export type DiffType =
+  | "since-base"
   | "uncommitted"
   | "staged"
   | "unstaged"
@@ -201,19 +203,28 @@ export async function getDefaultBranch(
   return "master";
 }
 
+export interface RemoteDefaultInfo {
+  /** Tracking ref name, e.g. `origin/main`. */
+  branch: string;
+  /** The remote's current tip SHA for that branch (from the same ls-remote
+   * response), or null if it couldn't be parsed. */
+  remoteHeadSha: string | null;
+}
+
 /**
  * Query the remote for its default branch via `ls-remote --symref`. Returns
- * `origin/<name>` if the remote answers and the tracking ref exists locally,
- * otherwise `null`. Designed to run in the background at server startup — the
- * caller fires it with `.then()` and uses the result if/when it arrives.
+ * `origin/<name>` plus the remote tip SHA if the remote answers and the
+ * tracking ref exists locally, otherwise `null`. Designed to run in the
+ * background at server startup — the caller fires it with `.then()` and uses
+ * the result if/when it arrives.
  *
  * Timeout-guarded: if the network is slow or absent, the promise resolves
  * (with `null`) once the timeout fires. Never throws.
  */
-export async function detectRemoteDefaultBranch(
+export async function detectRemoteDefaultInfo(
   runtime: ReviewGitRuntime,
   cwd?: string,
-): Promise<string | null> {
+): Promise<RemoteDefaultInfo | null> {
   try {
     const lsRemote = await runtime.runGit(
       ["ls-remote", "--symref", "origin", "HEAD"],
@@ -227,10 +238,21 @@ export async function detectRemoteDefaultBranch(
       ["show-ref", "--verify", "--quiet", `refs/remotes/${remoteBranch}`],
       { cwd },
     );
-    return refExists.exitCode === 0 ? remoteBranch : null;
+    if (refExists.exitCode !== 0) return null;
+    // The same response carries the remote tip: `<sha>\tHEAD`.
+    const shaMatch = lsRemote.stdout.match(/^([0-9a-f]{40,64})\s+HEAD$/m);
+    return { branch: remoteBranch, remoteHeadSha: shaMatch ? shaMatch[1] : null };
   } catch {
     return null;
   }
+}
+
+/** Back-compat wrapper: just the tracking ref name. */
+export async function detectRemoteDefaultBranch(
+  runtime: ReviewGitRuntime,
+  cwd?: string,
+): Promise<string | null> {
+  return (await detectRemoteDefaultInfo(runtime, cwd))?.branch ?? null;
 }
 
 const RECENT_COMMIT_LIMIT_DEFAULT = 20;
@@ -385,12 +407,21 @@ export async function getGitContext(
     listRecentCommits(runtime, cwd),
   ]);
 
-  const diffOptions: DiffOption[] = [
+  const diffOptions: DiffOption[] = [];
+
+  // "Since <base>" — the composite default: merge-base(base, HEAD) vs the
+  // working tree plus untracked. Everything a PR would show if pushed now.
+  // Emitted first so it wins resolveInitialDiffType's diffOptions[0] fallback.
+  if (defaultBranch) {
+    diffOptions.push({ id: "since-base", label: "Since main" });
+  }
+
+  diffOptions.push(
     { id: "uncommitted", label: "Uncommitted changes" },
     { id: "staged", label: "Staged changes" },
     { id: "unstaged", label: "Unstaged changes" },
     { id: "last-commit", label: "Last commit" },
-  ];
+  );
 
   // Always offer Branch diff / PR Diff when a default branch exists. The
   // older guard hid them when the reviewer was on the default branch (the
@@ -424,7 +455,7 @@ export async function getGitContext(
     worktrees: worktrees.filter((wt) => wt.path !== currentTreePath),
     availableBranches,
     compareTarget: {
-      diffTypes: ["branch", "merge-base"],
+      diffTypes: ["since-base", "branch", "merge-base"],
       fallback: "main",
       picker: {
         rowLabel: "compare against",
@@ -519,6 +550,7 @@ function assertGitSuccess(
 }
 
 const WORKTREE_SUB_TYPES = new Set([
+  "since-base",
   "uncommitted",
   "staged",
   "unstaged",
@@ -574,6 +606,53 @@ export async function runGitDiff(
 
   try {
     switch (effectiveDiffType) {
+      case "since-base": {
+        // The composite "GitHub view": merge-base(base, HEAD) vs the working
+        // tree (note: no right-hand ref on the diff), plus untracked files.
+        // Exactly what a PR would show if the user committed and pushed now.
+        const hasHead =
+          (await runtime.runGit(["rev-parse", "--verify", "HEAD"], { cwd }))
+            .exitCode === 0;
+        let trackedPatch = "";
+        if (hasHead) {
+          // Resolve the merge-base with the requested base. When the base
+          // doesn't exist (repo with no main/master/origin — e.g. a `trunk`
+          // default and no remote) merge-base fails; degrade to HEAD so the
+          // reviewer still sees their working-tree changes instead of a raw
+          // git error. The sections sidecar degrades the same way.
+          const mergeBaseResult = await runtime.runGit(
+            ["merge-base", "--end-of-options", defaultBranch, "HEAD"],
+            { cwd },
+          );
+          const mergeBase = mergeBaseResult.exitCode === 0
+            ? mergeBaseResult.stdout.trim()
+            : "HEAD";
+          const sinceBaseDiffArgs = [
+            "diff",
+            "--no-ext-diff",
+            ...wFlag,
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            "--end-of-options",
+            mergeBase,
+          ];
+          trackedPatch = assertGitSuccess(
+            await runtime.runGit(sinceBaseDiffArgs, { cwd }),
+            sinceBaseDiffArgs,
+          ).stdout;
+        }
+        const untrackedDiff = await getUntrackedFileDiffs(
+          runtime,
+          "a/",
+          "b/",
+          cwd,
+          options,
+        );
+        patch = trackedPatch + untrackedDiff;
+        label = `Since ${displayRef(defaultBranch)}`;
+        break;
+      }
+
       case "uncommitted": {
         const trackedDiffArgs = [
           "diff",
@@ -849,7 +928,10 @@ export async function getGitDiffFingerprint(
       const untracked = status.stdout
         .split("\n")
         .filter((line) => line.startsWith("?? "))
-        .map((line) => line.slice(3).trim())
+        // Unquote — porcelain double-quotes any path with a space/unicode
+        // regardless of core.quotePath, and a raw quoted string never resolves
+        // on disk (so the fingerprint would go blind to edits on those files).
+        .map((line) => unquoteGitPath(line.slice(3).trim()))
         .slice(0, MAX_UNTRACKED_FINGERPRINT_FILES);
       for (const path of untracked) {
         const content = await runtime.readTextFile(cwd ? resolvePath(cwd, path) : path);
@@ -859,6 +941,20 @@ export async function getGitDiffFingerprint(
     };
 
     switch (effectiveDiffType) {
+      case "since-base": {
+        // Content hash of the mb→worktree diff catches edits; headSha (always
+        // in `parts`) catches commits that only re-partition the sections;
+        // the status hash inside hashUntracked catches stage/unstage flips.
+        if (headSha !== "no-head") {
+          const mb = await runReadOnlyGit(["merge-base", "--end-of-options", defaultBranch, "HEAD"]);
+          if (mb.exitCode !== 0) return null;
+          const mergeBase = mb.stdout.trim();
+          parts.push(mergeBase);
+          if (!(await hashDiffOutput(["--end-of-options", mergeBase]))) return null;
+        }
+        if (!(await hashUntracked())) return null;
+        break;
+      }
       case "uncommitted": {
         if (headSha !== "no-head" && !(await hashDiffOutput(["HEAD"]))) return null;
         if (!(await hashUntracked())) return null;
@@ -922,6 +1018,14 @@ export async function getFileContentsForDiff(
   }
 
   switch (effectiveDiffType) {
+    case "since-base": {
+      const mbResult = await runtime.runGit(["merge-base", "--end-of-options", defaultBranch, "HEAD"], { cwd });
+      const mb = mbResult.exitCode === 0 ? mbResult.stdout.trim() : defaultBranch;
+      return {
+        oldContent: await gitShow(mb, oldFilePath),
+        newContent: await readWorkingTree(filePath),
+      };
+    }
     case "uncommitted":
       return {
         oldContent: await gitShow("HEAD", oldFilePath),
@@ -962,6 +1066,127 @@ export async function getFileContentsForDiff(
       };
     default:
       return { oldContent: null, newContent: null };
+  }
+}
+
+// --- Since-base sections -----------------------------------------------------
+//
+// The "since-base" composite diff is one patch (merge-base → working tree +
+// untracked); the UI's three-stack panel groups its files by lifecycle state.
+// This sidecar carries that grouping. Per-file A/M/D/R status is NOT here —
+// the client already derives it from the patch itself.
+
+export interface SinceBaseSectionEntry {
+  group: "committed" | "changes" | "untracked";
+  /** True when the file has staged (index) changes — porcelain column X. */
+  staged: boolean;
+}
+
+export interface SinceBaseSections {
+  /** The base ref the merge-base was computed against, e.g. `origin/main`. */
+  base: string;
+  /** Resolved merge-base SHA ("" when the repo has no HEAD yet). */
+  mergeBase: string;
+  /** Repo-root-relative path → section entry. Paths match the patch's. */
+  files: Record<string, SinceBaseSectionEntry>;
+}
+
+/**
+ * Partition the since-base file set by `git status` state:
+ *  - `??`                → untracked
+ *  - any other dirty XY  → changes (staged = column X is set)
+ *  - in mb..HEAD, clean  → committed
+ *
+ * Best-effort: returns null when the repo can't answer (callers omit the
+ * sidecar rather than failing the diff).
+ */
+export async function getSinceBaseSections(
+  runtime: ReviewGitRuntime,
+  defaultBranch: string,
+  cwd?: string,
+): Promise<SinceBaseSections | null> {
+  try {
+    // --no-optional-locks: never take the index lock for a read-only sidecar
+    // (the agent may be running git concurrently). -uall lists untracked
+    // files individually so entries match the patch's per-file paths instead
+    // of collapsing whole untracked directories.
+    const status = await runtime.runGit(
+      ["--no-optional-locks", "status", "--porcelain", "-uall"],
+      { cwd },
+    );
+    if (status.exitCode !== 0) return null;
+
+    const files: Record<string, SinceBaseSectionEntry> = {};
+    for (const line of status.stdout.split("\n")) {
+      if (line.length < 4) continue;
+      const x = line[0];
+      const y = line[1];
+      const rest = line.slice(3);
+
+      if (x === "?" && y === "?") {
+        // Untracked. Don't clobber an existing tracked entry for the same
+        // path: `git rm --cached f` emits BOTH `D  f` (staged delete) and
+        // `?? f` (now-untracked file) — the tracked/staged signal wins.
+        const path = unquoteGitPath(rest.trim());
+        if (path && !files[path]) files[path] = { group: "untracked", staged: false };
+        continue;
+      }
+
+      // Tracked change (always wins over a prior untracked entry). Renames /
+      // copies list `orig -> dest`; record BOTH sides as changes. If a rename
+      // is followed by a working-tree edit that drops similarity below git's
+      // threshold, the since-base patch emits SEPARATE delete(orig)+add(dest)
+      // chunks — recording only dest would leave the deleted `orig` half with
+      // no sidecar entry, defaulting it to Committed. Both-sides prevents that.
+      const staged = x !== " " && x !== "?";
+      const arrow = rest.indexOf(" -> ");
+      const paths = arrow !== -1
+        ? [rest.slice(0, arrow), rest.slice(arrow + 4)]
+        : [rest];
+      for (const token of paths) {
+        const path = unquoteGitPath(token.trim());
+        if (path) files[path] = { group: "changes", staged };
+      }
+    }
+
+    let mergeBase = "";
+    const hasHead =
+      (await runtime.runGit(["--no-optional-locks", "rev-parse", "--verify", "HEAD"], { cwd }))
+        .exitCode === 0;
+    if (hasHead) {
+      const mbResult = await runtime.runGit(
+        ["--no-optional-locks", "merge-base", "--end-of-options", defaultBranch, "HEAD"],
+        { cwd },
+      );
+      // Degrade to HEAD when the base can't be resolved (matches runGitDiff):
+      // the "committed since base" set becomes empty rather than nulling the
+      // whole sidecar, so the panel still renders Changes/Untracked.
+      mergeBase = mbResult.exitCode === 0 ? mbResult.stdout.trim() : "HEAD";
+
+      const committed = await runtime.runGit(
+        [
+          "--no-optional-locks",
+          "diff",
+          "--no-ext-diff",
+          "--name-only",
+          "--end-of-options",
+          `${mergeBase}..HEAD`,
+        ],
+        { cwd },
+      );
+      if (committed.exitCode !== 0) return null;
+      for (const line of committed.stdout.split("\n")) {
+        const path = unquoteGitPath(line.trim());
+        if (!path) continue;
+        // Dirty state wins: a file with both committed and working-tree
+        // changes lives in "changes" (its diff still shows the full story).
+        if (!files[path]) files[path] = { group: "committed", staged: false };
+      }
+    }
+
+    return { base: defaultBranch, mergeBase, files };
+  } catch {
+    return null;
   }
 }
 

@@ -22,6 +22,16 @@
    search bar vertically aligned across all three columns. */
 :root {
   --panel-header-h: 33px;
+
+  /* Code-review-only readable-text bump. `text-xs` is the app's small/body
+     tier; Tailwind's default leaves it at 12px, which reads cramped here.
+     This stylesheet ships only in the review bundle, so overriding the token
+     is scoped to code review — the plan/annotate apps are untouched. Only the
+     `text-xs` tier moves; the 10/11px micro-labels (counts, letters, badges,
+     eyebrows) are arbitrary escapes and stay as-is. Rollback = delete these
+     two lines. */
+  --text-xs: 0.8125rem; /* 13px */
+  --text-xs--line-height: calc(1 / 0.75); /* reference xs ratio (≈1.33), unitless — holds at 13px */
 }
 
 /* =====================================================
@@ -120,6 +130,16 @@
 .dv-dockview .dv-tab {
   border-radius: 8px 8px 0 0;
   margin-right: 2px;
+}
+
+/* The tab strip's `padding: 5px 6px 0` insets the TABS from the top (so their
+   rounded corners connect to the content below). The right-side actions
+   (Split/Unified, options, collapse-all) inherit that asymmetric top padding
+   and end up ~2.5px below the strip's true vertical center. Lift them by half
+   the asymmetry so they center in the full strip. */
+.dv-dockview .dv-right-actions-container {
+  align-items: center;
+  margin-top: -2.5px;
 }
 
 .dv-dockview .dv-tab.dv-inactive-tab:hover {

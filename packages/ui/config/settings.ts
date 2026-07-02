@@ -53,19 +53,33 @@ export const SETTINGS = {
 
   // --- Diff display options (namespaced under diffOptions in config.json) ---
 
+  // Which left-panel view a code review opens in. 'sections' = the new
+  // git-status view (Committed/Changes/Untracked); 'tree' = the classic file
+  // tree. Cookie-only. The header Sections|Tree toggle writes this too, so the
+  // last choice becomes the default (like gridEnabled for plans).
+  reviewPanelView: {
+    defaultValue: 'sections' as 'sections' | 'tree',
+    fromCookie: () => {
+      const v = storage.getItem('plannotator-review-panel-view');
+      return v === 'tree' || v === 'sections' ? v : undefined;
+    },
+    toCookie: (v: string) => storage.setItem('plannotator-review-panel-view', v),
+    serverKey: undefined, fromServer: undefined, toServer: undefined,
+  },
+
   defaultDiffType: {
-    defaultValue: 'unstaged' as 'uncommitted' | 'unstaged' | 'staged' | 'merge-base' | 'all',
+    defaultValue: 'since-base' as 'since-base' | 'uncommitted' | 'unstaged' | 'staged' | 'merge-base' | 'all',
     fromCookie: () => {
       const v = storage.getItem('plannotator-default-diff-type');
       if (v === 'branch') return 'merge-base' as const;
-      return v === 'uncommitted' || v === 'unstaged' || v === 'staged' || v === 'merge-base' || v === 'all' ? v : undefined;
+      return v === 'since-base' || v === 'uncommitted' || v === 'unstaged' || v === 'staged' || v === 'merge-base' || v === 'all' ? v : undefined;
     },
     toCookie: (v: string) => storage.setItem('plannotator-default-diff-type', v),
     serverKey: 'diffOptions',
     fromServer: (sc: Record<string, unknown>) => {
       const v = (sc.diffOptions as Record<string, unknown> | undefined)?.defaultDiffType;
       if (v === 'branch') return 'merge-base' as const;
-      return v === 'uncommitted' || v === 'unstaged' || v === 'staged' || v === 'merge-base' || v === 'all' ? v : undefined;
+      return v === 'since-base' || v === 'uncommitted' || v === 'unstaged' || v === 'staged' || v === 'merge-base' || v === 'all' ? v : undefined;
     },
     toServer: (v: string) => ({ diffOptions: { defaultDiffType: v } }),
   },

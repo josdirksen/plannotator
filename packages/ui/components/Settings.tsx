@@ -209,10 +209,10 @@ const GitTab: React.FC = () => {
           value={reviewPanelView}
           onChange={(v) => {
             configStore.set('reviewPanelView', v);
-            // Keep the diff default coherent: Git-status view ⇒ since-base;
-            // Tree view ⇒ a classic diff (fall back if currently since-base).
+            // Mirror ReviewSetupDialog.chooseView exactly: Sections requires
+            // since-base; switching to Tree LEAVES the diff, since Tree +
+            // since-base is a valid, supported mode we must not coerce away.
             if (v === 'sections') configStore.set('defaultDiffType', 'since-base');
-            else if (configStore.get('defaultDiffType') === 'since-base') configStore.set('defaultDiffType', 'uncommitted');
           }}
         />
       </div>
@@ -228,10 +228,10 @@ const GitTab: React.FC = () => {
             type="button"
             onClick={() => {
               configStore.set('defaultDiffType', opt.value);
-              // Mirror the coupling the segmented control enforces, so the two
-              // controls can't disagree: since-base ⇒ Git-status view; any
-              // classic diff ⇒ Tree (the sections view only renders since-base).
-              configStore.set('reviewPanelView', opt.value === 'since-base' ? 'sections' : 'tree');
+              // Mirror ReviewSetupDialog.chooseDiff exactly: a classic diff
+              // can't render as Sections, so snap to Tree; since-base LEAVES the
+              // view (valid in either Sections or Tree), so don't force it.
+              if (opt.value !== 'since-base') configStore.set('reviewPanelView', 'tree');
             }}
             className={`w-full flex items-start gap-3 p-3 rounded-lg border transition-colors text-left ${
               defaultDiffType === opt.value

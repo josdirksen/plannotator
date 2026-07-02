@@ -1028,9 +1028,19 @@ const ReviewApp: React.FC = () => {
         // RESET to the recommended default (Git status + Since main), overriding
         // any prior diff-type/panel preference — the user's explicit choice in
         // the dialog then sticks. Applied to the live session on dismiss.
+        //
+        // Only when since-base is actually AVAILABLE (base ref resolves). On a
+        // repo where getGitContext omits it (trunk / no origin/HEAD), forcing
+        // since-base would degrade to HEAD and hide committed work — the exact
+        // case the offering guard avoids. There, leave the default alone and
+        // don't show the chooser. Matches the sectionsCapable gate used for the
+        // header-menu reopen.
+        const sinceBaseAvailable = !!data.gitContext?.diffOptions?.some(
+          (o: { id: string }) => o.id === 'since-base',
+        );
         if (
           data.gitContext && data.mode !== 'workspace' && !data.prMetadata &&
-          data.gitContext.vcsType === 'git' && needsReviewSetup()
+          data.gitContext.vcsType === 'git' && sinceBaseAvailable && needsReviewSetup()
         ) {
           configStore.set('reviewPanelView', 'sections');
           configStore.set('defaultDiffType', 'since-base');
@@ -1762,7 +1772,7 @@ const ReviewApp: React.FC = () => {
     // the new patch to arrive before refetching — otherwise the viewer can
     // briefly pair an old patch with the new base's content.
     reviewBase:
-        (activeDiffBase === 'branch' || activeDiffBase === 'merge-base' || activeDiffBase === 'jj-line' || activeDiffBase === 'jj-evolog')
+        (activeDiffBase === 'since-base' || activeDiffBase === 'branch' || activeDiffBase === 'merge-base' || activeDiffBase === 'jj-line' || activeDiffBase === 'jj-evolog')
         ? committedBase ?? undefined
         : undefined,
     activeDiffBase,

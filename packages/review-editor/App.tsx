@@ -296,6 +296,14 @@ const ReviewApp: React.FC = () => {
   const { prMetadata, prStackInfo, prStackTree, prDiffScope, prDiffScopeOptions, prPatchIncomplete, prPatchUpgradeAvailable, updatePRSession } = usePRSession();
   const { withPRContext } = useAnnotationFactory(prMetadata, prStackInfo ? prDiffScope : undefined);
 
+  // The Commits view (linear history rail) exists for plain local git
+  // sessions only — PR/workspace/jj/p4 keep their existing panels. Unlike
+  // sections it has NO coupled diff: the review opens on the user's normal
+  // default until a commit is clicked, and the clicked sha is never persisted.
+  // Declared this early because the global keyboard handler consults it.
+  const commitsCapable = !prMetadata && reviewMode !== 'workspace' && gitContext?.vcsType === 'git';
+  const showCommitsPanel = commitsCapable && panelView === 'commits';
+
   const prStackCallbacksRef = useRef<import('./hooks/usePRStack').PRStackCallbacks | null>(null);
   const {
     isSwitchingPRScope,
@@ -908,8 +916,10 @@ const ReviewApp: React.FC = () => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Cmd/Ctrl+F to focus file search when diff files are available.
+      // Not intercepted in the Commits view: its rail has no search input, so
+      // capturing the key would silently no-op — let the browser find handle it.
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f' && !isTypingTarget(e.target)) {
-        if (hasSearchableFiles) {
+        if (hasSearchableFiles && !showCommitsPanel) {
           e.preventDefault();
           setIsFileTreeOpen(true);
           openSearch();
@@ -956,7 +966,7 @@ const ReviewApp: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showExportModal, showDestinationMenu, isSearchOpen, searchQuery, searchMatches, isSearchPending, openSearch, stepSearchMatch, clearSearch, closeSearch, hasSearchableFiles, reviewSidebar.isOpen, reviewSidebar.open, reviewSidebar.close, isFileTreeOpen]);
+  }, [showExportModal, showDestinationMenu, isSearchOpen, searchQuery, searchMatches, isSearchPending, openSearch, stepSearchMatch, clearSearch, closeSearch, hasSearchableFiles, showCommitsPanel, reviewSidebar.isOpen, reviewSidebar.open, reviewSidebar.close, isFileTreeOpen]);
 
 
   // Load diff content - try API first, fall back to demo
@@ -1315,12 +1325,6 @@ const ReviewApp: React.FC = () => {
   // toggling back to Sections switches the diff back to since-base.
   const sectionsCapable = !prMetadata && reviewMode !== 'workspace'
     && !!gitContext?.diffOptions?.some(option => option.id === 'since-base');
-  // The Commits view (linear history rail) exists for plain local git
-  // sessions only — PR/workspace/jj/p4 keep their existing panels. Unlike
-  // sections it has NO coupled diff: the review opens on the user's normal
-  // default until a commit is clicked, and the clicked sha is never persisted.
-  const commitsCapable = !prMetadata && reviewMode !== 'workspace' && gitContext?.vcsType === 'git';
-  const showCommitsPanel = commitsCapable && panelView === 'commits';
   const commitLog = useCommitLog({
     enabled: showCommitsPanel && !!origin,
     // Worktree and base changes re-anchor the history/divider; commit clicks
@@ -1667,6 +1671,10 @@ const ReviewApp: React.FC = () => {
   // needsInitialDiffPanel flow; re-clicking the active commit just re-focuses
   // that panel (e.g. after the user closed the tab).
   const handleSelectCommit = useCallback((sha: string) => {
+    // Compose the worktree prefix ONCE and use it for both the re-click check
+    // and the switch itself (going through handleDiffSwitch would compose it
+    // a second time in a second place — fragile duplication for no benefit;
+    // its evolog base handling never applies to commit diffs).
     const fullDiffType = activeWorktreePath
       ? `worktree:${activeWorktreePath}:commit:${sha}`
       : `commit:${sha}`;
@@ -1674,8 +1682,8 @@ const ReviewApp: React.FC = () => {
       openAllFilesPanel();
       return;
     }
-    void handleDiffSwitch(`commit:${sha}`);
-  }, [activeWorktreePath, diffType, handleDiffSwitch, openAllFilesPanel]);
+    void fetchDiffSwitch(fullDiffType);
+  }, [activeWorktreePath, diffType, fetchDiffSwitch, openAllFilesPanel]);
 
   // Entering the Commits view auto-opens the HEAD commit's diff so the center
   // immediately matches the rail — leaving the previous mode's all-files up
@@ -1699,6 +1707,16 @@ const ReviewApp: React.FC = () => {
     handleSelectCommit(head.sha);
   }, [showCommitsPanel, activeCommitSha, commitLog.commits, handleSelectCommit]);
 
+  // Commit-navigation veil predicate. Covers the center dock while commit
+  // navigation is settling: a switch in flight, the log still loading, or the
+  // loaded-list frame before auto-select lands. Every terminal state drops it:
+  // a switch error (diffError → normal error state), a log error (rail shows
+  // Retry), and a genuinely empty history (zero commits, nothing to select).
+  const commitsVeilActive =
+    showCommitsPanel && !diffError && !commitLog.error &&
+    (isLoadingDiff ||
+      (!activeCommitSha && (commitLog.isLoading || commitLog.commits.length > 0)));
+
   // Self-heal a conflicted persisted pair: reviewPanelView=sections with a
   // non-since-base defaultDiffType. Every UI writer enforces the coupling
   // (sections ⟺ since-base), but configStore.init() applies config.json over
@@ -1707,12 +1725,16 @@ const ReviewApp: React.FC = () => {
   // on every load: the server opens on the stale diff in the classic tree
   // while the cookie still says Git status. Trust the view choice, repair the
   // diff default (cookie + config.json), and bring the live session along.
+  // Keyed to persistedPanelView, NEVER the live panelView: the header toggle
+  // is session-only and must not be able to trigger a settings write, even
+  // indirectly through this repair. Only a pair that Settings / the setup
+  // dialog / an old config file actually PERSISTED conflicted gets healed.
   const healedPanelPairOnLoad = useRef(false);
   useEffect(() => {
     if (healedPanelPairOnLoad.current || isLoading || !diffData) return;
     // First-run resets + applies the pair itself (on dialog dismiss).
     if (!sectionsCapable || reviewSetupIsFirstRun.current) return;
-    if (panelView !== 'sections') return;
+    if (persistedPanelView !== 'sections') return;
     healedPanelPairOnLoad.current = true;
     if (configStore.get('defaultDiffType') !== 'since-base') {
       // Re-assert the pair through the coupled setter (repairs cookie +
@@ -1720,7 +1742,7 @@ const ReviewApp: React.FC = () => {
       setReviewPanelView('sections');
       if (activeDiffBase !== 'since-base') void handleDiffSwitch('since-base');
     }
-  }, [isLoading, diffData, sectionsCapable, panelView, activeDiffBase, handleDiffSwitch]);
+  }, [isLoading, diffData, sectionsCapable, persistedPanelView, activeDiffBase, handleDiffSwitch]);
 
   // Switch worktree context (or back to main repo). Preserves the current
   // diff mode across the switch — if the reviewer was looking at "PR Diff"
@@ -3016,9 +3038,10 @@ const ReviewApp: React.FC = () => {
             {/* Commit navigation veil: while a commit switch is in flight (or
                 the view was just entered and HEAD auto-select hasn't landed),
                 cover the stale previous diff instead of letting it sit there
-                and then jump — the rail click reads as immediate. Errors
-                surface through the normal empty-state, never under the veil. */}
-            {showCommitsPanel && !diffError && (!activeCommitSha || isLoadingDiff) && (
+                and then jump — the rail click reads as immediate. All terminal
+                states (switch error, log error, empty history) drop the veil —
+                see the commitsVeilActive predicate. */}
+            {commitsVeilActive && (
               <div className="absolute inset-0 z-20 bg-background/95 flex items-center justify-center">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">

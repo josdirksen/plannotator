@@ -258,10 +258,23 @@ const ReviewApp: React.FC = () => {
   const [isFetchingBase, setIsFetchingBase] = useState(false);
   // Sections vs classic tree in the left panel — backed by the configStore
   // (also the Settings + first-run-dialog default). The header toggle writes
-  // it too, so the last choice becomes the default. Writes go through the
-  // shared coupled setter (sections ⟺ since-base — see config/reviewView).
-  const panelView = useConfigValue('reviewPanelView');
-  const selectPanelView = useCallback((view: 'sections' | 'tree') => {
+  // it too, so the last choice becomes the default. Persisted writes go
+  // through the shared coupled setter (sections ⟺ since-base — see
+  // config/reviewView).
+  //
+  // The Commits view is a session-only overlay on top of that: entering it
+  // never writes the config, so a review always OPENS on the persisted
+  // sections/tree default — commits is never the opening view. Leaving
+  // commits clears the overlay and persists the chosen files view as usual.
+  const persistedPanelView = useConfigValue('reviewPanelView');
+  const [commitsViewActive, setCommitsViewActive] = useState(false);
+  const panelView: 'sections' | 'commits' | 'tree' = commitsViewActive ? 'commits' : persistedPanelView;
+  const selectPanelView = useCallback((view: 'sections' | 'commits' | 'tree') => {
+    if (view === 'commits') {
+      setCommitsViewActive(true);
+      return;
+    }
+    setCommitsViewActive(false);
     setReviewPanelView(view);
   }, []);
   // First-run review-setup chooser (panel view + tree default diff).

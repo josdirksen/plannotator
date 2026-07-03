@@ -1677,6 +1677,28 @@ const ReviewApp: React.FC = () => {
     void handleDiffSwitch(`commit:${sha}`);
   }, [activeWorktreePath, diffType, handleDiffSwitch, openAllFilesPanel]);
 
+  // Entering the Commits view auto-opens the HEAD commit's diff so the center
+  // immediately matches the rail — leaving the previous mode's all-files up
+  // was disorienting. Fires once per entry (guarded by a ref): a user click,
+  // an already-active commit diff, or a failed switch must not re-trigger it.
+  // Runs after the log loads when entry and fetch race.
+  const commitsAutoSelectDone = useRef(false);
+  useEffect(() => {
+    if (!showCommitsPanel) {
+      commitsAutoSelectDone.current = false;
+      return;
+    }
+    if (commitsAutoSelectDone.current) return;
+    if (activeCommitSha) {
+      commitsAutoSelectDone.current = true;
+      return;
+    }
+    const head = commitLog.commits.find((c) => c.isHead) ?? commitLog.commits[0];
+    if (!head) return;
+    commitsAutoSelectDone.current = true;
+    handleSelectCommit(head.sha);
+  }, [showCommitsPanel, activeCommitSha, commitLog.commits, handleSelectCommit]);
+
   // Self-heal a conflicted persisted pair: reviewPanelView=sections with a
   // non-since-base defaultDiffType. Every UI writer enforces the coupling
   // (sections ⟺ since-base), but configStore.init() applies config.json over

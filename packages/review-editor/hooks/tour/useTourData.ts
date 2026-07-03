@@ -21,7 +21,7 @@ export function useTourData(jobId: string): UseTourDataReturn {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingChecklistRef = useRef<boolean[] | null>(null);
 
-  const fetchTour = useCallback(() => {
+  const fetchTour = useCallback((): (() => void) | void => {
     if (!jobId) return;
     setLoading(true);
     setError(null);
@@ -34,24 +34,37 @@ export function useTourData(jobId: string): UseTourDataReturn {
       return;
     }
 
+    // Out-of-order guard: jobId can change (switching to a different completed
+    // tour) while a previous fetch is still in flight. Without this, a slow
+    // response for an OLDER jobId could resolve AFTER a newer jobId's fetch
+    // and clobber its state. The effect below tears this down via the
+    // returned cleanup whenever jobId changes (or on unmount).
+    let cancelled = false;
+
     fetch(`/api/tour/${jobId}`)
       .then((res) => {
         if (!res.ok) throw new Error(res.status === 404 ? 'Tour not found' : `HTTP ${res.status}`);
         return res.json();
       })
       .then((data: CodeTourData) => {
+        if (cancelled) return;
         setTour(data);
         setChecked(data.checklist?.length > 0 ? data.checklist : new Array(data.qa_checklist.length).fill(false));
         setLoading(false);
       })
       .catch((err) => {
+        if (cancelled) return;
         setError(err instanceof Error ? err.message : String(err));
         setLoading(false);
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [jobId]);
 
   useEffect(() => {
-    fetchTour();
+    return fetchTour();
   }, [fetchTour]);
 
   const saveChecklist = useCallback(
@@ -76,14 +89,15 @@ export function useTourData(jobId: string): UseTourDataReturn {
 
   const toggleChecked = useCallback(
     (index: number) => {
-      setChecked((prev) => {
-        const next = [...prev];
-        next[index] = !next[index];
-        saveChecklist(next);
-        return next;
-      });
+      // Compute the next array, THEN setState, THEN schedule the save — calling
+      // saveChecklist (a side effect) inside the setState updater double-fires
+      // it under React StrictMode's intentional double-invoke of updaters.
+      const next = [...checked];
+      next[index] = !next[index];
+      setChecked(next);
+      saveChecklist(next);
     },
-    [saveChecklist],
+    [checked, saveChecklist],
   );
 
   useEffect(() => {

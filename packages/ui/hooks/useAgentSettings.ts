@@ -17,12 +17,14 @@ const settingsListeners = new Set<(s: AgentSettingsState) => void>();
 
 export const DEFAULT_CLAUDE_MODEL = 'claude-opus-4-7';
 export const DEFAULT_CLAUDE_EFFORT = 'high';
-export const DEFAULT_CODEX_MODEL = 'gpt-5.3-codex';
+// gpt-5.3-codex is deprecated (ChatGPT-account Codex rejects it outright) —
+// default to the current flagship everywhere.
+export const DEFAULT_CODEX_MODEL = 'gpt-5.5';
 export const DEFAULT_CODEX_REASONING = 'high';
 export const DEFAULT_CODEX_FAST = false;
 export const DEFAULT_TOUR_CLAUDE_MODEL = 'sonnet';
 export const DEFAULT_TOUR_CLAUDE_EFFORT = 'medium';
-export const DEFAULT_TOUR_CODEX_MODEL = 'gpt-5.3-codex';
+export const DEFAULT_TOUR_CODEX_MODEL = 'gpt-5.5';
 export const DEFAULT_TOUR_CODEX_REASONING = 'medium';
 export const DEFAULT_TOUR_CODEX_FAST = false;
 export const DEFAULT_GUIDE_CLAUDE_MODEL = 'sonnet';
@@ -30,7 +32,7 @@ export const DEFAULT_GUIDE_CLAUDE_MODEL = 'sonnet';
 // orientation doc the reviewer is actively waiting on, and newer models at
 // low effort chapter a diff well. Guide-scoped only — tour/review keep medium.
 export const DEFAULT_GUIDE_CLAUDE_EFFORT = 'low';
-export const DEFAULT_GUIDE_CODEX_MODEL = 'gpt-5.3-codex';
+export const DEFAULT_GUIDE_CODEX_MODEL = 'gpt-5.5';
 export const DEFAULT_GUIDE_CODEX_REASONING = 'low';
 export const DEFAULT_GUIDE_CODEX_FAST = false;
 // `auto` is Cursor's own default model id (from `agent models`); lowercase so it
@@ -148,6 +150,14 @@ export function sanitizeCodexPerModel(
   return out;
 }
 
+// One-shot migration: gpt-5.3-codex is deprecated (ChatGPT-account Codex
+// rejects it with a 400), so a saved pick of it silently becomes the current
+// default rather than shipping a launch that can never succeed.
+function migrateCodexModel(value: unknown, fallback: string): string {
+  if (typeof value !== 'string' || value === 'gpt-5.3-codex') return fallback;
+  return value;
+}
+
 function parseEngine(value: unknown): AgentEngine {
   return value === 'codex' ? 'codex' : 'claude';
 }
@@ -195,7 +205,7 @@ function readCookie(): AgentSettingsState {
         perModel: parsed.claude?.perModel ?? {},
       },
       codex: {
-        model: typeof parsed.codex?.model === 'string' ? parsed.codex.model : DEFAULT_CODEX_MODEL,
+        model: migrateCodexModel(parsed.codex?.model, DEFAULT_CODEX_MODEL),
         perModel: sanitizeCodexPerModel(parsed.codex?.perModel),
       },
       cursor: {
@@ -213,7 +223,7 @@ function readCookie(): AgentSettingsState {
         perModel: parsed.tourClaude?.perModel ?? {},
       },
       tourCodex: {
-        model: typeof parsed.tourCodex?.model === 'string' ? parsed.tourCodex.model : DEFAULT_TOUR_CODEX_MODEL,
+        model: migrateCodexModel(parsed.tourCodex?.model, DEFAULT_TOUR_CODEX_MODEL),
         perModel: sanitizeCodexPerModel(parsed.tourCodex?.perModel),
       },
       guideClaude: {
@@ -221,7 +231,7 @@ function readCookie(): AgentSettingsState {
         perModel: parsed.guideClaude?.perModel ?? {},
       },
       guideCodex: {
-        model: typeof parsed.guideCodex?.model === 'string' ? parsed.guideCodex.model : DEFAULT_GUIDE_CODEX_MODEL,
+        model: migrateCodexModel(parsed.guideCodex?.model, DEFAULT_GUIDE_CODEX_MODEL),
         perModel: sanitizeCodexPerModel(parsed.guideCodex?.perModel),
       },
     };

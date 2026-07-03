@@ -59,7 +59,7 @@ export const GUIDE_SCHEMA_JSON = JSON.stringify({
       items: { type: "string" },
     },
   },
-  required: ["title", "intent", "sections"],
+  required: ["title", "intent", "sections", "unplacedFiles"],
   additionalProperties: false,
 });
 
@@ -194,11 +194,12 @@ never shares a chapter.
   captions.
 
 ### unplacedFiles
-Changed files that don't belong in any section: pure noise, or leftovers so
-low-signal that forcing them into a section would dilute it. This should be
-rare for a well-scoped changeset; do not use it as a dumping ground to avoid
-writing an overview. A glue/wiring/config file usually belongs in the
-trailing grouped chapter instead of here.
+Always include unplacedFiles. Use an empty array when every changed file is
+placed. Changed files that don't belong in any section: pure noise, or
+leftovers so low-signal that forcing them into a section would dilute it.
+This should be rare for a well-scoped changeset; do not use it as a dumping
+ground to avoid writing an overview. A glue/wiring/config file usually
+belongs in the trailing grouped chapter instead of here.
 
 ## Coverage rule (hard constraint)
 Every changed file must appear in EXACTLY ONE place: either in exactly one
@@ -499,8 +500,8 @@ Schema:
   - diffs: array of objects, each with exactly one field:
     - file: string — the EXACT repo-relative path as it appears in the diff or
       the Changed files list; never invented, abbreviated, or re-cased
-- unplacedFiles: array of strings, optional — changed files that don't belong
-  in any section
+- unplacedFiles: array of strings, always present — changed files that don't
+  belong in any section; use an empty array when every changed file is placed
 
 Every changed file must appear in EXACTLY ONE place: either in exactly one
 section's diffs, or in unplacedFiles. Never both, never twice, never omitted.
@@ -864,9 +865,11 @@ export interface GuideSessionJobRef {
 export interface GuideSessionOnJobCompleteOptions {
   job: GuideSessionJobRef;
   meta: { outputPath?: string; stdout?: string };
-  /** Changed files as of completion time — validated AGAINST THE CURRENT patch,
-   * not the patch at launch time, since the client resolves guide refs against
-   * whatever files are on screen right now. */
+  /** Changed files to validate refs against — normally the LAUNCH-time
+   * snapshot (agent-jobs.ts's changedFilesSnapshot), the same set the model
+   * planned section placement against, so a mid-generation diff/base/PR
+   * switch never invalidates an otherwise-valid guide. Only falls back to
+   * the current patch when a snapshot wasn't available (defensive). */
   changedFiles: string[];
 }
 
@@ -877,6 +880,14 @@ export interface GuideSession {
    *  failed to parse or fully validate — the manual-repair UI reads this via
    *  getFailedPayload rather than the map directly. */
   failedPayloads: Map<string, string>;
+  /** The changed-file set (as of LAUNCH time) each job's output was validated
+   *  against, recorded in onJobComplete for both the success and failure
+   *  paths. Outlives the job itself (unlike agent-jobs.ts's per-job snapshot,
+   *  which is cleared at completion) so a later manual repair via
+   *  submitManualOutput validates against the SAME set the model planned
+   *  section placement against, not whatever patch happens to be on screen
+   *  when the reviewer gets around to fixing the JSON. */
+  launchChangedFiles: Map<string, string[]>;
   buildCommand(opts: GuideSessionBuildCommandOptions): Promise<GuideSessionBuildCommandResult>;
   onJobComplete(opts: GuideSessionOnJobCompleteOptions): Promise<{ summary: GuideSessionJobSummary | null }>;
   getGuide(jobId: string): (CodeGuideOutput & { reviewed: boolean[] }) | null;
@@ -884,8 +895,13 @@ export interface GuideSession {
   getFailedPayload(jobId: string): string | null;
   /** Manually submit corrected guide JSON (mechanical repair -> parse ->
    *  validateGuideOutput) for a job whose automatic output failed. Success
-   *  stores under the SAME job id the reviewed state is already keyed to. */
-  submitManualOutput(jobId: string, payloadText: string, changedFiles: string[]): { ok: true } | { error: string };
+   *  stores under the SAME job id the reviewed state is already keyed to.
+   *  Validates against the job's own launchChangedFiles when recorded, else
+   *  falls back to `fallbackChangedFiles` (defensive; should not happen in
+   *  practice since onJobComplete always records it first). Returns the
+   *  placed section/file counts so the caller can flip the job to "done"
+   *  with an accurate summary (see review.ts's /submit route). */
+  submitManualOutput(jobId: string, payloadText: string, fallbackChangedFiles: string[]): { ok: true; sections: number; files: number } | { error: string };
 }
 
 /** Cap on stored failed-payload size — keeps a looping/verbose engine from
@@ -1038,11 +1054,13 @@ export function createGuideSession(): GuideSession {
   const guideResults = new Map<string, CodeGuideOutput>();
   const guideReviewed = new Map<string, boolean[]>();
   const failedPayloads = new Map<string, string>();
+  const launchChangedFiles = new Map<string, string[]>();
 
   return {
     guideResults,
     guideReviewed,
     failedPayloads,
+    launchChangedFiles,
 
     async buildCommand({ cwd, patch, diffType, options, prMetadata, changedFiles, config, repair }) {
       const engine = (typeof config?.engine === "string" ? config.engine : "claude") as "claude" | "codex" | "cursor" | "opencode" | "pi";
@@ -1112,6 +1130,12 @@ export function createGuideSession(): GuideSession {
     },
 
     async onJobComplete({ job, meta, changedFiles }) {
+      // Record the changed-file set this attempt validated against — BEFORE
+      // parsing, so both the success and failure paths capture it. A later
+      // manual repair (submitManualOutput) reuses this exact set instead of
+      // whatever patch happens to be on screen at repair time.
+      launchChangedFiles.set(job.id, changedFiles);
+
       let output: CodeGuideOutput | null = null;
       // Best-effort raw candidate for failed-payload capture — populated
       // alongside `output` regardless of whether parsing ultimately
@@ -1176,7 +1200,7 @@ export function createGuideSession(): GuideSession {
       return failedPayloads.get(jobId) ?? null;
     },
 
-    submitManualOutput(jobId, payloadText, changedFiles) {
+    submitManualOutput(jobId, payloadText, fallbackChangedFiles) {
       if (!payloadText || !payloadText.trim()) {
         return { error: "Payload is empty" };
       }
@@ -1199,12 +1223,18 @@ export function createGuideSession(): GuideSession {
         parsed = repaired;
       }
 
+      // Validate against the SAME changed-file set the job's automatic
+      // attempt(s) were validated against (recorded in onJobComplete), not
+      // whatever patch happens to be on screen right now — falls back to the
+      // caller-supplied set only if nothing was ever recorded for this job.
+      const changedFiles = launchChangedFiles.get(jobId) ?? fallbackChangedFiles;
       const result = validateGuideOutput(parsed, changedFiles);
       if ("error" in result) return { error: result.error };
 
       guideResults.set(jobId, result.guide);
       failedPayloads.delete(jobId);
-      return { ok: true };
+      const files = result.guide.sections.reduce((n, s) => n + s.diffs.length, 0);
+      return { ok: true, sections: result.guide.sections.length, files };
     },
   };
 }

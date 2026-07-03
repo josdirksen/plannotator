@@ -119,7 +119,8 @@ export function renderMarkdownProse(
       lines[j].trim() &&
       !lines[j].startsWith('### ') &&
       !lines[j].match(/^[-*] /) &&
-      !lines[j].match(/^>\s*\[!/)
+      !lines[j].match(/^>\s*\[!/) &&
+      !lines[j].trimStart().startsWith('```')
     ) {
       paraLines.push(lines[j]);
       j++;

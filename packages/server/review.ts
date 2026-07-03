@@ -819,9 +819,12 @@ export async function startReviewServer(
       if (provider === "guide") {
         // The changed-file list is derived from the same launch-time patch
         // snapshot as the rest of this closure — it's what the model plans
-        // section placement against at generation time. onJobComplete
-        // re-derives this list from the CURRENT patch at completion time to
-        // validate refs against whatever the reviewer is looking at then.
+        // section placement against at generation time. The SAME list is
+        // snapshotted onto the job (changedFilesSnapshot, below) and reused
+        // by onJobComplete to validate refs, rather than re-deriving from
+        // whatever patch/diff/base the reviewer has switched to by the time
+        // the job finishes — a mid-generation diff/base switch would
+        // otherwise invalidate every ref in an otherwise-valid guide.
         const changedFiles = listPatchFiles(launchPatch);
 
         const repairOf = typeof config?.repairOf === "string" ? config.repairOf : undefined;
@@ -854,7 +857,15 @@ export async function startReviewServer(
           config: guideConfig,
           ...(repair && { repair }),
         });
-        return { ...built, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label };
+        return {
+          ...built,
+          prUrl: launchPrUrl,
+          diffScope: launchDiffScope,
+          diffContext,
+          reviewProfileId: reviewProfile.id,
+          reviewProfileLabel: reviewProfile.label,
+          changedFilesSnapshot: changedFiles.map((f) => f.path),
+        };
       }
 
       // A custom review skill carries its own instructions and becomes the whole
@@ -1076,11 +1087,16 @@ export async function startReviewServer(
 
       // --- Guide path ---
       if (job.provider === "guide") {
-        // Validate refs against the CURRENT patch, not the one at launch time —
-        // the client resolves guide diffs against whatever files are on screen
-        // right now, so a ref must still be a real changed file at completion
-        // time to survive.
-        const changedFiles = listPatchFiles(currentPatch).map((f) => f.path);
+        // Validate refs against the LAUNCH-time changed-file set (snapshotted
+        // on the job at buildCommand time), not the current patch — the model
+        // planned section placement against that exact file set, and the
+        // client already degrades stale refs per-file if the reviewer has
+        // since switched diff/base/PR. Re-deriving from the current patch
+        // here would spuriously invalidate every ref in an otherwise-valid
+        // guide the moment the view changes mid-generation. Falls back to the
+        // current patch only if the snapshot is missing (defensive; should
+        // not happen in practice — see agent-jobs.ts's changedFilesSnapshot).
+        const changedFiles = meta.changedFilesSnapshot ?? listPatchFiles(currentPatch).map((f) => f.path);
         const { summary } = await guide.onJobComplete({ job, meta, changedFiles });
         if (summary) {
           job.summary = summary;
@@ -1248,16 +1264,27 @@ export async function startReviewServer(
           const guideSubmitMatch = url.pathname.match(/^\/api\/guide\/([^/]+)\/submit$/);
           if (guideSubmitMatch && req.method === "POST") {
             const jobId = guideSubmitMatch[1];
+            const existingJob = agentJobs.getJob(jobId);
+            if (!existingJob) return Response.json({ error: "Job not found" }, { status: 404 });
+            if (existingJob.status !== "failed" && existingJob.status !== "killed") {
+              return Response.json({ error: "This job already has a guide" }, { status: 409 });
+            }
             try {
               const body = await req.json() as { payload?: string };
               const payload = typeof body.payload === "string" ? body.payload : "";
-              // Same changed-file derivation guide's onJobComplete uses: validate
-              // against whatever the reviewer is looking at right now, not the
-              // patch at the failed job's launch time.
+              // Fallback only — submitManualOutput prefers the job's own
+              // launch-time changed-file set (guide.launchChangedFiles,
+              // recorded by onJobComplete) over this current-patch derivation.
               const changedFiles = listPatchFiles(currentPatch).map((f) => f.path);
               const result = guide.submitManualOutput(jobId, payload, changedFiles);
               if ("error" in result) return Response.json({ error: result.error }, { status: 400 });
-              return Response.json({ ok: true });
+              const { sections, files } = result;
+              agentJobs.completeJobExternally(jobId, {
+                correctness: "Guide Generated",
+                explanation: `${sections} section${sections !== 1 ? "s" : ""}, ${files} file${files !== 1 ? "s" : ""} placed (manually repaired)`,
+                confidence: 1,
+              });
+              return Response.json({ ok: true, sections, files });
             } catch {
               return Response.json({ error: "Invalid JSON" }, { status: 400 });
             }

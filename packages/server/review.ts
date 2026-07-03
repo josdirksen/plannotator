@@ -355,7 +355,23 @@ export async function startReviewServer(
   captureDiffFingerprint();
 
   const resolveReviewBase = (requestedBase?: string): string => {
-    return resolveBaseBranch(requestedBase, detectedCompareTarget());
+    const resolved = resolveBaseBranch(requestedBase, detectedCompareTarget());
+    // Canonicalize a bare local default name ("main") to its tracking ref
+    // ("origin/main"). The startup upgrade races the first /api/diff, so a
+    // client that loaded early re-sends the un-upgraded "main" on the next
+    // switch/refresh; without this the server would revert to the stale local
+    // branch and lose the upstream baseline. Only when the remote default is
+    // known and the requested base is exactly its local name — an explicitly
+    // chosen different branch is left untouched.
+    const remoteBranch = remoteDefaultInfo?.branch;
+    if (
+      remoteBranch &&
+      remoteBranch.startsWith("origin/") &&
+      resolved === remoteBranch.replace(/^origin\//, "")
+    ) {
+      return remoteBranch;
+    }
+    return resolved;
   };
 
   // --- Base staleness vs the remote ----------------------------------------

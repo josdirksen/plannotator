@@ -59,6 +59,16 @@ landed on this branch:
 - Terminology unified: one "Committed changes" label; the live "Since <base>"
   label is dynamic (matches the header), "Since main" kept only as product copy.
 
+## Known limitations
+
+- **Staleness banner is scoped to the remote default base.** "Baseline behind
+  GitHub" answers "is `origin/<default>` ahead of what you're comparing against."
+  If a reviewer picks a *different* base branch via the base picker, no staleness
+  warning is shown for that base — supporting arbitrary-base upstream staleness
+  is a separate feature, not built here. The common cases are covered: the
+  default base, and a bare local default name (`main`) which is canonicalized to
+  its tracking ref both at startup and on every `resolveReviewBase` call.
+
 ## Reference files
 
 - Decision: `adr/decisions/005-since-base-github-view-default-20260701-223706.md`

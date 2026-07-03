@@ -356,6 +356,23 @@ export async function startReviewServer(options: {
 		options.gitContext?.defaultBranch || options.gitContext?.compareTarget?.fallback || "main";
 	let currentBase = options.initialBase || detectedCompareTarget();
 	let baseEverSwitched = false;
+	const resolveReviewBase = (requestedBase?: string): string => {
+		const resolved = resolveBaseBranch(requestedBase, detectedCompareTarget());
+		// Canonicalize a bare local default name ("main") to its tracking ref
+		// ("origin/main") — the startup upgrade races the first /api/diff, so a
+		// client that loaded early re-sends "main" on the next switch/refresh and
+		// would revert the server to the stale local branch. Only when the remote
+		// default is known and the requested base is exactly its local name.
+		const remoteBranch = remoteDefaultInfo?.branch;
+		if (
+			remoteBranch &&
+			remoteBranch.startsWith("origin/") &&
+			resolved === remoteBranch.replace(/^origin\//, "")
+		) {
+			return remoteBranch;
+		}
+		return resolved;
+	};
 
 	// --- Diff staleness fingerprint (mirrors packages/server/review.ts) -------
 	// Captured beside every patch snapshot; GET /api/diff/fresh recomputes and
@@ -1126,10 +1143,8 @@ export async function startReviewServer(options: {
 					});
 					return;
 				}
-				const detectedBase = detectedCompareTarget();
-				const base = resolveBaseBranch(
+				const base = resolveReviewBase(
 					typeof body.base === "string" ? body.base : undefined,
-					detectedBase,
 				);
 				const defaultCwd = options.gitContext?.cwd;
 				const result = await runVcsDiff(newType as DiffType, base, defaultCwd, {
@@ -1579,10 +1594,8 @@ export async function startReviewServer(options: {
 
 			// Local mode first (matches Bun server priority)
 			if (hasLocalAccess && !isPRMode) {
-				const detectedBase = detectedCompareTarget();
-				const base = resolveBaseBranch(
+				const base = resolveReviewBase(
 					url.searchParams.get("base") ?? undefined,
-					detectedBase,
 				);
 				const defaultCwd = options.gitContext?.cwd;
 				const result = await getVcsFileContentsForDiff(

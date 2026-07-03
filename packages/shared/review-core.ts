@@ -492,25 +492,40 @@ export async function getGitContext(
 }
 
 /**
- * Collect the repo-relative paths that already appear in a tracked diff (from
- * its `--- a/…` / `+++ b/…` headers). Used to keep a path from being emitted
- * twice in a composite patch — e.g. `git rm --cached f` shows f as a tracked
- * deletion AND as an untracked file, and two diff entries for one path collide
- * on the path-keyed dock/selection layer (wrong file opens, j/k nav loops).
+ * Collect the repo-relative paths a tracked diff already contributes, keyed the
+ * same way `parseDiffToFiles` keys entries — the NEW (`+++`) path, or the OLD
+ * (`---`) path for a pure deletion (`+++ /dev/null`). Used to keep a path from
+ * being emitted twice in a composite patch — e.g. `git rm --cached f` shows f as
+ * a tracked deletion AND as an untracked file, and two entries for one path
+ * collide on the path-keyed dock/selection layer (wrong file opens, j/k loops).
+ *
+ * The rename-FROM (`---`) side of a NON-deletion entry is intentionally NOT
+ * collected: `git mv a b && touch a` recreates `a` as a distinct untracked file
+ * that must still be shown, even though the rename lists `a` on its `---` line.
  */
 function extractTrackedPatchPaths(patch: string): Set<string> {
   const paths = new Set<string>();
-  for (const line of patch.split("\n")) {
-    let rest: string | null = null;
-    if (line.startsWith("--- ")) rest = line.slice(4);
-    else if (line.startsWith("+++ ")) rest = line.slice(4);
-    else continue;
-    if (!rest || rest === "/dev/null") continue;
+  const strip = (rest: string): string | null => {
+    if (!rest || rest === "/dev/null") return null;
     // The runtime forces core.quotePath=false so paths are normally unquoted;
     // unquote defensively in case a caller runs without that wrapper.
     const unq = rest.startsWith('"') ? unquoteGitPath(rest) : rest;
-    const stripped = unq.length > 2 ? unq.slice(2) : unq; // drop a/ or b/
-    if (stripped) paths.add(stripped);
+    return unq.length > 2 ? unq.slice(2) : unq; // drop a/ or b/
+  };
+  let minusPath: string | null = null; // pending `--- a/<path>` awaiting its `+++`
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("--- ")) {
+      minusPath = strip(line.slice(4));
+    } else if (line.startsWith("+++ ")) {
+      const plus = line.slice(4);
+      if (plus === "/dev/null") {
+        if (minusPath) paths.add(minusPath); // deletion — keyed by the old path
+      } else {
+        const p = strip(plus); // add/modify/rename-to — keyed by the new path
+        if (p) paths.add(p);
+      }
+      minusPath = null;
+    }
   }
   return paths;
 }
@@ -971,7 +986,11 @@ export async function getGitDiffFingerprint(
     // Capped — a pathological number of untracked files degrades to
     // existence-only detection rather than unbounded reads.
     const hashUntracked = async (): Promise<boolean> => {
-      const status = await runReadOnlyGit(["status", "--porcelain"]);
+      // -uall: without it, an untracked directory collapses to a single `?? dir/`
+      // line, so edits to files inside it never change the fingerprint and the
+      // "Diff out of date" banner never fires — even though the patch (which
+      // enumerates individual untracked files) includes them. Match that here.
+      const status = await runReadOnlyGit(["status", "--porcelain", "-uall"]);
       if (status.exitCode !== 0) return false;
       parts.push(hashFingerprintPart(status.stdout));
       const untracked = status.stdout

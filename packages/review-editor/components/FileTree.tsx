@@ -28,8 +28,6 @@ interface FileTreeProps {
   enableKeyboardNav?: boolean;
   diffOptions?: DiffOption[];
   activeDiffType?: string;
-  /** Trigger label when the active diff type isn't in diffOptions (since-base). */
-  activeDiffLabel?: string;
   onSelectDiff?: (diffType: string) => void;
   isLoadingDiff?: boolean;
   width?: number;
@@ -102,7 +100,6 @@ export const FileTree: React.FC<FileTreeProps> = ({
   enableKeyboardNav = true,
   diffOptions,
   activeDiffType,
-  activeDiffLabel,
   onSelectDiff,
   isLoadingDiff,
   width,
@@ -415,7 +412,6 @@ export const FileTree: React.FC<FileTreeProps> = ({
               <DiffTypePicker
                 options={diffOptions}
                 activeDiffType={activeDiffType || 'uncommitted'}
-                activeLabelFallback={activeDiffLabel}
                 onSelect={onSelectDiff}
                 isLoading={isLoadingDiff}
                 hasBasePicker={!!onSelectBase && !!availableBranches}

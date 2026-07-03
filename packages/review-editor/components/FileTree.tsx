@@ -83,6 +83,8 @@ interface FileTreeProps {
   repoRoot?: string | null;
   /** When the since-base sections view is available, renders a nav row back to it. */
   onSwitchToSections?: () => void;
+  /** When the commit-history view is available, offers its toggle segment. */
+  onSwitchToCommits?: () => void;
   /** Sections sidecar while the since-base diff is displayed as a tree —
    * powers per-row U/staged markers and the stage button. */
   sinceBaseSections?: SinceBaseSections | null;
@@ -147,6 +149,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
   scrollHighlightIndex,
   repoRoot,
   onSwitchToSections,
+  onSwitchToCommits,
   sinceBaseSections,
   onStageFile,
   stagingFile,
@@ -275,8 +278,16 @@ export const FileTree: React.FC<FileTreeProps> = ({
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Results
             </span>
-          ) : onSwitchToSections ? (
-            <PanelViewToggle view="tree" onSelect={(view) => view === 'sections' && onSwitchToSections()} />
+          ) : onSwitchToSections || onSwitchToCommits ? (
+            <PanelViewToggle
+              view="tree"
+              showSections={!!onSwitchToSections}
+              showCommits={!!onSwitchToCommits}
+              onSelect={(view) => {
+                if (view === 'sections') onSwitchToSections?.();
+                else if (view === 'commits') onSwitchToCommits?.();
+              }}
+            />
           ) : (
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Files

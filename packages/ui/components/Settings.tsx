@@ -221,6 +221,7 @@ const GitTab: React.FC<{ sinceBaseUnavailable?: boolean }> = ({ sinceBaseUnavail
         <SegmentedControl
           options={[
             { value: 'sections' as const, label: 'Git status' },
+            { value: 'commits' as const, label: 'Commits' },
             { value: 'tree' as const, label: 'Tree' },
           ]}
           value={reviewPanelView}

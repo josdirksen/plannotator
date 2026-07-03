@@ -53,15 +53,19 @@ export const SETTINGS = {
 
   // --- Diff display options (namespaced under diffOptions in config.json) ---
 
-  // Which left-panel view a code review opens in. 'sections' = the new
-  // git-status view (Committed/Changes/Untracked); 'tree' = the classic file
-  // tree. Cookie-only. The header Sections|Tree toggle writes this too, so the
-  // last choice becomes the default (like gridEnabled for plans).
+  // Which left-panel view a code review opens in. 'sections' = the git-status
+  // view (Committed/Changes/Untracked); 'commits' = the linear commit-history
+  // rail; 'tree' = the classic file tree. Cookie-only. The header toggle
+  // writes this too, so the last choice becomes the default (like gridEnabled
+  // for plans). Only the VIEW persists for commits — never a commit sha (it
+  // may not exist after a rebase), and unlike sections there is no coupled
+  // default diff: the review opens on the user's normal default until a
+  // commit is clicked.
   reviewPanelView: {
-    defaultValue: 'sections' as 'sections' | 'tree',
+    defaultValue: 'sections' as 'sections' | 'commits' | 'tree',
     fromCookie: () => {
       const v = storage.getItem('plannotator-review-panel-view');
-      return v === 'tree' || v === 'sections' ? v : undefined;
+      return v === 'tree' || v === 'sections' || v === 'commits' ? v : undefined;
     },
     toCookie: (v: string) => storage.setItem('plannotator-review-panel-view', v),
     serverKey: undefined, fromServer: undefined, toServer: undefined,

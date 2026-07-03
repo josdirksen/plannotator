@@ -61,8 +61,11 @@ interface SectionsPanelProps {
   onSelectBase?: (branch: string) => void;
   compareTarget?: CompareTargetConfig;
   recentCommits?: RecentCommit[];
-  /** Sections ⇄ Tree switcher, same header slot in both views. */
-  onSelectPanelView: (view: 'sections' | 'tree') => void;
+  /** Panel view switcher (Git status / Commits / Tree), same header slot in
+   * every view. */
+  onSelectPanelView: (view: 'sections' | 'commits' | 'tree') => void;
+  /** Offer the Commits segment (git-local sessions only). */
+  showCommitsOption?: boolean;
   /** All files nav row — the review's landing view, listed first. */
   onSelectAllFiles?: () => void;
   isAllFilesActive?: boolean;
@@ -180,6 +183,7 @@ export const SectionsPanel: React.FC<SectionsPanelProps> = ({
   compareTarget,
   recentCommits,
   onSelectPanelView,
+  showCommitsOption,
   onSelectAllFiles,
   isAllFilesActive,
   onSelectSemanticDiff,
@@ -417,7 +421,7 @@ export const SectionsPanel: React.FC<SectionsPanelProps> = ({
           identical layout to the tree view so nothing moves between views. */}
       <div className="px-3 flex items-center border-b border-border/50 flex-shrink-0" style={{ height: 'var(--panel-header-h)' }}>
         <div className="w-full flex items-center justify-between gap-2">
-          <PanelViewToggle view="sections" onSelect={onSelectPanelView} />
+          <PanelViewToggle view="sections" onSelect={onSelectPanelView} showCommits={showCommitsOption} />
           <div className="flex items-center gap-1.5">
             {stagedCount > 0 && (
               <span className="text-xs text-primary font-medium">

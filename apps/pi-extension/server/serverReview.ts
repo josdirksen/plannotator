@@ -1,4 +1,4 @@
-import { spawn, execFileSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
 import os from "node:os";
@@ -65,7 +65,7 @@ import { resolvePoolCwd, type WorktreePool } from "../generated/worktree-pool.js
 import { createCommitAvatarResolver } from "../generated/commit-avatars.js";
 
 import { createEditorAnnotationHandler } from "./annotations.js";
-import { createAgentJobHandler } from "./agent-jobs.js";
+import { createAgentJobHandler, whichCmd as commandExists } from "./agent-jobs.js";
 import { type AgentJobInfo, REVIEW_OUTPUT_FAILED, markJobReviewFailed } from "../generated/agent-jobs.js";
 import { createExternalAnnotationHandler } from "./external-annotations.js";
 import {
@@ -194,18 +194,11 @@ const piCodeNavRuntime: CodeNavRuntime = {
 // Review ingestion completion semantics (REVIEW_OUTPUT_FAILED,
 // markJobReviewFailed) now live in the shared agent-jobs module.
 
-/** Node equivalent of Bun.which(cmd) — used to pick a guide repair engine
- *  (prefer whichever schema-enforced CLI is on PATH). Mirrors the local
- *  whichCmd helpers in ai-runtime.ts / agent-jobs.ts. */
-function commandExists(cmd: string): boolean {
-	try {
-		const bin = process.platform === "win32" ? "where" : "which";
-		execFileSync(bin, [cmd], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
-		return true;
-	} catch {
-		return false;
-	}
-}
+// Node equivalent of Bun.which(cmd) — used to pick a guide repair engine
+// (prefer whichever schema-enforced CLI is on PATH). Imported as
+// `commandExists` from agent-jobs.ts's `whichCmd` (single source of truth;
+// the other pre-existing copies in ai-runtime.ts / agent-terminal are left
+// alone — out of scope here).
 
 /** Detect if running inside WSL (Windows Subsystem for Linux) */
 function detectWSL(): boolean {
@@ -880,15 +873,26 @@ export async function startReviewServer(options: {
 					if (!payload) {
 						throw new Error("No captured output to repair for that job — run the guide again instead.");
 					}
-					// Prefer whichever schema-enforced CLI is on PATH; fall back to
-					// the failed job's own engine (threaded by the client via
-					// config.engine) so a marker-only environment can still retry
-					// with what it has.
-					const repairEngine = commandExists("claude")
-						? "claude"
-						: commandExists("codex")
-							? "codex"
-							: (typeof config?.engine === "string" && config.engine ? config.engine : "claude");
+					// Prefer the failed job's OWN engine when it's a schema-enforced
+					// CLI (claude/codex) that's actually present: the failed job got
+					// far enough to produce capturable output, so that engine is
+					// PROVEN working and authenticated on this machine — binary
+					// presence (commandExists) alone only means installed, not
+					// usable, and a present-but-unauthenticated claude would
+					// otherwise hijack every repair on a machine where the user
+					// actually works via codex/pi. Only when the failed engine
+					// isn't claude/codex-and-present do we fall back to "prefer
+					// claude, then codex" by binary presence, and finally the
+					// failed job's own (possibly marker) engine.
+					const failedEngine = typeof config?.engine === "string" && config.engine ? config.engine : undefined;
+					const repairEngine =
+						(failedEngine === "claude" || failedEngine === "codex") && commandExists(failedEngine)
+							? failedEngine
+							: commandExists("claude")
+								? "claude"
+								: commandExists("codex")
+									? "codex"
+									: (failedEngine ?? "claude");
 					repair = { payload };
 					guideConfig = { ...config, engine: repairEngine };
 				}

@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import type { AgentJobInfo } from '@plannotator/ui/types';
+import { ElapsedTime } from '@plannotator/ui/components/AgentsTab';
 import { LiveLogViewer } from '../LiveLogViewer';
 import { useJobLogs } from '../../dock/JobLogsContext';
 import { GuideSectionSkeleton } from './GuideSkeleton';
@@ -12,22 +13,6 @@ const STATUS_LABEL: Record<AgentJobInfo['status'], string> = {
   failed: 'Failed',
   killed: 'Cancelled',
 };
-
-function formatDuration(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ${seconds % 60}s`;
-}
-
-function ElapsedTime({ startedAt }: { startedAt: number }) {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const timer = setInterval(() => setTick((t) => t + 1), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  return <>{formatDuration(Date.now() - startedAt)}</>;
-}
 
 /** Keep only the last ~N lines of a live log tail — the guide's generating
  *  page is a glance, not the full job-detail log view. */

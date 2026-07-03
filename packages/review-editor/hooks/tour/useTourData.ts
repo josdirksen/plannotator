@@ -20,6 +20,17 @@ export function useTourData(jobId: string): UseTourDataReturn {
   const [checked, setChecked] = useState<boolean[]>([]);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingChecklistRef = useRef<boolean[] | null>(null);
+  // Gates the persistence effect below: true = the next `checked` change is a
+  // SEED (fetch resolved / demo short-circuit), not a user toggle, so skip
+  // the PUT. Starts true (initial empty array) and is re-armed at every seed
+  // site (see fetchTour) — it's only ever cleared inside toggleChecked itself
+  // (the real user action), never by the persistence effect. That makes it
+  // immune to React StrictMode's dev-only mount→cleanup→remount replay of
+  // effects: however many times the persistence effect happens to run for the
+  // same seeded state, the flag still reads whatever the last real call site
+  // (seed or toggle) wrote, so it can't be "consumed" into a false negative by
+  // an extra replay.
+  const skipNextSaveRef = useRef(true);
 
   const fetchTour = useCallback((): (() => void) | void => {
     if (!jobId) return;
@@ -28,6 +39,7 @@ export function useTourData(jobId: string): UseTourDataReturn {
 
     // Dev short-circuit: render the demo tour without a backend.
     if (jobId === DEMO_TOUR_ID) {
+      skipNextSaveRef.current = true;
       setTour(DEMO_TOUR);
       setChecked(new Array(DEMO_TOUR.qa_checklist.length).fill(false));
       setLoading(false);
@@ -49,6 +61,7 @@ export function useTourData(jobId: string): UseTourDataReturn {
       .then((data: CodeTourData) => {
         if (cancelled) return;
         setTour(data);
+        skipNextSaveRef.current = true;
         setChecked(data.checklist?.length > 0 ? data.checklist : new Array(data.qa_checklist.length).fill(false));
         setLoading(false);
       })
@@ -87,18 +100,28 @@ export function useTourData(jobId: string): UseTourDataReturn {
     [jobId],
   );
 
-  const toggleChecked = useCallback(
-    (index: number) => {
-      // Compute the next array, THEN setState, THEN schedule the save — calling
-      // saveChecklist (a side effect) inside the setState updater double-fires
-      // it under React StrictMode's intentional double-invoke of updaters.
-      const next = [...checked];
+  // Pure functional updater — safe under React StrictMode's dev-only
+  // double-invoke of setState updaters (no side effects inside). Persistence
+  // is handled by the effect below instead of here.
+  const toggleChecked = useCallback((index: number) => {
+    skipNextSaveRef.current = false;
+    setChecked((prev) => {
+      const next = [...prev];
       next[index] = !next[index];
-      setChecked(next);
-      saveChecklist(next);
-    },
-    [checked, saveChecklist],
-  );
+      return next;
+    });
+  }, []);
+
+  // Persists whenever `checked` changes, except for the initial seed from
+  // fetch/demo (skipNextSaveRef — see its declaration above for why toggling
+  // it only from seed/toggle call sites, never from here, is StrictMode-safe).
+  // saveChecklist always receives the CURRENT `checked` (this effect's
+  // closure), so pendingChecklistRef.current — read by the unmount flush
+  // below — always reflects the latest change, not a stale one.
+  useEffect(() => {
+    if (skipNextSaveRef.current) return;
+    saveChecklist(checked);
+  }, [checked, saveChecklist]);
 
   useEffect(() => {
     return () => {

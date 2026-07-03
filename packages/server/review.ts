@@ -835,14 +835,25 @@ export async function startReviewServer(
           if (!payload) {
             throw new Error("No captured output to repair for that job — run the guide again instead.");
           }
-          // Prefer whichever schema-enforced CLI is on PATH; fall back to the
-          // failed job's own engine (threaded by the client via config.engine)
-          // so a marker-only environment can still retry with what it has.
-          const repairEngine = Bun.which("claude")
-            ? "claude"
-            : Bun.which("codex")
-              ? "codex"
-              : (typeof config?.engine === "string" && config.engine ? config.engine : "claude");
+          // Prefer the failed job's OWN engine when it's a schema-enforced CLI
+          // (claude/codex) that's actually present: the failed job got far
+          // enough to produce capturable output, so that engine is PROVEN
+          // working and authenticated on this machine — binary presence
+          // (Bun.which) alone only means installed, not usable, and a
+          // present-but-unauthenticated claude would otherwise hijack every
+          // repair on a machine where the user actually works via codex/pi.
+          // Only when the failed engine isn't claude/codex-and-present do we
+          // fall back to "prefer claude, then codex" by binary presence, and
+          // finally the failed job's own (possibly marker) engine.
+          const failedEngine = typeof config?.engine === "string" && config.engine ? config.engine : undefined;
+          const repairEngine =
+            (failedEngine === "claude" || failedEngine === "codex") && Bun.which(failedEngine)
+              ? failedEngine
+              : Bun.which("claude")
+                ? "claude"
+                : Bun.which("codex")
+                  ? "codex"
+                  : (failedEngine ?? "claude");
           repair = { payload };
           guideConfig = { ...config, engine: repairEngine };
         }

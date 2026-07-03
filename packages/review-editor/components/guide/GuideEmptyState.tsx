@@ -14,7 +14,7 @@ import {
   PI_THINKING,
   REVIEW_ENGINE_LABEL,
 } from '@plannotator/ui/components/AgentsTab';
-import { groupModelOptions, labelWithinGroup } from '@plannotator/ui/components/AgentControls';
+import { groupModelOptions, labelWithinGroup, SEARCHABLE_THRESHOLD } from '@plannotator/ui/components/AgentControls';
 
 const GUIDE_ENGINES = Object.keys(REVIEW_ENGINE_LABEL) as ReviewEngine[];
 
@@ -43,7 +43,7 @@ function InlinePicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const current = options.find((o) => o.value === value);
-  const searchable = options.length > 12;
+  const searchable = options.length > SEARCHABLE_THRESHOLD;
 
   const q = query.trim().toLowerCase();
   const filtered = q

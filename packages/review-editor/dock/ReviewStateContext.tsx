@@ -161,6 +161,9 @@ export interface ReviewState {
   // Tour
   openTourPanel: (jobId: string) => void;
 
+  // Guide — optional because not every host wires a guide takeover surface.
+  openGuide?: (jobId: string) => void;
+
   // Code navigation
   onCodeNavRequest?: (request: import('@plannotator/shared/code-nav').CodeNavRequest) => void;
   codeNavResult: import('@plannotator/shared/code-nav').CodeNavResponse | null;

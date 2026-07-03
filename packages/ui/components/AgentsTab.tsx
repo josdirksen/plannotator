@@ -172,8 +172,11 @@ interface AgentsTabProps {
 }
 
 // --- Duration display ---
+// Exported so other agent-job surfaces (e.g. GuideGenerating in
+// review-editor) share this one implementation instead of keeping their own
+// copies in sync.
 
-function formatDuration(ms: number): string {
+export function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
@@ -181,7 +184,7 @@ function formatDuration(ms: number): string {
   return `${minutes}m ${remainingSeconds}s`;
 }
 
-function ElapsedTime({ startedAt }: { startedAt: number }) {
+export function ElapsedTime({ startedAt }: { startedAt: number }) {
   const [, setTick] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => setTick((t) => t + 1), 1000);

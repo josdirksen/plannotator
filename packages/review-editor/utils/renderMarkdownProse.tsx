@@ -53,9 +53,17 @@ export function renderMarkdownProse(
     }
 
     // Callout block: > [!IMPORTANT] / > [!NOTE] / > [!WARNING]
-    if (line.match(/^>\s*\[!(IMPORTANT|NOTE|WARNING)\]/i)) {
-      const type = line.match(/WARNING/i) ? 'warning' : line.match(/IMPORTANT/i) ? 'important' : 'note';
+    const calloutOpener = line.match(/^>\s*\[!(IMPORTANT|NOTE|WARNING)\]\s*(.*)$/i);
+    if (calloutOpener) {
+      // Type comes from the [!TAG] capture, NOT a whole-line scan — with
+      // same-line message text, `> [!NOTE] this is important` would otherwise
+      // scan-match "important" and mistype the callout.
+      const type = calloutOpener[1].toLowerCase() as 'important' | 'note' | 'warning';
       const calloutLines: string[] = [];
+      // The opener's own remainder (single-line form: `> [!NOTE] message`) is
+      // the mainline path — our guide prompt tells the model to emit this
+      // form — so it must be captured here, not just subsequent `>` lines.
+      if (calloutOpener[2]) calloutLines.push(calloutOpener[2]);
       let j = i + 1;
       while (j < lines.length && lines[j].startsWith('>')) {
         calloutLines.push(lines[j].replace(/^>\s?/, ''));

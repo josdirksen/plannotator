@@ -2157,6 +2157,7 @@ const ReviewApp: React.FC = () => {
     onSemanticDiffLoadError: handleSemanticDiffLoadError,
     onSemanticDiffLoadSuccess: handleSemanticDiffLoadSuccess,
     openTourPanel: handleOpenTour,
+    openGuide: handleOpenGuide,
     onCodeNavRequest: handleCodeNavRequest,
     codeNavResult: codeNav.result,
     codeNavIsLoading: codeNav.isLoading,
@@ -2180,7 +2181,7 @@ const ReviewApp: React.FC = () => {
     handleAskAI, handleAskAIForFile, handleViewAIResponse, handleClickAIMarker,
     aiHistoryForSelection, getAIHistoryForFile, agentJobs.jobs, prMetadata, prContext,
     isPRContextLoading, prContextError, fetchPRContext, platformUser, openDiffFile,
-    handleOpenTour, isAllFilesActive, allFilesOrder, allFilesAllCollapsed, onToggleAllFilesCollapsed, registerAllFilesCollapseToggle, commitInfo, isSemanticDiffActive, semanticDiffAvailable,
+    handleOpenTour, handleOpenGuide, isAllFilesActive, allFilesOrder, allFilesAllCollapsed, onToggleAllFilesCollapsed, registerAllFilesCollapseToggle, commitInfo, isSemanticDiffActive, semanticDiffAvailable,
     handleSemanticDiffUnavailable, handleSemanticDiffLoadError, handleSemanticDiffLoadSuccess, handleAddAnnotationForFile,
     handleCodeNavRequest, codeNav.result, codeNav.isLoading, codeNav.activeSymbol,
   ]);

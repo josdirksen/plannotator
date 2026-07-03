@@ -353,7 +353,11 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
               // into readable log deltas via the engine's own formatter (Cursor
               // applies the partial-output dedup rule; OpenCode reads text parts;
               // Pi reads message_end/tool_execution_start).
-              const markerEngine = MARKER_ENGINES[provider as "cursor" | "opencode" | "pi"];
+              // Guide jobs keep provider: "guide" and carry the marker engine on
+              // spawnOptions.engine instead — fall back to that lookup so guide
+              // logs get the same readable formatting as review jobs.
+              const markerEngine = MARKER_ENGINES[provider as "cursor" | "opencode" | "pi"]
+                ?? (spawnOptions?.engine ? MARKER_ENGINES[spawnOptions.engine as "cursor" | "opencode" | "pi"] : undefined);
               if (markerEngine) {
                 const formatted = formatMarkerLogEvent(line, markerEngine);
                 if (formatted !== null) broadcast({ type: "job:log", jobId: id, delta: formatted + '\n' });

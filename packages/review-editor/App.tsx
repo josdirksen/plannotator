@@ -1659,12 +1659,20 @@ const ReviewApp: React.FC = () => {
   // switch the view alone and leave the active diff as-is — Tree can render
   // any diff, including a clicked commit's.
   const handlePanelViewSelect = useCallback((view: 'sections' | 'commits' | 'tree') => {
+    if (view === 'commits') {
+      // The Commits rail has no search input, so an open search would become
+      // hidden-but-live: the query keeps matching, marks keep rendering, and
+      // Enter keeps stepping matches with no way to see or edit any of it.
+      // Entering the view ends the search session cleanly.
+      if (searchQuery) clearSearch();
+      if (isSearchOpen) closeSearch();
+    }
     if (view === 'sections') {
       handleSwitchToSections();
       return;
     }
     selectPanelView(view);
-  }, [handleSwitchToSections, selectPanelView]);
+  }, [handleSwitchToSections, selectPanelView, searchQuery, isSearchOpen, clearSearch, closeSearch]);
 
   // Open a commit's own diff (vs its first parent) in the center dock. The
   // switch resets the dock to the all-files surface via the existing

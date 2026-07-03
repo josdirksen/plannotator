@@ -454,6 +454,13 @@ html:not(.transitions-ready) * {
   color: var(--primary);
 }
 
+/* The stage (+) button's default border (--border) has no contrast against
+   the active row's primary tint and visually disappears — tint it with the
+   row color instead. :not(:hover) leaves the button's own hover border. */
+.file-tree-item.active .stage-plus:not(:hover) {
+  border-color: oklch(from var(--primary) l c h / 0.5);
+}
+
 .file-tree-item.has-annotations {
   background: oklch(from var(--primary) l c h / 0.08);
 }

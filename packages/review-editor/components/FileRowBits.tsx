@@ -96,7 +96,7 @@ export const StageControl: React.FC<{
         e.stopPropagation();
         if (!isStaging) onStage?.();
       }}
-      className="w-4 h-4 flex-shrink-0 rounded border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-muted-foreground/60 hover:bg-muted/50 transition-colors"
+      className="stage-plus w-4 h-4 flex-shrink-0 rounded border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-muted-foreground/60 hover:bg-muted/50 transition-colors"
       title="Stage file (git add)"
       aria-label="Stage file"
     >

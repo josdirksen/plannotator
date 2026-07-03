@@ -566,10 +566,16 @@ async function getUntrackedFileDiffs(
   );
   if (lsResult.exitCode !== 0) return { diff: "", paths: [] };
 
+  // ls-files C-quotes unusual paths (unicode, control chars — NOT plain
+  // spaces). The quoted form breaks everything downstream: the --no-index
+  // diff can't access the literal quoted filename (the file silently drops
+  // out of the review), and the returned paths would never match the
+  // unquoted deletion paths in removeTrackedDeletions.
   const files = lsResult.stdout
     .trim()
     .split("\n")
-    .filter((file) => file.length > 0);
+    .filter((file) => file.length > 0)
+    .map((file) => unquoteGitPath(file));
 
   if (files.length === 0) return { diff: "", paths: [] };
 

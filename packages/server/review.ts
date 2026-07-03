@@ -511,10 +511,13 @@ export async function startReviewServer(
     const effective = parseWorktreeDiffType(currentDiffType as string)?.subType ?? currentDiffType;
     return effective === "since-base";
   };
-  const buildSectionsSidecar = async (): Promise<SinceBaseSections | undefined> => {
+  // Takes the base explicitly so callers can pin it to a snapshot taken
+  // before an await — reading currentBase inside would race the startup
+  // base upgrade.
+  const buildSectionsSidecar = async (base: string = currentBase): Promise<SinceBaseSections | undefined> => {
     if (!isSinceBaseActive()) return undefined;
     const cwd = resolveVcsCwd(currentDiffType as DiffType, gitContext?.cwd);
-    return (await getSinceBaseSections(gitRuntime, currentBase, cwd)) ?? undefined;
+    return (await getSinceBaseSections(gitRuntime, base, cwd)) ?? undefined;
   };
 
   // Agent jobs — background process manager (late-binds serverUrl via getter)
@@ -1072,19 +1075,31 @@ export async function startReviewServer(
           // API: Get diff content
           if (url.pathname === "/api/diff" && req.method === "GET") {
             maybeRefreshRemoteBaseInfo();
-            const sections = await buildSectionsSidecar();
+            // Snapshot the served state BEFORE the sidecar await: the startup
+            // base upgrade can land mid-await, and reading the globals after
+            // it would pair a rebuilt patch with sections computed from the
+            // old base — a misgrouped panel. Setting initialDiffServed first
+            // also guarantees an upgrade landing during the await keeps the
+            // stale fingerprint baseline, so the freshness poll raises the
+            // Refresh banner for the (internally consistent) old snapshot
+            // served here.
             initialDiffServed = true;
+            const servedPatch = currentPatch;
+            const servedBase = currentBase;
+            const servedGitRef = currentGitRef;
+            const servedError = currentError;
+            const sections = await buildSectionsSidecar(servedBase);
             return Response.json({
-              rawPatch: currentPatch,
+              rawPatch: servedPatch,
               aiReviewContext: buildCurrentAiReviewContext(),
-              gitRef: currentGitRef,
+              gitRef: servedGitRef,
               origin,
               mode: isWorkspaceMode ? "workspace" : undefined,
               diffType: hasLocalAccess || isWorkspaceMode ? currentDiffType : undefined,
               // Echo the active base so a page refresh or reconnect rehydrates
               // the picker to what the server is actually using — not the
               // detected default.
-              base: hasLocalAccess ? currentBase : undefined,
+              base: hasLocalAccess ? servedBase : undefined,
               hideWhitespace: currentHideWhitespace,
               ...(workspace && { diffOptions: workspace.diffOptions }),
               gitContext: hasLocalAccess ? gitContext : undefined,
@@ -1114,7 +1129,7 @@ export async function startReviewServer(
               ...(isPRMode && initialViewedFiles.length > 0 && { viewedFiles: initialViewedFiles }),
               ...(sections && { sections }),
               ...(baseBehindRemote && { baseBehindRemote: true }),
-              ...(currentError && { error: currentError }),
+              ...(servedError && { error: servedError }),
               semanticDiff: await getSemanticDiffAdvert(),
               serverConfig: getServerConfig(gitUser),
             });

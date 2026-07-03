@@ -116,6 +116,24 @@ describe("review-core", () => {
     expect(result.patch).toContain("+++ b/untracked.txt");
   });
 
+  test("uncommitted diff includes untracked files with C-quoted (unicode) names", async () => {
+    // git ls-files C-quotes unusual paths ("caf\303\251.txt"); without
+    // unquoting, the --no-index diff can't access the literal quoted name
+    // and the file silently drops out of the review.
+    const repoDir = initRepo();
+    const runtime = makeRuntime(repoDir);
+
+    writeFileSync(join(repoDir, "café.txt"), "accented\n", "utf-8");
+
+    const result = await runGitDiff(runtime, "uncommitted", "main");
+
+    // The content line proves the file was actually read rather than
+    // erroring into an empty diff. The header carries git's C-quoted form
+    // (core.quotePath), so match the escaped bytes there, not "café".
+    expect(result.patch).toContain("+accented");
+    expect(result.patch).toContain("caf\\303\\251.txt");
+  });
+
   test("uncommitted diff includes untracked files when CWD is a subdirectory", async () => {
     const repoDir = initRepo();
 
@@ -294,12 +312,14 @@ describe("review-core", () => {
     // "worktree:/path:merge-base" to { path: "/path:merge-base", subType: "uncommitted" }
     // which pointed git at a non-existent cwd and silently collapsed the diff mode.
     const subTypes = [
+      "since-base",
       "uncommitted",
       "staged",
       "unstaged",
       "last-commit",
       "branch",
       "merge-base",
+      "all",
     ] as const;
     for (const sub of subTypes) {
       const composite = `worktree:/tmp/my-worktree:${sub}` as DiffType;

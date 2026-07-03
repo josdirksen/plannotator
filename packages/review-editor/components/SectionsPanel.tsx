@@ -211,8 +211,14 @@ export const SectionsPanel: React.FC<SectionsPanelProps> = ({
       const entry = sections.files[file.path];
       // A file in the composite patch with no status entry has a clean
       // working tree — it is committed branch work.
-      const group: SectionGroup = entry?.group ?? 'committed';
-      grouped[group].push({ file, index, group, staged: (entry?.staged ?? false) || (stagedFiles?.has(file.path) ?? false) });
+      let group: SectionGroup = entry?.group ?? 'committed';
+      const staged = (entry?.staged ?? false) || (stagedFiles?.has(file.path) ?? false);
+      // Staging an untracked file makes it tracked+staged in git, but the
+      // sidecar snapshot still says untracked until the next diff refresh —
+      // anticipate the server and show it under Changes now. Unstaging
+      // removes it from stagedFiles, which falls back to the sidecar group.
+      if (group === 'untracked' && staged) group = 'changes';
+      grouped[group].push({ file, index, group, staged });
     });
     // Staged work floats to the top of Changes.
     grouped.changes.sort((a, b) => Number(b.staged) - Number(a.staged));

@@ -9,10 +9,11 @@ export const ReviewAllFilesDiffPanel: React.FC<IDockviewPanelProps> = () => {
 
   // A commit diff heads the surface with the full commit message and opens
   // its files folded — the description gives the "what/why", the collapsed
-  // file list the shape, and each file expands on demand.
+  // file list the shape, and each file expands on demand. The card rides
+  // INSIDE the scroller (leadingContent), so it scrolls away with the diff.
   const commitInfo = state.commitInfo;
 
-  const codeView = (
+  return (
     <AllFilesCodeView
       files={state.files}
       diffStyle={state.diffStyle}
@@ -64,14 +65,9 @@ export const ReviewAllFilesDiffPanel: React.FC<IDockviewPanelProps> = () => {
       onViewAIResponse={state.onViewAIResponse}
       getAIHistoryForFile={state.getAIHistoryForFile}
       defaultCollapsed={!!commitInfo}
+      leadingContent={
+        commitInfo ? <CommitDescriptionHeader key={commitInfo.sha} info={commitInfo} /> : undefined
+      }
     />
-  );
-
-  if (!commitInfo) return codeView;
-  return (
-    <div className="h-full flex flex-col">
-      <CommitDescriptionHeader info={commitInfo} />
-      <div className="flex-1 min-h-0 relative">{codeView}</div>
-    </div>
   );
 };

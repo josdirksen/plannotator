@@ -58,6 +58,15 @@ export function unquoteGitPath(value: string): string {
       flush();
       out += String.fromCharCode(C_ESCAPES[next]);
       i++;
+    } else if (next === "u" && /^[0-9a-fA-F]{4}$/.test(inner.slice(i + 2, i + 6))) {
+      // \uXXXX: never emitted by git, but our own quoteGitPath is
+      // JSON.stringify, which uses it for control chars lacking a short
+      // JSON escape (e.g. a vertical tab, \u000b) — synthesized workspace headers round-trip
+      // through here, so this must decode or the path keeps a literal
+      // backslash and file access breaks.
+      flush();
+      out += String.fromCharCode(parseInt(inner.slice(i + 2, i + 6), 16));
+      i += 5;
     } else {
       // Unknown escape — keep the backslash literally.
       flush();

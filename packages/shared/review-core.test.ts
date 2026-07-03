@@ -7,6 +7,8 @@ import {
   getDefaultBranch,
   getFileContentsForDiff,
   getGitContext,
+  gitAddFile,
+  gitResetFile,
   listRecentCommits,
   parseWorktreeDiffType,
   runGitDiff,
@@ -132,6 +134,51 @@ describe("review-core", () => {
     // (core.quotePath), so match the escaped bytes there, not "café".
     expect(result.patch).toContain("+accented");
     expect(result.patch).toContain("caf\\303\\251.txt");
+  });
+
+  test("file-content working-tree side resolves root-relative paths from a subdirectory CWD", async () => {
+    // Patch paths are repo-root-relative; a review launched from a repo
+    // subdirectory must not resolve them against the launch cwd (that
+    // double-prefixes the path and hunk expansion returns null).
+    const repoDir = initRepo();
+    mkdirSync(join(repoDir, "pkg"), { recursive: true });
+    writeFileSync(join(repoDir, "pkg", "mod.ts"), "before\n", "utf-8");
+    git(repoDir, ["add", "pkg/mod.ts"]);
+    git(repoDir, ["commit", "-m", "add pkg"]);
+    writeFileSync(join(repoDir, "pkg", "mod.ts"), "after\n", "utf-8");
+    writeFileSync(join(repoDir, "tracked.txt"), "root after\n", "utf-8");
+
+    const subCwd = join(repoDir, "pkg");
+    const runtime = makeRuntime(subCwd);
+
+    for (const diffType of ["since-base", "uncommitted", "unstaged"] as const) {
+      // A file inside the subdir (would double-prefix: pkg/pkg/mod.ts)…
+      const sub = await getFileContentsForDiff(runtime, diffType, "main", "pkg/mod.ts", undefined, subCwd);
+      expect(sub.newContent).toBe("after\n");
+      // …and a root-level file (invisible from the subdir entirely).
+      const root = await getFileContentsForDiff(runtime, diffType, "main", "tracked.txt", undefined, subCwd);
+      expect(root.newContent).toBe("root after\n");
+    }
+  });
+
+  test("stage/unstage resolves root-relative pathspecs from a subdirectory CWD", async () => {
+    const repoDir = initRepo();
+    mkdirSync(join(repoDir, "pkg"), { recursive: true });
+    writeFileSync(join(repoDir, "root-new.txt"), "new\n", "utf-8");
+    writeFileSync(join(repoDir, "pkg", "sub-new.txt"), "new\n", "utf-8");
+
+    const subCwd = join(repoDir, "pkg");
+    const runtime = makeRuntime(subCwd);
+
+    // Root-relative paths, subdirectory cwd — `git add` must run at the
+    // toplevel or it fails with "pathspec did not match".
+    await gitAddFile(runtime, "root-new.txt", subCwd);
+    await gitAddFile(runtime, "pkg/sub-new.txt", subCwd);
+    expect(git(repoDir, ["status", "--porcelain"])).toContain("A  root-new.txt");
+    expect(git(repoDir, ["status", "--porcelain"])).toContain("A  pkg/sub-new.txt");
+
+    await gitResetFile(runtime, "root-new.txt", subCwd);
+    expect(git(repoDir, ["status", "--porcelain"])).toContain("?? root-new.txt");
   });
 
   test("uncommitted diff includes untracked files when CWD is a subdirectory", async () => {

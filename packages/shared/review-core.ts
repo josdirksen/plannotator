@@ -542,6 +542,23 @@ function removeTrackedDeletions(patch: string, untrackedPaths: Set<string>): str
   return out.join("\n");
 }
 
+/**
+ * Resolve the repo toplevel for path resolution. Patch/porcelain paths are
+ * repo-ROOT-relative; a review launched from a repo SUBDIRECTORY has its cwd
+ * inside the repo, and resolving root-relative paths against that cwd
+ * double-prefixes them (or aims git pathspecs at the wrong subtree). Every
+ * place that turns a patch path into a filesystem path or git pathspec must
+ * go through this. Falls back to the given cwd when rev-parse fails.
+ */
+async function resolveRepoToplevel(
+  runtime: ReviewGitRuntime,
+  cwd?: string,
+): Promise<string | undefined> {
+  const top = await runtime.runGit(["rev-parse", "--show-toplevel"], { cwd });
+  const trimmed = top.exitCode === 0 ? top.stdout.trim() : "";
+  return trimmed || cwd;
+}
+
 async function getUntrackedFileDiffs(
   runtime: ReviewGitRuntime,
   srcPrefix = "a/",
@@ -553,12 +570,7 @@ async function getUntrackedFileDiffs(
   // unlike git diff HEAD which always covers the full repo with root-relative
   // paths.  Resolve the repo root so untracked files from the entire repo are
   // included and their paths match the tracked-diff output.
-  const toplevelResult = await runtime.runGit(
-    ["rev-parse", "--show-toplevel"],
-    { cwd },
-  );
-  const rootCwd =
-    toplevelResult.exitCode === 0 ? toplevelResult.stdout.trim() : cwd;
+  const rootCwd = await resolveRepoToplevel(runtime, cwd);
 
   const lsResult = await runtime.runGit(
     ["ls-files", "--others", "--exclude-standard"],
@@ -1025,8 +1037,7 @@ export async function getGitDiffFingerprint(
         // still read (and hash edits to) untracked files — resolving against cwd
         // double-prefixes the path, readTextFile returns null, and the untracked
         // half of the fingerprint goes permanently blind.
-        const top = await runReadOnlyGit(["rev-parse", "--show-toplevel"]);
-        const baseDir = top.exitCode === 0 ? top.stdout.trim() : cwd;
+        const baseDir = await resolveRepoToplevel(runtime, cwd);
         for (const path of untracked) {
           const content = await runtime.readTextFile(baseDir ? resolvePath(baseDir, path) : path);
           parts.push(content != null ? hashFingerprintPart(content) : "unreadable");
@@ -1112,7 +1123,12 @@ export async function getFileContentsForDiff(
   }
 
   async function readWorkingTree(path: string): Promise<string | null> {
-    const fullPath = cwd ? resolvePath(cwd, path) : path;
+    // Patch paths are repo-root-relative; resolve against the toplevel, not
+    // cwd — from a subdirectory launch, cwd-resolution double-prefixes the
+    // path and hunk expansion silently returns null. (The `git show ref:path`
+    // sibling is immune: ref paths are root-relative regardless of cwd.)
+    const baseDir = await resolveRepoToplevel(runtime, cwd);
+    const fullPath = baseDir ? resolvePath(baseDir, path) : path;
     return runtime.readTextFile(fullPath);
   }
 
@@ -1343,7 +1359,10 @@ export async function gitAddFile(
   cwd?: string,
 ): Promise<void> {
   validateFilePath(filePath);
-  await ensureGitSuccess(runtime, ["add", "--", filePath], cwd);
+  // Patch paths are repo-root-relative; from a subdirectory launch the
+  // pathspec must be applied at the toplevel or `git add` fails with
+  // "did not match any files".
+  await ensureGitSuccess(runtime, ["add", "--", filePath], await resolveRepoToplevel(runtime, cwd));
 }
 
 export async function gitResetFile(
@@ -1352,7 +1371,8 @@ export async function gitResetFile(
   cwd?: string,
 ): Promise<void> {
   validateFilePath(filePath);
-  await ensureGitSuccess(runtime, ["reset", "HEAD", "--", filePath], cwd);
+  // Toplevel for the same reason as gitAddFile.
+  await ensureGitSuccess(runtime, ["reset", "HEAD", "--", filePath], await resolveRepoToplevel(runtime, cwd));
 }
 
 export function parseP4DiffType(

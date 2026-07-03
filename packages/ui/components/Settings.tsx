@@ -87,6 +87,10 @@ interface SettingsProps {
   aiProviders?: Array<{ id: string; name: string; capabilities: Record<string, boolean>; models?: Array<{ id: string; label: string; default?: boolean }> }>;
   /** Git user name from `git config user.name`, for quick identity set */
   gitUser?: string;
+  /** Current session is a local git review where since-base ISN'T offered
+   *  (base ref unresolvable) — the Git tab shows a note that the Git-status
+   *  preference can't take effect in THIS repo. */
+  sinceBaseUnavailable?: boolean;
 }
 
 // --- Review-mode Display tab (diff display options) ---
@@ -191,7 +195,7 @@ function ToggleSwitch({ checked, onChange, label, description }: {
   );
 }
 
-const GitTab: React.FC = () => {
+const GitTab: React.FC<{ sinceBaseUnavailable?: boolean }> = ({ sinceBaseUnavailable }) => {
   const defaultDiffType = useConfigValue('defaultDiffType');
   const reviewPanelView = useConfigValue('reviewPanelView');
   return (
@@ -200,6 +204,17 @@ const GitTab: React.FC = () => {
         <div>
           <div className="text-sm font-medium">Default review view</div>
           <div className="text-xs text-muted-foreground">Which panel a code review opens in</div>
+          {/* This is a GLOBAL preference — never hide the options because the
+              CURRENT repo can't serve them; just say so. Without this note,
+              picking Git status on a repo whose base ref doesn't resolve
+              silently falls back to Tree and the setting looks broken. */}
+          {sinceBaseUnavailable && (
+            <div className="text-xs text-warning mt-1">
+              Git status view isn't available in this repository (its base branch
+              couldn't be resolved) — reviews here open in Tree. The preference
+              still applies in repositories where it works.
+            </div>
+          )}
         </div>
         <SegmentedControl
           options={[
@@ -630,7 +645,7 @@ const CommentsTab: React.FC = () => {
   );
 };
 
-export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange, onIdentityChange, origin, mode = 'plan', onUIPreferencesChange, externalOpen, onExternalClose, aiProviders = [], gitUser }) => {
+export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange, onIdentityChange, origin, mode = 'plan', onUIPreferencesChange, externalOpen, onExternalClose, aiProviders = [], gitUser, sinceBaseUnavailable }) => {
   const [showDialog, setShowDialog] = useState(false);
   const [themePreview, setThemePreview] = useState(false);
 
@@ -1159,7 +1174,7 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
 
                 {/* === GIT TAB === */}
                 {activeTab === 'git' && mode === 'review' && (
-                  <GitTab />
+                  <GitTab sinceBaseUnavailable={sinceBaseUnavailable} />
                 )}
 
                 {/* === DISPLAY TAB === */}

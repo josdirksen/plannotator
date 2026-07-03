@@ -1233,7 +1233,7 @@ export async function startReviewServer(options: {
 				// not be canonicalized to "origin/main" when the user chose the
 				// local ref on purpose. Sticky: later echoes of that choice
 				// (diff-type switches, refreshes) must not re-canonicalize it.
-				if (body.explicitBase === true && typeof body.base === "string") {
+				if (body.explicitBase === true && typeof body.base === "string" && body.base) {
 					baseExplicitlyChosen = true;
 				}
 				const base = resolveReviewBase(

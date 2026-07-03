@@ -13,6 +13,10 @@ describe("diff path parsing", () => {
     // quotes — synthesized workspace headers round-trip through here too.
     expect(unquoteGitPath('"café file.txt"')).toBe("café file.txt");
     expect(unquoteGitPath('"emoji 🎉.txt"')).toBe("emoji 🎉.txt");
+    // …and emits \uXXXX for control chars without a short JSON escape.
+    expect(unquoteGitPath('"a\\u000bb.txt"')).toBe("a\u000bb.txt");
+    // Malformed \u (too few hex digits) keeps the backslash literally.
+    expect(unquoteGitPath('"a\\u0b.txt"')).toBe("a\\u0b.txt");
     // Unquoted input passes through untouched.
     expect(unquoteGitPath("plain space.txt")).toBe("plain space.txt");
   });

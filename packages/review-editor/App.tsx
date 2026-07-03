@@ -3039,6 +3039,14 @@ const ReviewApp: React.FC = () => {
             gitUser={gitUser}
             externalOpen={openSettingsMenu}
             onExternalClose={() => setOpenSettingsMenu(false)}
+            // Local git session where since-base isn't offered (base ref
+            // unresolvable): the Git tab notes that the Git-status preference
+            // can't take effect in THIS repo. PR/workspace/jj sessions say
+            // nothing — the preference isn't about them.
+            sinceBaseUnavailable={
+              !!gitContext && gitContext.vcsType === 'git' && !prMetadata &&
+              reviewMode !== 'workspace' && !sectionsCapable
+            }
           />
         </div>
 

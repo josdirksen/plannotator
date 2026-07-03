@@ -47,12 +47,31 @@ export const GuideScreen: React.FC<GuideScreenProps> = ({
   onOpenFixedGuide,
 }) => {
   const [cancelling, setCancelling] = useState(false);
+  // GuideScreen renders inside ReviewStateProvider (ActiveGuide below already
+  // relies on this), so it's safe to read prMetadata here to scope every guide
+  // job lookup below to the review context currently on screen.
+  const state = useReviewState();
+  // Does `job` belong to the review context currently on screen? Guide jobs
+  // are stamped with `prUrl` at launch (undefined for local-diff jobs — see
+  // `launchPrUrl` in packages/server/review.ts). Without this, `jobs` (a flat,
+  // ever-growing list spanning every PR/local-diff context visited this
+  // session) would let a guide launched against PR A show up while reviewing
+  // PR B, or vice versa.
+  //   - PR mode (`state.prMetadata` set): only a job launched against the
+  //     SAME PR url matches.
+  //   - Local-diff mode (`state.prMetadata` unset): only a job with no
+  //     `prUrl` (also launched in local-diff mode) matches.
+  const matchesContext = (job: AgentJobInfo): boolean =>
+    state.prMetadata ? job.prUrl === state.prMetadata.url : !job.prUrl;
   // jobs is append-ordered (see upsertJob in useAgentJobs) — the takeover
   // follows the NEWEST launched guide, so a plain `.find` (first match) would
   // stick with a stale running job if a second guide got launched while an
   // earlier one was still winding down. Iterate from the end instead, and
-  // Cancel below targets whichever job this resolves to.
-  const runningJob = [...jobs].reverse().find((j) => j.provider === 'guide' && !isTerminalStatus(j.status)) ?? null;
+  // Cancel below targets whichever job this resolves to. Filtered to the
+  // current context first — a running guide job for a different PR/context
+  // must not steal the takeover.
+  const runningJob =
+    [...jobs].reverse().find((j) => j.provider === 'guide' && matchesContext(j) && !isTerminalStatus(j.status)) ?? null;
 
   if (runningJob) {
     return (
@@ -74,11 +93,25 @@ export const GuideScreen: React.FC<GuideScreenProps> = ({
   // `jobs` is append-ordered (see upsertJob in useAgentJobs), so the last
   // `guide`-provider entry is the most recently launched one — used both by
   // the "no active guide yet" fallback below and by the newer-failure check
-  // above an already-successful guide.
-  const guideJobs = jobs.filter((j) => j.provider === 'guide');
+  // above an already-successful guide. Scoped to the current context — a
+  // guide (or failure) from a different PR/local-diff context is irrelevant
+  // to what's on screen right now.
+  const guideJobs = jobs.filter((j) => j.provider === 'guide' && matchesContext(j));
   const latestGuideJob = guideJobs.length > 0 ? guideJobs[guideJobs.length - 1] : null;
 
-  if (activeGuideJobId) {
+  // The job behind activeGuideJobId may belong to a DIFFERENT context (e.g.
+  // it was set while reviewing PR A, and the reviewer has since switched to
+  // PR B). Two cases:
+  //   - found AND mismatched context → treat activeGuideJobId as absent, so
+  //     the branches below (newer-failed-job / failed / empty) take over.
+  //   - not found at all (demo guide id in standalone mode, or a job the
+  //     client no longer holds in `jobs`) → ALLOW it; there's no context to
+  //     compare against, and this preserves the demo path plus tolerates gaps
+  //     in the client's job list.
+  const activeJob = jobs.find((j) => j.id === activeGuideJobId);
+  const activeGuideMatchesContext = !activeJob || matchesContext(activeJob);
+
+  if (activeGuideJobId && activeGuideMatchesContext) {
     // A guide can already be showing (activeGuideJobId) while a LATER launch
     // (e.g. "Regenerate guide") fails — that failure must not be silently
     // lost just because a previous guide still renders fine. Only treat it as

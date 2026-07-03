@@ -844,17 +844,29 @@ const ReviewApp: React.FC = () => {
   const guideAutoOpenRef = useRef(new Set<string>());
   useEffect(() => {
     for (const job of agentJobs.jobs) {
-      if (
-        job.provider === 'guide' &&
-        job.status === 'done' &&
-        !guideAutoOpenRef.current.has(job.id)
-      ) {
-        guideAutoOpenRef.current.add(job.id);
-        setActiveGuideJobId(job.id);
-        setGuideOpen(true);
+      if (job.provider !== 'guide' || job.status !== 'done' || guideAutoOpenRef.current.has(job.id)) {
+        continue;
       }
+      // Same context rule as GuideScreen's matchesContext: a guide stamped
+      // with a PR url only belongs to that PR; a guide with no PR url only
+      // belongs to local-diff mode. Auto-opening a job from a DIFFERENT
+      // context than what's on screen would rip the reviewer away from what
+      // they're currently looking at into an unrelated PR/diff's guide.
+      const matchesCurrentContext = prMetadata ? job.prUrl === prMetadata.url : !job.prUrl;
+      if (!matchesCurrentContext) {
+        // Deliberately left OUT of guideAutoOpenRef: marking it here would
+        // permanently suppress the auto-open. Leaving it unmarked means that
+        // if the reviewer later returns to THIS job's context (switches back
+        // to that PR, or back to local-diff mode), this same effect re-runs,
+        // still sees it as "not yet seen", and auto-opens it then — the
+        // desired "your guide finished while you were elsewhere" behavior.
+        continue;
+      }
+      guideAutoOpenRef.current.add(job.id);
+      setActiveGuideJobId(job.id);
+      setGuideOpen(true);
     }
-  }, [agentJobs.jobs]);
+  }, [agentJobs.jobs, prMetadata]);
 
   // Standalone/demo mode (no origin ⇒ no real agent-jobs backend): opening the
   // guide takeover shows the demo fixture so the UI can be iterated on without

@@ -284,16 +284,39 @@ export const GuideEmptyState: React.FC<GuideEmptyStateProps> = ({ capabilities, 
     return id === 'cursor' ? discovered : [...fallback, ...discovered];
   };
 
+  // Compute each marker engine's catalog once so the picker and the launch
+  // params below read the exact same lists.
+  const cursorOptions = markerModels('cursor', CURSOR_FALLBACK);
+  const opencodeOptions = markerModels('opencode', OPENCODE_FALLBACK);
+  const piOptions = markerModels('pi', PI_FALLBACK);
+
+  // AgentsTab reconciles a saved cursor/opencode/pi model back to the catalog
+  // head via effects when the live catalog no longer contains it (see
+  // AgentsTab.tsx's reconcile effects ~713-727). This launcher reads the same
+  // persisted cookie values but is deliberately stateless — no effects, no
+  // cookie writes — so instead of reconciling in the background, a stale
+  // saved id is reconciled right here at read time: if it's not in the
+  // current catalog, fall back to the catalog's first entry rather than
+  // POSTing a dead model id to the server. ('' / Default is present in the
+  // opencode/pi catalogs after the round-5 prepend fix, so a saved '' stays
+  // valid and is never treated as stale.)
+  const effectiveModel = (saved: string, options: Option[]): string =>
+    options.some((o) => o.value === saved) ? saved : (options[0]?.value ?? saved);
+
+  const effectiveCursorModel = effectiveModel(cursorModel, cursorOptions);
+  const effectiveOpencodeModel = effectiveModel(opencodeModel, opencodeOptions);
+  const effectivePiModel = effectiveModel(piModel, piOptions);
+
   const modelPicker: { value: string; options: Option[]; onChange: (v: string) => void } =
     engine === 'claude'
       ? { value: guideClaudeModel, options: TOUR_CLAUDE_MODELS, onChange: setGuideClaudeModel }
       : engine === 'codex'
         ? { value: guideCodexModel, options: CODEX_MODELS, onChange: setGuideCodexModel }
         : engine === 'cursor'
-          ? { value: cursorModel, options: markerModels('cursor', CURSOR_FALLBACK), onChange: setCursorModel }
+          ? { value: effectiveCursorModel, options: cursorOptions, onChange: setCursorModel }
           : engine === 'opencode'
-            ? { value: opencodeModel, options: markerModels('opencode', OPENCODE_FALLBACK), onChange: setOpencodeModel }
-            : { value: piModel, options: markerModels('pi', PI_FALLBACK), onChange: setPiModel };
+            ? { value: effectiveOpencodeModel, options: opencodeOptions, onChange: setOpencodeModel }
+            : { value: effectivePiModel, options: piOptions, onChange: setPiModel };
 
   const canLaunch = guideAvailable && availableEngines.length > 0 && !launching;
 
@@ -309,21 +332,21 @@ export const GuideEmptyState: React.FC<GuideEmptyStateProps> = ({ capabilities, 
             provider: 'guide',
             label: 'Guided Review',
             engine: 'cursor',
-            ...(cursorModel && cursorModel.toLowerCase() !== 'auto' ? { model: cursorModel } : {}),
+            ...(effectiveCursorModel && effectiveCursorModel.toLowerCase() !== 'auto' ? { model: effectiveCursorModel } : {}),
           }
         : engine === 'opencode'
           ? {
               provider: 'guide',
               label: 'Guided Review',
               engine: 'opencode',
-              ...(opencodeModel ? { model: opencodeModel } : {}),
+              ...(effectiveOpencodeModel ? { model: effectiveOpencodeModel } : {}),
             }
           : engine === 'pi'
             ? {
                 provider: 'guide',
                 label: 'Guided Review',
                 engine: 'pi',
-                ...(piModel ? { model: piModel } : {}),
+                ...(effectivePiModel ? { model: effectivePiModel } : {}),
                 thinking: piThinking,
               }
             : {

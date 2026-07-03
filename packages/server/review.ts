@@ -835,19 +835,24 @@ export async function startReviewServer(
           if (!payload) {
             throw new Error("No captured output to repair for that job — run the guide again instead.");
           }
-          // Prefer the failed job's OWN engine when it's a schema-enforced CLI
-          // (claude/codex) that's actually present: the failed job got far
-          // enough to produce capturable output, so that engine is PROVEN
-          // working and authenticated on this machine — binary presence
-          // (Bun.which) alone only means installed, not usable, and a
-          // present-but-unauthenticated claude would otherwise hijack every
-          // repair on a machine where the user actually works via codex/pi.
-          // Only when the failed engine isn't claude/codex-and-present do we
-          // fall back to "prefer claude, then codex" by binary presence, and
-          // finally the failed job's own (possibly marker) engine.
+          // Prefer the failed job's OWN engine, marker or not, when its binary
+          // is present on this machine: the failed job got far enough to
+          // produce capturable output, so that engine is PROVABLY runnable
+          // here — a fact no other candidate can claim. claude/codex are only
+          // a FALLBACK (in that order) when the failed engine's binary is
+          // missing, because binary presence alone means installed, not
+          // authenticated/usable — a broken claude repair would itself become
+          // the newest failed job and hijack the recovery panel next render,
+          // a doom loop. Marker engines' binary name can differ from the
+          // engine id (Cursor's CLI binary is `agent`, not `cursor`), so
+          // resolve via MARKER_ENGINES[...].binary before falling back to the
+          // engine id itself for claude/codex.
           const failedEngine = typeof config?.engine === "string" && config.engine ? config.engine : undefined;
+          const failedEngineBinary = failedEngine
+            ? MARKER_ENGINES[failedEngine as "cursor" | "opencode" | "pi"]?.binary ?? failedEngine
+            : undefined;
           const repairEngine =
-            (failedEngine === "claude" || failedEngine === "codex") && Bun.which(failedEngine)
+            failedEngine && Bun.which(failedEngineBinary!)
               ? failedEngine
               : Bun.which("claude")
                 ? "claude"

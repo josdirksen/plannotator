@@ -129,7 +129,10 @@ export const GuideDiffSection: React.FC<GuideDiffSectionProps> = ({ diffRef, isF
           isStaged={state.stagedFiles.has(file.path)}
           isStaging={state.stagingFile === file.path}
           onStage={() => state.onStage(file.path)}
-          canStage={state.canStageFiles}
+          // Per-file gate, not the mode-level flag alone: canStageFiles by
+          // itself let committed-only files in since-base reviews show a Git
+          // Add that no-ops and records a false staged state.
+          canStage={state.canStagePath?.(file.path) ?? state.canStageFiles}
           stageError={state.stageError}
           aiAvailable={state.aiAvailable}
           onAskAI={(question) => state.onAskAIForFile(file.path, question)}

@@ -22,7 +22,6 @@ interface CommitsPanelProps {
   error: string | null;
   /** Full sha of the commit whose diff is on screen, if any. */
   activeCommitSha: string | null;
-  isLoadingDiff?: boolean;
   onSelectCommit: (sha: string) => void;
   onShowMore: () => void;
   onRetry: () => void;

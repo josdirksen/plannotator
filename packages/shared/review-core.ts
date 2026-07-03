@@ -364,7 +364,7 @@ export async function listCommitHistory(
   const limit = Math.max(1, Math.min(Math.floor(requested), COMMIT_HISTORY_LIMIT_MAX));
   const before = options?.before;
   // `before` flows into a git argv position — same bare-hex rule as commit:<sha>.
-  if (before !== undefined && !/^[0-9a-f]{4,64}$/i.test(before)) return null;
+  if (before !== undefined && !BARE_HEX_SHA_RE.test(before)) return null;
   const emptyPage: CommitHistoryPage = { commits: [], hasMore: false, base: defaultBranch };
 
   // --no-optional-locks throughout: read-only queries that may run while the
@@ -384,7 +384,17 @@ export async function listCommitHistory(
     "--end-of-options",
     startRef,
   ]);
-  if (log.exitCode !== 0) return before ? emptyPage : null;
+  if (log.exitCode !== 0) {
+    // Paging past a root commit (`before^` unresolvable) is a normal terminal
+    // page. A first page failing because the repo simply has no commits yet
+    // (no HEAD) is also an empty page, not an error — every other review
+    // surface degrades gracefully on a commit-less repo. Anything else
+    // (not a repo at all) stays null → the endpoint reports a real error.
+    if (before) return emptyPage;
+    const headResolves =
+      (await runReadOnlyGit(["rev-parse", "--verify", "--quiet", "HEAD"])).exitCode === 0;
+    return headResolves ? null : emptyPage;
+  }
 
   const parsed: Array<Omit<CommitListEntry, "isRepoUser" | "isHead" | "isPastBase">> = [];
   for (const line of log.stdout.split("\n")) {
@@ -800,6 +810,10 @@ const WORKTREE_SUB_TYPES = new Set([
   "all",
 ]);
 
+/** Bare hex object name (full or abbreviated) — the only sha shape accepted
+ * from clients before it reaches a git argv position. */
+const BARE_HEX_SHA_RE = /^[0-9a-f]{4,64}$/i;
+
 /**
  * Parse a `commit:<sha>` diff type — a single historical commit reviewed
  * against its first parent. The sha must be plain hex (full or abbreviated):
@@ -811,7 +825,7 @@ const WORKTREE_SUB_TYPES = new Set([
 export function parseCommitDiffType(diffType: string): { sha: string } | null {
   if (!diffType.startsWith("commit:")) return null;
   const sha = diffType.slice("commit:".length);
-  return /^[0-9a-f]{4,64}$/i.test(sha) ? { sha } : null;
+  return BARE_HEX_SHA_RE.test(sha) ? { sha } : null;
 }
 
 export function parseWorktreeDiffType(
@@ -1069,10 +1083,7 @@ export async function runGitDiff(
 
       case "all": {
         // Diff from the empty tree to HEAD — shows every tracked file as an addition.
-        const emptyTreeResult = await runtime.runGit(["hash-object", "-t", "tree", "/dev/null"], { cwd });
-        const emptyTree = emptyTreeResult.exitCode === 0
-          ? emptyTreeResult.stdout.trim()
-          : "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+        const emptyTree = await getEmptyTreeSha(runtime, cwd);
         const allDiffArgs = [
           "diff",
           "--no-ext-diff",

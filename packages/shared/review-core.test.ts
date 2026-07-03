@@ -598,4 +598,13 @@ describe("listCommitHistory", () => {
     const runtime = makeRuntime(repoDir);
     expect(await listCommitHistory(runtime, "main", repoDir, { before: "HEAD~1" })).toBeNull();
   });
+
+  test("a repo with no commits yet yields an empty page, not an error", async () => {
+    const repoDir = makeTempDir("plannotator-review-core-empty-");
+    git(repoDir, ["init"]);
+    const runtime = makeRuntime(repoDir);
+
+    const page = await listCommitHistory(runtime, "main", repoDir);
+    expect(page).toEqual({ commits: [], hasMore: false, base: "main" });
+  });
 });

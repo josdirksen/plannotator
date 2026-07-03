@@ -2899,7 +2899,6 @@ const ReviewApp: React.FC = () => {
                 isLoadingMore={commitLog.isLoadingMore}
                 error={commitLog.error}
                 activeCommitSha={activeCommitSha}
-                isLoadingDiff={isLoadingDiff}
                 onSelectCommit={handleSelectCommit}
                 onShowMore={commitLog.showMore}
                 onRetry={commitLog.refresh}

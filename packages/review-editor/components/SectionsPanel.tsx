@@ -373,7 +373,7 @@ export const SectionsPanel: React.FC<SectionsPanelProps> = ({
         onToggleViewed={onToggleViewed ? () => onToggleViewed(item.file.path) : undefined}
         showStageButton={!!canStage && !!onStageFile && item.group !== 'committed'}
         reserveStageSlot={!!canStage && !!onStageFile}
-        isStaged={item.staged || (stagedFiles?.has(item.file.path) ?? false)}
+        isStaged={item.staged}
         isStaging={stagingFile === item.file.path}
         onStage={onStageFile ? () => onStageFile(item.file.path) : undefined}
       />

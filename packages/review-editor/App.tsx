@@ -249,6 +249,10 @@ const ReviewApp: React.FC = () => {
   // The local origin/<default> tracking ref is behind the actual remote —
   // the "Baseline is behind GitHub · Fetch" banner.
   const [baseBehindRemote, setBaseBehindRemote] = useState(false);
+  // Server snapshot id (draftKey) for the diff this client is RENDERING.
+  // Echoed on every freshness probe so the server can answer per-client:
+  // "your snapshot moved" is independent of whether the VCS changed.
+  const [snapshotId, setSnapshotId] = useState<string | undefined>(undefined);
   const [isFetchingBase, setIsFetchingBase] = useState(false);
   // Sections vs classic tree in the left panel — backed by the configStore
   // (also the Settings + first-run-dialog default). The header toggle writes
@@ -980,12 +984,14 @@ const ReviewApp: React.FC = () => {
         semanticDiff?: SemanticDiffAdvert;
         sections?: SinceBaseSections;
         baseBehindRemote?: boolean;
+        snapshotId?: string;
         serverConfig?: { displayName?: string; gitUser?: string };
       }) => {
         // Initialize config store with server-provided values (config file > cookie > default)
         configStore.init(data.serverConfig);
         // gitUser drives the "Use git name" button in Settings; stays undefined (button hidden) when unavailable
         setGitUser(data.serverConfig?.gitUser);
+        setSnapshotId(data.snapshotId);
         const apiFiles = orderFilesBySections(parseDiffToFiles(data.rawPatch), data.sections);
         setDiffData({
           files: apiFiles,
@@ -1362,12 +1368,14 @@ const ReviewApp: React.FC = () => {
   function applyPRResponse(data: PRSessionUpdate & {
     rawPatch: string; gitRef: string;
     aiReviewContext?: string;
+    snapshotId?: string;
     repoInfo?: { display: string; branch?: string };
     viewedFiles?: string[]; error?: string;
     semanticDiff?: SemanticDiffAdvert;
     agentCwd?: string | null;
   }) {
     const isPRSwitch = !!data.prMetadata;
+    setSnapshotId(data.snapshotId);
     const nextFiles = parseDiffToFiles(data.rawPatch);
     dockApi?.getPanel(REVIEW_DIFF_PANEL_ID)?.api.close();
     needsInitialDiffPanel.current = true;
@@ -1444,6 +1452,7 @@ const ReviewApp: React.FC = () => {
         rawPatch: string;
         gitRef: string;
         aiReviewContext?: string;
+        snapshotId?: string;
         diffType: string;
         base?: string;
         gitContext?: GitContext;
@@ -1458,6 +1467,7 @@ const ReviewApp: React.FC = () => {
       // A newer switch superseded this one server-side — ignore this stale
       // body so it can't overwrite the newer result (last-response-wins).
       if (data.superseded) return true;
+      setSnapshotId(data.snapshotId);
 
       const nextFiles = orderFilesBySections(parseDiffToFiles(data.rawPatch), data.sections);
       applySemanticDiffAdvert(data.semanticDiff);
@@ -1654,6 +1664,7 @@ const ReviewApp: React.FC = () => {
   const diffFreshness = useDiffFreshness({
     enabled: !!origin,
     resetKey: diffData?.rawPatch ?? '',
+    snapshotId,
     onAgentCwd: setAgentCwd,
     onBaseBehindRemote: setBaseBehindRemote,
   });

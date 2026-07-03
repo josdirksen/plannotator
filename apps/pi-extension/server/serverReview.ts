@@ -356,11 +356,6 @@ export async function startReviewServer(options: {
 		options.gitContext?.defaultBranch || options.gitContext?.compareTarget?.fallback || "main";
 	let currentBase = options.initialBase || detectedCompareTarget();
 	let baseEverSwitched = false;
-	// Whether the initial /api/diff snapshot has been handed to a client. The
-	// startup base upgrade consults this: once a client renders the pre-upgrade
-	// patch, the fingerprint baseline must stay pre-upgrade too, so the client's
-	// freshness poll flags the rebuilt diff instead of silently missing it.
-	let initialDiffServed = false;
 	// True once the user picks a base from the picker (explicitBase on the
 	// switch body). Disables the bare-local-name → origin/* canonicalization:
 	// the picker offers local and remote refs as distinct choices, so an
@@ -559,16 +554,14 @@ export async function startReviewServer(options: {
 								currentPatch = rebuilt.patch;
 								currentGitRef = rebuilt.label;
 								currentError = rebuilt.error;
+								// draftKey doubles as the snapshot id the freshness probe
+								// compares against each client's echoed ?snapshot= — a client
+								// that loaded the pre-upgrade patch mismatches and gets the
+								// "Diff out of date · Refresh" banner; later loads carry the
+								// new id and stay fresh. That per-client signal is what lets
+								// the fingerprint re-baseline unconditionally here.
 								draftKey = contentHash(currentPatch);
-								// Only re-baseline the fingerprint if no client has loaded the
-								// pre-upgrade snapshot. If one has, keep the old baseline: the
-								// freshness probe recomputes against the NEW base, mismatches,
-								// and raises the "Diff out of date · Refresh" banner — the only
-								// signal that client gets (the probe compares server state to
-								// itself, never to what the client renders). When old and new
-								// base point at the same commit the fingerprints agree and no
-								// spurious banner appears.
-								if (!initialDiffServed) captureDiffFingerprint();
+								captureDiffFingerprint();
 							}
 						} catch {
 							/* keep the initial base+patch — they still match each other */
@@ -1053,21 +1046,21 @@ export async function startReviewServer(options: {
 			// Snapshot the served state BEFORE the sidecar await: the startup
 			// base upgrade can land mid-await, and reading the globals after
 			// it would pair a rebuilt patch with sections computed from the
-			// old base — a misgrouped panel. Setting initialDiffServed first
-			// also guarantees an upgrade landing during the await keeps the
-			// stale fingerprint baseline, so the freshness poll raises the
-			// Refresh banner for the (internally consistent) old snapshot
-			// served here.
-			initialDiffServed = true;
+			// old base — a misgrouped panel. snapshotId travels with the
+			// patch it identifies: a mid-await upgrade bumps draftKey, and
+			// this client's next freshness probe (echoing the OLD id) raises
+			// the Refresh banner for the consistent old snapshot served here.
 			const servedPatch = currentPatch;
 			const servedBase = currentBase;
 			const servedGitRef = currentGitRef;
 			const servedError = currentError;
+			const servedSnapshotId = draftKey;
 			const sections = await buildSectionsSidecar(servedBase);
 			json(res, {
 				rawPatch: servedPatch,
 				aiReviewContext: buildCurrentAiReviewContext(servedPatch, servedBase),
 				gitRef: servedGitRef,
+				snapshotId: servedSnapshotId,
 				origin: options.origin ?? "pi",
 				mode: isWorkspaceMode ? "workspace" : undefined,
 				diffType: hasLocalAccess || isWorkspaceMode ? currentDiffType : undefined,
@@ -1152,6 +1145,18 @@ export async function startReviewServer(options: {
 			// unconditionally each probe, so omitting it clears the 'behind GitHub'
 			// banner for that poll (a flicker) until the next one.
 			const behind = baseBehindRemote ? { baseBehindRemote: true } : {};
+			// Per-CLIENT staleness: the client echoes the snapshotId it is
+			// rendering; a mismatch means the SERVER's snapshot moved under it
+			// (startup base upgrade, a switch from another tab, an in-place PR
+			// switch) regardless of what the VCS fingerprint says. This is what
+			// lets one server serve multiple tabs holding different snapshots
+			// without lying to any of them. The "snapshot:" fingerprint keys
+			// the client's dismissal to the server snapshot that made it stale.
+			const clientSnapshot = url.searchParams.get("snapshot");
+			if (clientSnapshot && clientSnapshot !== draftKey) {
+				json(res, { fresh: false, fingerprint: `snapshot:${draftKey}`, ...behind, ...prCwdAdvert });
+				return;
+			}
 			if (baseline == null) {
 				json(res, { fresh: true, ...behind, ...prCwdAdvert });
 				return;
@@ -1220,6 +1225,7 @@ export async function startReviewServer(options: {
 						// between the epoch check and this response.
 						aiReviewContext: buildCurrentAiReviewContext(snapshot.rawPatch),
 						gitRef: currentGitRef,
+						snapshotId: draftKey,
 						diffType: currentDiffType,
 						diffOptions: workspace.diffOptions,
 						hideWhitespace: currentHideWhitespace,
@@ -1291,6 +1297,7 @@ export async function startReviewServer(options: {
 					// between the epoch check and this response.
 					aiReviewContext: buildCurrentAiReviewContext(result.patch, base),
 					gitRef: currentGitRef,
+					snapshotId: draftKey,
 					diffType: currentDiffType,
 					// Echo the base the server actually used. resolveBaseBranch
 					// trusts the caller verbatim; this echo lets the client
@@ -1330,6 +1337,7 @@ export async function startReviewServer(options: {
 						rawPatch: currentPatch,
 						aiReviewContext: buildCurrentAiReviewContext(),
 						gitRef: currentGitRef,
+						snapshotId: draftKey,
 						prDiffScope: currentPRDiffScope,
 						...(layerPatchIncomplete ? { prPatchIncomplete: true, prPatchUpgradeAvailable: layerUpgradeAvailable } : {}),
 						...(currentError ? { error: currentError } : {}),
@@ -1390,6 +1398,7 @@ export async function startReviewServer(options: {
 						rawPatch: currentPatch,
 						aiReviewContext: buildCurrentAiReviewContext(),
 						gitRef: currentGitRef,
+						snapshotId: draftKey,
 						prDiffScope: currentPRDiffScope,
 						...(layerPatchIncomplete ? { prPatchIncomplete: true, prPatchUpgradeAvailable: layerUpgradeAvailable } : {}),
 						...((currentError ?? upgradeError) ? { error: currentError ?? upgradeError } : {}),
@@ -1422,6 +1431,7 @@ export async function startReviewServer(options: {
 					rawPatch: currentPatch,
 					aiReviewContext: buildCurrentAiReviewContext(),
 					gitRef: currentGitRef,
+					snapshotId: draftKey,
 					prDiffScope: currentPRDiffScope,
 					semanticDiff: await getSemanticDiffAdvert(),
 				});
@@ -1504,6 +1514,7 @@ export async function startReviewServer(options: {
 					rawPatch: currentPatch,
 					aiReviewContext: buildCurrentAiReviewContext(),
 					gitRef: currentGitRef,
+					snapshotId: draftKey,
 					prMetadata: pr.metadata,
 					// The new PR's checkout (null while warming) so Open-in re-roots
 					// immediately on switch instead of waiting for the 5s probe.

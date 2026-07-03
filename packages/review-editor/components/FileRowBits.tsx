@@ -22,11 +22,23 @@ export const ViewedControl: React.FC<{
     <span
       role="checkbox"
       aria-checked={isViewed}
+      aria-label={isViewed ? 'Viewed — unmark' : 'Mark as viewed'}
+      // tabIndex + key handling: these controls live INSIDE the row <button>
+      // (a real nested <button> is invalid HTML), so they need their own
+      // focus stop and Enter/Space activation to be keyboard-operable.
+      tabIndex={0}
       onClick={(e) => {
         e.stopPropagation();
         onToggle?.();
       }}
-      className="w-4 h-4 flex items-center justify-center flex-shrink-0 rounded hover:bg-muted/50 cursor-pointer"
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          onToggle?.();
+        }
+      }}
+      className="w-4 h-4 flex items-center justify-center flex-shrink-0 rounded hover:bg-muted/50 cursor-pointer focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary/60"
     >
       {isViewed ? (
         <svg className="w-3.5 h-3.5 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -92,11 +104,22 @@ export const StageControl: React.FC<{
   return (
     <span
       role="button"
+      // tabIndex + key handling: lives INSIDE the row <button> (a real nested
+      // <button> is invalid HTML), so it needs its own focus stop and
+      // Enter/Space activation to be keyboard-operable.
+      tabIndex={0}
       onClick={(e) => {
         e.stopPropagation();
         if (!isStaging) onStage?.();
       }}
-      className="stage-plus w-4 h-4 flex-shrink-0 rounded border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-muted-foreground/60 hover:bg-muted/50 transition-colors"
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!isStaging) onStage?.();
+        }
+      }}
+      className="stage-plus w-4 h-4 flex-shrink-0 rounded border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-muted-foreground/60 hover:bg-muted/50 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary/60"
       title="Stage file (git add)"
       aria-label="Stage file"
     >

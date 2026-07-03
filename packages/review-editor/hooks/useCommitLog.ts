@@ -124,7 +124,12 @@ export function useCommitLog({ enabled, contextKey }: UseCommitLogOptions): UseC
       setCommits(data.commits);
       setBase(data.base || null);
       setHasMore(data.hasMore);
+      // Adoption invalidated any in-flight fetches, whose generation-skipped
+      // `finally` blocks won't clear their own flags — and any lingering
+      // error belongs to the history this just replaced.
+      setIsLoading(false);
       setIsLoadingMore(false);
+      setError(null);
     } catch {
       /* transient — next poll tries again */
     }

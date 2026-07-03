@@ -570,8 +570,35 @@ function closeUnbalancedGuideBrackets(text: string): string {
     else if (ch === "[") stack.push("]");
     else if ((ch === "}" || ch === "]") && stack[stack.length - 1] === ch) stack.pop();
   }
-  if (stack.length === 0) return text;
-  return text + stack.reverse().join("");
+  if (stack.length === 0 && !inString) return text;
+  // Output truncated mid-string is the single most common truncation shape —
+  // terminate the dangling literal before appending the bracket closers, or
+  // everything we append lands inside the string and the parse still fails.
+  return text + (inString ? '"' : "") + stack.reverse().join("");
+}
+
+/** Strips trailing commas (`,` immediately before `}`/`]`) WITHOUT touching
+ *  commas inside string literals — a naive regex would rewrite overview text
+ *  like `"we removed a, }"`, silently changing content the repair contract
+ *  promises to preserve. */
+function stripTrailingCommasOutsideStrings(text: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (!inString && ch === ",") {
+      // Look ahead past whitespace: a `}`/`]` next makes this comma trailing.
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      if (text[j] === "}" || text[j] === "]") continue; // drop the comma
+    }
+    out += ch;
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\" && inString) { escaped = true; continue; }
+    if (ch === '"') inString = !inString;
+  }
+  return out;
 }
 
 /**
@@ -601,7 +628,7 @@ export function repairGuideJsonText(text: string): CodeGuideOutput | null {
     if (sliced !== current) { current = sliced; attempts.push(current); }
   }
 
-  const noTrailingCommas = current.replace(/,(\s*[}\]])/g, "$1");
+  const noTrailingCommas = stripTrailingCommasOutsideStrings(current);
   if (noTrailingCommas !== current) { current = noTrailingCommas; attempts.push(current); }
 
   const balanced = closeUnbalancedGuideBrackets(current);

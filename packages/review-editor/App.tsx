@@ -80,7 +80,7 @@ import {
 } from './dock/reviewPanelTypes';
 import type { DiffFile, AnnotationScrollTarget } from './types';
 import { annotationMatchesPrScope, proseAnnotationMatchesPr } from './utils/annotationScope';
-import type { DiffOption, WorktreeInfo, GitContext, SinceBaseSections } from '@plannotator/shared/types';
+import type { DiffOption, WorktreeInfo, GitContext, SinceBaseSections, CommitDiffInfo } from '@plannotator/shared/types';
 import { SectionsPanel } from './components/SectionsPanel';
 import { CommitsPanel } from './components/CommitsPanel';
 import { useCommitLog } from './hooks/useCommitLog';
@@ -248,6 +248,9 @@ const ReviewApp: React.FC = () => {
   const [committedBase, setCommittedBase] = useState<string | null>(null);
   // Since-base sections sidecar (committed / changes / untracked grouping).
   const [sections, setSections] = useState<SinceBaseSections | null>(null);
+  // Commit metadata sidecar while a commit:<sha> diff is active — drives the
+  // description card + collapsed seeding on the all-files surface.
+  const [commitInfo, setCommitInfo] = useState<CommitDiffInfo | null>(null);
   // The local origin/<default> tracking ref is behind the actual remote —
   // the "Baseline is behind GitHub · Fetch" banner.
   const [baseBehindRemote, setBaseBehindRemote] = useState(false);
@@ -989,6 +992,7 @@ const ReviewApp: React.FC = () => {
         isWSL?: boolean;
         semanticDiff?: SemanticDiffAdvert;
         sections?: SinceBaseSections;
+        commitInfo?: CommitDiffInfo;
         baseBehindRemote?: boolean;
         snapshotId?: string;
         serverConfig?: { displayName?: string; gitUser?: string };
@@ -1047,6 +1051,7 @@ const ReviewApp: React.FC = () => {
         if (data.isWSL) setIsWSL(true);
         setSemanticDiffAvailable(data.semanticDiff?.available === true);
         setSections(data.sections ?? null);
+        setCommitInfo(data.commitInfo ?? null);
         setBaseBehindRemote(data.baseBehindRemote === true);
         // First-run: offer the review-view chooser for a plain local git
         // session (not workspace/PR/jj/p4), once. On this first showing we
@@ -1494,6 +1499,7 @@ const ReviewApp: React.FC = () => {
         error?: string;
         semanticDiff?: SemanticDiffAdvert;
         sections?: SinceBaseSections;
+        commitInfo?: CommitDiffInfo;
         baseBehindRemote?: boolean;
         superseded?: boolean;
       };
@@ -1506,6 +1512,7 @@ const ReviewApp: React.FC = () => {
       const nextFiles = orderFilesBySections(parseDiffToFiles(data.rawPatch), data.sections);
       applySemanticDiffAdvert(data.semanticDiff);
       setSections(data.sections ?? null);
+      setCommitInfo(data.commitInfo ?? null);
       setBaseBehindRemote(data.baseBehindRemote === true);
 
       if (options?.preserveFile) {
@@ -2036,6 +2043,7 @@ const ReviewApp: React.FC = () => {
     onToggleAllFilesCollapsed,
     registerAllFilesCollapseToggle,
     onAllFilesCollapsedChange: setAllFilesAllCollapsed,
+    commitInfo,
     isSemanticDiffActive,
     semanticDiffAvailable,
     onSemanticDiffUnavailable: handleSemanticDiffUnavailable,
@@ -2065,7 +2073,7 @@ const ReviewApp: React.FC = () => {
     handleAskAI, handleAskAIForFile, handleViewAIResponse, handleClickAIMarker,
     aiHistoryForSelection, getAIHistoryForFile, agentJobs.jobs, prMetadata, prContext,
     isPRContextLoading, prContextError, fetchPRContext, platformUser, openDiffFile,
-    handleOpenTour, isAllFilesActive, allFilesOrder, allFilesAllCollapsed, onToggleAllFilesCollapsed, registerAllFilesCollapseToggle, isSemanticDiffActive, semanticDiffAvailable,
+    handleOpenTour, isAllFilesActive, allFilesOrder, allFilesAllCollapsed, onToggleAllFilesCollapsed, registerAllFilesCollapseToggle, commitInfo, isSemanticDiffActive, semanticDiffAvailable,
     handleSemanticDiffUnavailable, handleSemanticDiffLoadError, handleSemanticDiffLoadSuccess, handleAddAnnotationForFile,
     handleCodeNavRequest, codeNav.result, codeNav.isLoading, codeNav.activeSymbol,
   ]);

@@ -215,6 +215,9 @@ interface AllFilesCodeViewProps {
   // mirror the collapsed flag so the header button can drive/reflect it.
   registerCollapseAllToggle?: (toggle: (() => void) | null) => void;
   onAllCollapsedChange?: (collapsed: boolean) => void;
+  /** Seed every file collapsed (commit diffs open as a folded overview under
+   * the commit-description header). The collapse-all toggle still works. */
+  defaultCollapsed?: boolean;
   // Only handle [/]/z/v/a/c/x keyboard nav when this surface is the active panel.
   isActive?: boolean;
   // AI props (optional — surfaced into the toolbar). File-aware variants: this
@@ -295,6 +298,7 @@ function buildItemIdentity(
   prUrl: string | undefined,
   prDiffScope: string | undefined,
   patchHashes: string[],
+  seedCollapsed: boolean,
 ): ItemIdentity {
   const items: CodeViewItem<DiffAnnotationMetadata>[] = [];
   const filePathToItemId = new Map<string, string>();
@@ -344,7 +348,14 @@ function buildItemIdentity(
     // Seed annotations at build time so the first render (and any remount via
     // fileSetKey) already paints existing annotations without an extra update.
     const fileAnnotations = projectFileAnnotations(annotations, file.path, prUrl, prDiffScope);
-    items.push({ id, type: 'diff', fileDiff, version: 0, annotations: fileAnnotations });
+    items.push({
+      id,
+      type: 'diff',
+      fileDiff,
+      version: 0,
+      annotations: fileAnnotations,
+      ...(seedCollapsed && { collapsed: true }),
+    });
     // First occurrence of a path wins the canonical lookup so the file tree
     // (keyed by path) navigates to the primary item for that path.
     if (!filePathToItemId.has(file.path)) {
@@ -419,6 +430,7 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
   fileOrder,
   registerCollapseAllToggle,
   onAllCollapsedChange,
+  defaultCollapsed,
   isActive = true,
   aiAvailable = false,
   onAskAIForFile,
@@ -520,9 +532,9 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
   // files-identity change.
   const patchHashes = useMemo(() => files.map((f) => hashString(f.patch)), [files]);
   const identity = useMemo<ItemIdentity>(
-    () => buildItemIdentity(files, visualOrder, annotationsRef.current, prUrl, prDiffScope, patchHashes),
+    () => buildItemIdentity(files, visualOrder, annotationsRef.current, prUrl, prDiffScope, patchHashes, defaultCollapsed === true),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [files, visualOrder, prUrl, prDiffScope, patchHashes],
+    [files, visualOrder, prUrl, prDiffScope, patchHashes, defaultCollapsed],
   );
   const { filePathToItemId, filePathToItemIds, itemIdToFilePath, itemIdToFile } = identity;
 
@@ -536,8 +548,10 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
     // annotations ref and can't otherwise detect the filter change.
     // fileOrder is part of the key: CodeView seeds initialItems once per
     // instance, so an order change must remount to re-seed in the new order.
-    () => `${fileOrder ?? 'tree'}:${prUrl ?? ''}:${prDiffScope ?? ''}:${files.length}:${files.map((f, i) => `${f.path}#${patchHashes[i]}`).join('|')}`,
-    [files, patchHashes, prUrl, prDiffScope, fileOrder],
+    // defaultCollapsed is part of the key: CodeView seeds item collapsed state
+    // once per instance, so a seed change must remount to take effect.
+    () => `${fileOrder ?? 'tree'}:${defaultCollapsed ? 'c' : 'e'}:${prUrl ?? ''}:${prDiffScope ?? ''}:${files.length}:${files.map((f, i) => `${f.path}#${patchHashes[i]}`).join('|')}`,
+    [files, patchHashes, prUrl, prDiffScope, fileOrder, defaultCollapsed],
   );
 
   // Visual-order list of file paths (for [/] stepping). Derived from items so it
@@ -777,11 +791,11 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
 
   // --- Collapse via CodeView item state (Diffshub pattern + anchor fix) ------
 
-  const [allCollapsed, setAllCollapsed] = useState(false);
+  const [allCollapsed, setAllCollapsed] = useState(defaultCollapsed === true);
 
   // Reset the global collapse toggle when the file set changes — items re-seed
-  // expanded on CodeView remount.
-  useEffect(() => setAllCollapsed(false), [identity.items]);
+  // with the current default on CodeView remount.
+  useEffect(() => setAllCollapsed(defaultCollapsed === true), [identity.items, defaultCollapsed]);
 
   const toggleItemCollapsed = useStableCallback((itemId: string) => {
     const handle = viewerRef.current;

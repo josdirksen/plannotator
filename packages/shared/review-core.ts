@@ -350,6 +350,55 @@ export interface CommitHistoryPage {
   base: string;
 }
 
+/** Full metadata for ONE commit — the description card above the all-files
+ * view when a `commit:<sha>` diff is active. */
+export interface CommitDiffInfo {
+  sha: string;
+  shortSha: string;
+  subject: string;
+  /** Full message body (everything after the subject), "" when absent.
+   * Rendered as markdown client-side. */
+  body: string;
+  author: string;
+  authorEmail: string;
+  /** Relative age from `%cr`, e.g. "2 hours ago". */
+  ageRelative: string;
+  /** Author profile image (server-enriched via commit-avatars). */
+  avatarUrl?: string;
+}
+
+/**
+ * Fetch one commit's metadata for the description card. Best-effort: null
+ * when the sha is invalid or doesn't resolve (callers omit the sidecar).
+ */
+export async function getCommitDiffInfo(
+  runtime: ReviewGitRuntime,
+  sha: string,
+  cwd?: string,
+): Promise<CommitDiffInfo | null> {
+  if (!BARE_HEX_SHA_RE.test(sha)) return null;
+  // Body (%b) is multiline, so it must be the LAST field — everything after
+  // the sixth separator belongs to it. A literal US byte in the subject would
+  // shift the split (same accepted pathological edge as the list parsers).
+  const fmt = ["%H", "%h", "%an", "%ae", "%cr", "%s", "%b"].join(COMMIT_FIELD_SEP);
+  const result = await runtime.runGit(
+    ["--no-optional-locks", "show", "-s", `--pretty=format:${fmt}`, "--end-of-options", sha],
+    { cwd },
+  );
+  if (result.exitCode !== 0) return null;
+  const parts = result.stdout.split(COMMIT_FIELD_SEP);
+  if (parts.length < 7) return null;
+  return {
+    sha: parts[0],
+    shortSha: parts[1],
+    author: parts[2],
+    authorEmail: parts[3],
+    ageRelative: parts[4],
+    subject: parts[5],
+    body: parts.slice(6).join(COMMIT_FIELD_SEP).trim(),
+  };
+}
+
 const COMMIT_HISTORY_LIMIT_DEFAULT = 50;
 const COMMIT_HISTORY_LIMIT_MAX = 200;
 

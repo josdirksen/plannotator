@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join, resolve as resolvePath } from "node:path";
 import {
+  getCommitDiffInfo,
   getDefaultBranch,
   getFileContentsForDiff,
   getGitContext,
@@ -490,6 +491,26 @@ describe("commit diff mode", () => {
 
     expect(contents.oldContent).toBe("before\n");
     expect(contents.newContent).toBe("second\n");
+  });
+
+  test("getCommitDiffInfo returns the full multiline body for the description card", async () => {
+    const repoDir = initRepo();
+    const runtime = makeRuntime(repoDir);
+    const body = "Why this change exists.\n\n- bullet one\n- bullet two\n\n```ts\ncode();\n```";
+    git(repoDir, ["commit", "--allow-empty", "-m", "feat: subject line", "-m", body]);
+    const sha = git(repoDir, ["rev-parse", "HEAD"]);
+
+    const info = await getCommitDiffInfo(runtime, sha, repoDir);
+
+    expect(info).not.toBeNull();
+    expect(info!.sha).toBe(sha);
+    expect(info!.subject).toBe("feat: subject line");
+    expect(info!.body).toBe(body);
+    expect(info!.author).toBe("Review Core");
+    expect(info!.authorEmail).toBe("review-core@example.com");
+    // Non-hex or unresolvable shas fail closed.
+    expect(await getCommitDiffInfo(runtime, "HEAD", repoDir)).toBeNull();
+    expect(await getCommitDiffInfo(runtime, "deadbeefdeadbeef", repoDir)).toBeNull();
   });
 
   test("fingerprint is anchored to the sha — new commits do not flip it", async () => {

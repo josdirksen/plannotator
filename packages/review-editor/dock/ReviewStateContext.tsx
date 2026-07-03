@@ -149,6 +149,9 @@ export interface ReviewState {
   onToggleAllFilesCollapsed: () => void;
   registerAllFilesCollapseToggle: (toggle: (() => void) | null) => void;
   onAllFilesCollapsedChange: (collapsed: boolean) => void;
+  // Commit metadata when a commit:<sha> diff is active — heads the all-files
+  // view (description card) and seeds its files collapsed.
+  commitInfo: import('@plannotator/shared/types').CommitDiffInfo | null;
   semanticDiffAvailable: boolean;
   isSemanticDiffActive: boolean;
   onSemanticDiffUnavailable: () => void;

@@ -1,12 +1,18 @@
 import React from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { AllFilesCodeView } from '../../components/AllFilesCodeView';
+import { CommitDescriptionHeader } from '../../components/CommitDescriptionHeader';
 import { useReviewState } from '../ReviewStateContext';
 
 export const ReviewAllFilesDiffPanel: React.FC<IDockviewPanelProps> = () => {
   const state = useReviewState();
 
-  return (
+  // A commit diff heads the surface with the full commit message and opens
+  // its files folded — the description gives the "what/why", the collapsed
+  // file list the shape, and each file expands on demand.
+  const commitInfo = state.commitInfo;
+
+  const codeView = (
     <AllFilesCodeView
       files={state.files}
       diffStyle={state.diffStyle}
@@ -57,6 +63,15 @@ export const ReviewAllFilesDiffPanel: React.FC<IDockviewPanelProps> = () => {
       isAILoading={state.isAILoading}
       onViewAIResponse={state.onViewAIResponse}
       getAIHistoryForFile={state.getAIHistoryForFile}
+      defaultCollapsed={!!commitInfo}
     />
+  );
+
+  if (!commitInfo) return codeView;
+  return (
+    <div className="h-full flex flex-col">
+      <CommitDescriptionHeader info={commitInfo} />
+      <div className="flex-1 min-h-0 relative">{codeView}</div>
+    </div>
   );
 };

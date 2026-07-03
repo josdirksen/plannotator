@@ -35,12 +35,15 @@ import {
 	type RemoteDefaultInfo,
 	type SinceBaseSections,
 	detectRemoteDefaultInfo,
+	getCommitDiffInfo,
 	getFileContentsForDiff as getFileContentsForDiffCore,
 	getSinceBaseSections,
 	listCommitHistory,
+	parseCommitDiffType,
 	parseWorktreeDiffType,
 	resolveBaseBranch,
 	validateFilePath,
+	type CommitDiffInfo,
 } from "../generated/review-core.js";
 import {
 	checkoutPRHead,
@@ -530,6 +533,24 @@ export async function startReviewServer(options: {
 		const effective = parseWorktreeDiffType(diffType)?.subType ?? diffType;
 		return effective === "since-base";
 	}
+	// --- Commit metadata sidecar (mirrors Bun review.ts) -----------------------
+	// When a commit:<sha> diff is active, the full commit message (rendered as
+	// markdown client-side) heads the all-files view. Avatar enrichment reuses
+	// the session cache. diffType parameterized for the same pin-before-await
+	// discipline as buildSectionsSidecar.
+	async function buildCommitInfoSidecar(diffType: string = currentDiffType as string): Promise<CommitDiffInfo | undefined> {
+		if (isPRMode || workspace || !options.gitContext) return undefined;
+		const effective = parseWorktreeDiffType(diffType)?.subType ?? diffType;
+		const sha = parseCommitDiffType(effective as string)?.sha;
+		if (!sha) return undefined;
+		const cwd = resolveVcsCwd(diffType as DiffType, options.gitContext.cwd);
+		const info = await getCommitDiffInfo(reviewRuntime, sha, cwd);
+		if (!info) return undefined;
+		const avatars = await commitAvatars.resolve(cwd, [info.authorEmail]);
+		const avatarUrl = avatars.get(info.authorEmail);
+		return avatarUrl ? { ...info, avatarUrl } : info;
+	}
+
 	// Base AND diff type are parameterized so callers can pin them to a
 	// snapshot taken before an await — reading the globals inside would race
 	// the startup base upgrade and concurrent diff-type switches.
@@ -1091,6 +1112,7 @@ export async function startReviewServer(options: {
 			const servedPRDiffScope = currentPRDiffScope;
 			const servedSnapshotId = currentSnapshotId();
 			const sections = await buildSectionsSidecar(servedBase, servedDiffType as string);
+			const commitInfo = await buildCommitInfoSidecar(servedDiffType as string);
 			json(res, {
 				rawPatch: servedPatch,
 				aiReviewContext: buildCurrentAiReviewContext(servedPatch, servedBase, servedDiffType as DiffType),
@@ -1131,6 +1153,7 @@ export async function startReviewServer(options: {
 				...(isPRMode && layerPatchIncomplete && { prPatchIncomplete: true, prPatchUpgradeAvailable: layerUpgradeAvailable }),
 				...(isPRMode && initialViewedFiles.length > 0 && { viewedFiles: initialViewedFiles }),
 				...(sections && { sections }),
+				...(commitInfo && { commitInfo }),
 				...(baseBehindRemote && { baseBehindRemote: true }),
 				...(servedError && { error: servedError }),
 				semanticDiff: await getSemanticDiffAdvert(),
@@ -1352,6 +1375,7 @@ export async function startReviewServer(options: {
 				// switching AWAY from one. Local rev-parse only; cheap.
 				await recomputeBaseBehindRemote().catch(() => {});
 				const sections = await buildSectionsSidecar();
+				const commitInfo = await buildCommitInfoSidecar();
 				const switchSemanticDiff = await getSemanticDiffAdvert();
 				// Final guard: a newer switch during trailing awaits wins.
 				if (switchEpoch !== diffSwitchEpoch) {
@@ -1373,6 +1397,7 @@ export async function startReviewServer(options: {
 					base: currentBase,
 					hideWhitespace: currentHideWhitespace,
 					...(sections ? { sections } : {}),
+					...(commitInfo ? { commitInfo } : {}),
 					...(baseBehindRemote ? { baseBehindRemote: true } : {}),
 					...(updatedContext ? { gitContext: updatedContext } : {}),
 					...(currentError ? { error: currentError } : {}),

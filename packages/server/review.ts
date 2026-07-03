@@ -15,11 +15,14 @@ import { type DiffType, type GitContext, runVcsDiff, getVcsFileContentsForDiff, 
 import { basename } from "node:path";
 import { existsSync } from "node:fs";
 import {
+  parseCommitDiffType,
   parseWorktreeDiffType,
   resolveBaseBranch,
+  getCommitDiffInfo,
   getSinceBaseSections,
   detectRemoteDefaultInfo,
   listCommitHistory,
+  type CommitDiffInfo,
   type RemoteDefaultInfo,
   type SinceBaseSections,
 } from "@plannotator/shared/review-core";
@@ -550,6 +553,25 @@ export async function startReviewServer(
     if (!isSinceBaseActive(diffType)) return undefined;
     const cwd = resolveVcsCwd(diffType as DiffType, gitContext?.cwd);
     return (await getSinceBaseSections(gitRuntime, base, cwd)) ?? undefined;
+  };
+
+  // --- Commit metadata sidecar -----------------------------------------------
+  // When a commit:<sha> diff is active, the full commit message (rendered as
+  // markdown client-side) heads the all-files view. Same mode-conditional
+  // shape as the sections sidecar; avatar enrichment reuses the session cache.
+  // diffType parameterized for the same pin-before-await discipline as
+  // buildSectionsSidecar.
+  const buildCommitInfoSidecar = async (diffType: string = currentDiffType as string): Promise<CommitDiffInfo | undefined> => {
+    if (isPRMode || workspace || !gitContext) return undefined;
+    const effective = parseWorktreeDiffType(diffType)?.subType ?? diffType;
+    const sha = parseCommitDiffType(effective as string)?.sha;
+    if (!sha) return undefined;
+    const cwd = resolveVcsCwd(diffType as DiffType, gitContext.cwd);
+    const info = await getCommitDiffInfo(gitRuntime, sha, cwd);
+    if (!info) return undefined;
+    const avatars = await commitAvatars.resolve(cwd, [info.authorEmail]);
+    const avatarUrl = avatars.get(info.authorEmail);
+    return avatarUrl ? { ...info, avatarUrl } : info;
   };
 
   // Agent jobs — background process manager (late-binds serverUrl via getter)
@@ -1141,6 +1163,7 @@ export async function startReviewServer(
             const servedPRDiffScope = currentPRDiffScope;
             const servedSnapshotId = currentSnapshotId();
             const sections = await buildSectionsSidecar(servedBase, servedDiffType as string);
+            const commitInfo = await buildCommitInfoSidecar(servedDiffType as string);
             return Response.json({
               rawPatch: servedPatch,
               aiReviewContext: buildCurrentAiReviewContext(servedPatch, servedBase, servedDiffType as DiffType),
@@ -1181,6 +1204,7 @@ export async function startReviewServer(
               ...(isPRMode && layerPatchIncomplete && { prPatchIncomplete: true, prPatchUpgradeAvailable: layerUpgradeAvailable }),
               ...(isPRMode && initialViewedFiles.length > 0 && { viewedFiles: initialViewedFiles }),
               ...(sections && { sections }),
+              ...(commitInfo && { commitInfo }),
               ...(baseBehindRemote && { baseBehindRemote: true }),
               ...(servedError && { error: servedError }),
               semanticDiff: await getSemanticDiffAdvert(),
@@ -1447,6 +1471,7 @@ export async function startReviewServer(
               // switching AWAY from one. Local rev-parse only; cheap.
               await recomputeBaseBehindRemote().catch(() => {});
               const sections = await buildSectionsSidecar();
+              const commitInfo = await buildCommitInfoSidecar();
               const switchSemanticDiff = await getSemanticDiffAdvert();
               // Final guard: if a newer switch took over during the trailing
               // awaits, don't emit — the client would misapply our stale body
@@ -1469,6 +1494,7 @@ export async function startReviewServer(
                 base: currentBase,
                 hideWhitespace: currentHideWhitespace,
                 ...(sections && { sections }),
+                ...(commitInfo && { commitInfo }),
                 ...(baseBehindRemote && { baseBehindRemote: true }),
                 ...(updatedContext && { gitContext: updatedContext }),
                 ...(currentError && { error: currentError }),

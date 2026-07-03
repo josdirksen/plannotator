@@ -55,6 +55,7 @@ import {
 } from "../generated/pr-stack.js";
 
 import { resolvePoolCwd, type WorktreePool } from "../generated/worktree-pool.js";
+import { createCommitAvatarResolver } from "../generated/commit-avatars.js";
 
 import { createEditorAnnotationHandler } from "./annotations.js";
 import { createAgentJobHandler } from "./agent-jobs.js";
@@ -84,6 +85,7 @@ import {
 	getPRUser,
 	markPRFilesViewed,
 	parsePRUrl,
+	prCommandRuntime,
 	submitPRReview,
 } from "./pr.js";
 import { getRepoInfo } from "./project.js";
@@ -517,6 +519,10 @@ export async function startReviewServer(options: {
 		lastRemoteBaseCheck = Date.now();
 		void refreshRemoteBaseInfo().catch(() => {});
 	}
+
+	// Commit-author avatar resolution for /api/commits — session-scoped so the
+	// forge lookups (gh/glab) and their failures are paid at most once.
+	const commitAvatars = createCommitAvatarResolver(prCommandRuntime);
 
 	// --- Since-base sections sidecar (mirrors Bun review.ts) ------------------
 	function isSinceBaseActive(diffType: string = currentDiffType as string): boolean {
@@ -1230,6 +1236,16 @@ export async function startReviewServer(options: {
 			if (!page) {
 				json(res, { error: "Could not read commit history" }, 500);
 				return;
+			}
+			// Best-effort author avatars from the origin forge (memoized per
+			// session; misses just render the initials fallback client-side).
+			const avatars = await commitAvatars.resolve(
+				commitsCwd,
+				page.commits.map((c) => c.authorEmail),
+			);
+			for (const c of page.commits) {
+				const avatarUrl = avatars.get(c.authorEmail);
+				if (avatarUrl) c.avatarUrl = avatarUrl;
 			}
 			json(res, page);
 		} else if (url.pathname === "/api/diff/switch" && req.method === "POST") {

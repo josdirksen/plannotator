@@ -57,7 +57,8 @@
     "./browser-paths": "./browser-paths.ts",
     "./workspace-status": "./workspace-status.ts",
     "./open-in-apps": "./open-in-apps.ts",
-    "./review-profiles": "./review-profiles.ts"
+    "./review-profiles": "./review-profiles.ts",
+    "./commit-avatars": "./commit-avatars.ts"
   },
   "dependencies": {
     "@joplin/turndown-plugin-gfm": "^1.0.64",

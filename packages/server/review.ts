@@ -46,6 +46,7 @@ import {
   type PRDiffScope,
 } from "@plannotator/shared/pr-stack";
 import { type AgentJobInfo, REVIEW_OUTPUT_FAILED, markJobReviewFailed } from "@plannotator/shared/agent-jobs";
+import { createCommitAvatarResolver } from "@plannotator/shared/commit-avatars";
 import { getRepoInfo } from "./repo";
 import { handleImage, handleUpload, handleAgents, handleServerReady, handleDraftSave, handleDraftLoad, handleDraftDelete, handleFavicon, readDraftGenerationFromBody, readDraftGenerationFromUrl, type OpencodeClient } from "./shared-handlers";
 import { contentHash, deleteDraft } from "./draft";
@@ -77,7 +78,7 @@ import {
   extractMarkerNonce,
 } from "./marker-review";
 import { loadConfig, saveConfig, detectGitUser, getServerConfig } from "./config";
-import { type PRMetadata, type PRRef, type PRReviewFileComment, type PRStackTree, type PRListItem, fetchPR, fetchPRFileContent, fetchPRContext, submitPRReview, fetchPRViewedFiles, markPRFilesViewed, fetchPRStack, fetchPRList, getPRUser, parsePRUrl, prRefFromMetadata, isSameProject, getDisplayRepo, getMRLabel, getMRNumberLabel } from "./pr";
+import { type PRMetadata, type PRRef, type PRReviewFileComment, type PRStackTree, type PRListItem, fetchPR, fetchPRFileContent, fetchPRContext, submitPRReview, fetchPRViewedFiles, markPRFilesViewed, fetchPRStack, fetchPRList, getPRUser, parsePRUrl, prRefFromMetadata, isSameProject, getDisplayRepo, getMRLabel, getMRNumberLabel, prCommandRuntime } from "./pr";
 import {
   PR_CONTEXT_HEARTBEAT_COMMENT,
   PR_CONTEXT_HEARTBEAT_INTERVAL_MS,
@@ -525,6 +526,10 @@ export async function startReviewServer(
       },
     );
   }
+
+  // Commit-author avatar resolution for /api/commits — session-scoped so the
+  // forge lookups (gh/glab) and their failures are paid at most once.
+  const commitAvatars = createCommitAvatarResolver(prCommandRuntime);
 
   // --- Since-base sections sidecar ------------------------------------------
   // Groups the composite since-base patch's files by lifecycle state
@@ -1306,6 +1311,16 @@ export async function startReviewServer(
             });
             if (!page) {
               return Response.json({ error: "Could not read commit history" }, { status: 500 });
+            }
+            // Best-effort author avatars from the origin forge (memoized per
+            // session; misses just render the initials fallback client-side).
+            const avatars = await commitAvatars.resolve(
+              commitsCwd,
+              page.commits.map((c) => c.authorEmail),
+            );
+            for (const c of page.commits) {
+              const avatarUrl = avatars.get(c.authorEmail);
+              if (avatarUrl) c.avatarUrl = avatarUrl;
             }
             return Response.json(page);
           }

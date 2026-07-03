@@ -20,7 +20,7 @@ export const PanelViewToggle: React.FC<{
   const segment = (key: ReviewPanelView, label: string, title: string) => (
     <button
       onClick={() => onSelect(key)}
-      className={`px-1.5 py-0.5 rounded-sm text-[10px] leading-none whitespace-nowrap transition-colors ${
+      className={`px-1 py-0.5 rounded-sm text-xs leading-none whitespace-nowrap transition-colors ${
         view === key ? 'bg-background text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'
       }`}
       title={title}
@@ -33,8 +33,8 @@ export const PanelViewToggle: React.FC<{
   return (
     <div className="flex items-center bg-muted/50 rounded p-0.5 flex-shrink-0" role="group" aria-label="Panel view">
       {showSections && segment('sections', 'Git status', 'Git status view (Committed / Changes / Untracked)')}
-      {showCommits && segment('commits', 'Commits', 'Commit history — click a commit to review its diff')}
       {segment('tree', 'Tree', 'Tree view')}
+      {showCommits && segment('commits', 'Commits', 'Commit history — click a commit to review its diff')}
     </div>
   );
 };

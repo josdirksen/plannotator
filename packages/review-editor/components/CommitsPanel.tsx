@@ -1,20 +1,24 @@
 import React from 'react';
 import type { CommitListEntry } from '@plannotator/shared/types';
 import { PanelViewToggle, type ReviewPanelView } from './PanelViewToggle';
+import { Avatar } from './Avatar';
 import { OverlayScrollArea } from '@plannotator/ui/components/OverlayScrollArea';
 
 /**
  * The Commits panel — a pure linear history rail (`git log --first-parent`,
- * newest first). It never becomes a file list: clicking a commit opens that
- * commit's own diff (vs its first parent) in the center dock as the all-files
- * view. A divider marks where the branch meets the review base; everything
- * above it is branch-local work.
+ * newest first) rendered as compact overview cards. It never becomes a file
+ * list: clicking a commit opens that commit's own diff (vs its first parent)
+ * in the center dock as the all-files view.
+ *
+ * Two labeled groups replace a bare ref divider: "On this branch" (commits not
+ * yet reachable from the base) and "In <base>" (shared history) — the split is
+ * the same merge boundary the since-base review compares against.
  */
 
 interface CommitsPanelProps {
   width?: number;
   commits: CommitListEntry[];
-  /** Base ref for the divider label (e.g. `origin/main`). */
+  /** Base ref the group boundary represents (e.g. `origin/main`). */
   base: string | null;
   hasMore: boolean;
   isLoading: boolean;
@@ -40,44 +44,54 @@ function compactAge(age: string): string {
   return `${m[1]}${unit}`;
 }
 
-const CommitRow: React.FC<{
+const CommitCard: React.FC<{
   commit: CommitListEntry;
   isActive: boolean;
   onSelect: () => void;
 }> = ({ commit, isActive, onSelect }) => (
   <button
     onClick={onSelect}
-    className={`file-tree-item w-full text-left group ${isActive ? 'active' : ''}`}
-    style={{ paddingLeft: 8 }}
-    title={`${commit.sha}\n${commit.subject}${commit.isRepoUser ? '' : `\n${commit.author}`}`}
+    className={`w-full text-left rounded-md border px-2.5 py-2 mb-1.5 transition-colors ${
+      isActive
+        ? 'border-primary bg-primary/5'
+        : 'border-border/60 hover:border-muted-foreground/40 hover:bg-muted/40'
+    }`}
+    title={`${commit.sha}\n${commit.author} <${commit.authorEmail}>\n${commit.subject}`}
   >
-    <div className="flex items-center gap-1.5 flex-1 min-w-0">
-      {/* HEAD marker: filled dot for the current commit, outline otherwise. */}
-      <span
-        className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-          commit.isHead ? 'bg-primary' : 'border border-muted-foreground/50'
-        }`}
-        aria-hidden="true"
-      />
-      <span className="font-mono text-[10px] text-muted-foreground flex-shrink-0">{commit.shortSha}</span>
-      <span className="truncate">{commit.subject}</span>
-      {!commit.isRepoUser && commit.author && (
-        <span className="text-[10px] text-muted-foreground/70 max-w-[72px] truncate flex-shrink-0">
-          {commit.author}
+    <div className="text-xs font-medium leading-snug line-clamp-2 break-words">
+      {commit.subject}
+    </div>
+    <div className="mt-1.5 flex items-center gap-1.5 min-w-0">
+      <Avatar src={commit.avatarUrl} name={commit.author} size={18} />
+      {!commit.isRepoUser && (
+        <span className="text-[11px] text-muted-foreground truncate">{commit.author}</span>
+      )}
+      {commit.isHead && (
+        <span className="text-[9px] leading-none px-1 py-0.5 rounded bg-primary/15 text-primary font-medium">
+          HEAD
         </span>
       )}
+      <span className="flex-1" />
+      <span className="font-mono text-[10px] text-muted-foreground flex-shrink-0">{commit.shortSha}</span>
+      <span className="text-[10px] text-muted-foreground/70 tabular-nums flex-shrink-0">
+        {compactAge(commit.ageRelative)}
+      </span>
     </div>
-    <span className="text-[10px] text-muted-foreground/70 tabular-nums flex-shrink-0 pl-1.5">
-      {compactAge(commit.ageRelative)}
-    </span>
   </button>
 );
 
-const BaseDivider: React.FC<{ base: string }> = ({ base }) => (
-  <div className="flex items-center gap-2 px-2 py-1" aria-label={`Base: ${base}`}>
-    <span className="h-px flex-1 bg-border" />
-    <span className="text-[10px] font-mono text-muted-foreground/70 truncate max-w-[140px]">{base}</span>
-    <span className="h-px flex-1 bg-border" />
+const GroupHeader: React.FC<{ label: string; title: string; withRule?: boolean }> = ({
+  label,
+  title,
+  withRule,
+}) => (
+  <div
+    className={`px-1 pb-1.5 text-[11px] font-medium text-muted-foreground ${
+      withRule ? 'mt-1 pt-2 border-t border-border/50' : 'pt-1'
+    }`}
+    title={title}
+  >
+    {label}
   </div>
 );
 
@@ -97,9 +111,9 @@ export const CommitsPanel: React.FC<CommitsPanelProps> = ({
   showSectionsOption,
 }) => {
   // isPastBase is a suffix of the linear walk (reachability from the base is
-  // monotone along first parents), so a single divider before its first
-  // occurrence is exhaustive.
-  const dividerIndex = commits.findIndex((c) => c.isPastBase);
+  // monotone along first parents), so one boundary is exhaustive.
+  const boundaryIndex = commits.findIndex((c) => c.isPastBase);
+  const showGroups = boundaryIndex !== -1 && !!base;
 
   return (
     <aside
@@ -120,7 +134,7 @@ export const CommitsPanel: React.FC<CommitsPanelProps> = ({
       </div>
 
       <OverlayScrollArea className="flex-1 min-h-0">
-        <div className="px-1 py-1">
+        <div className="px-1.5 py-1.5">
           {error ? (
             <div className="px-2 py-4 text-center space-y-2">
               <div className="text-xs text-destructive break-words">{error}</div>
@@ -139,8 +153,20 @@ export const CommitsPanel: React.FC<CommitsPanelProps> = ({
             <>
               {commits.map((commit, index) => (
                 <React.Fragment key={commit.sha}>
-                  {index === dividerIndex && base && <BaseDivider base={base} />}
-                  <CommitRow
+                  {showGroups && index === 0 && boundaryIndex > 0 && (
+                    <GroupHeader
+                      label="On this branch"
+                      title={`Commits that exist only on this branch — not yet part of ${base}.`}
+                    />
+                  )}
+                  {showGroups && index === boundaryIndex && (
+                    <GroupHeader
+                      label={`In ${base}`}
+                      title={`Commits from here down are already part of ${base} — shared history, not branch work.`}
+                      withRule={boundaryIndex > 0}
+                    />
+                  )}
+                  <CommitCard
                     commit={commit}
                     isActive={commit.sha === activeCommitSha}
                     onSelect={() => onSelectCommit(commit.sha)}

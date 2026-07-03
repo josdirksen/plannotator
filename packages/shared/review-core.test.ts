@@ -547,6 +547,8 @@ describe("listCommitHistory", () => {
     expect(page!.commits[0].isRepoUser).toBe(false);
     expect(page!.commits[1].isRepoUser).toBe(true);
     expect(page!.commits[0].author).toBe("Someone Else");
+    // Author email rides along — the avatar resolver keys on it.
+    expect(page!.commits[0].authorEmail).toBe("review-core@example.com");
     expect(branch1).toBe(page!.commits[1].sha);
   });
 

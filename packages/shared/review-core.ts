@@ -326,6 +326,8 @@ export interface CommitListEntry {
   shortSha: string;
   subject: string;
   author: string;
+  /** Author email — the key the avatar resolver matches on. */
+  authorEmail: string;
   /** True when the commit author matches the repo's configured user.name —
    * the panel shows the author only when it's someone else. */
   isRepoUser: boolean;
@@ -335,6 +337,9 @@ export interface CommitListEntry {
   /** True once the walk is at/below the base (reachable from it) — everything
    * above the first past-base commit is branch-local work. */
   isPastBase: boolean;
+  /** Author profile image, when the forge could resolve one (server-enriched
+   * via commit-avatars; absent → the client renders an initials fallback). */
+  avatarUrl?: string;
 }
 
 export interface CommitHistoryPage {
@@ -375,7 +380,7 @@ export async function listCommitHistory(
   // Continue the first-parent walk from `before`'s first parent. +1 over the
   // limit so hasMore is observed, not guessed.
   const startRef = before ? `${before}^` : "HEAD";
-  const fmt = ["%H", "%h", "%s", "%cr", "%an"].join(COMMIT_FIELD_SEP);
+  const fmt = ["%H", "%h", "%s", "%cr", "%an", "%ae"].join(COMMIT_FIELD_SEP);
   const log = await runReadOnlyGit([
     "log",
     "--first-parent",
@@ -400,15 +405,17 @@ export async function listCommitHistory(
   for (const line of log.stdout.split("\n")) {
     if (!line) continue;
     const parts = line.split(COMMIT_FIELD_SEP);
-    if (parts.length < 5) continue;
+    if (parts.length < 6) continue;
     // Same over-split repair as listRecentCommits: a literal US byte in the
-    // subject over-divides; the fixed-shape head/tail fields let us rejoin it.
+    // subject over-divides; the fixed-shape head (sha, shortSha) and tail
+    // (age, author, email) fields let us rejoin it.
     parsed.push({
       sha: parts[0],
       shortSha: parts[1],
-      subject: parts.slice(2, parts.length - 2).join(COMMIT_FIELD_SEP),
-      ageRelative: parts[parts.length - 2],
-      author: parts[parts.length - 1],
+      subject: parts.slice(2, parts.length - 3).join(COMMIT_FIELD_SEP),
+      ageRelative: parts[parts.length - 3],
+      author: parts[parts.length - 2],
+      authorEmail: parts[parts.length - 1],
     });
   }
   const hasMore = parsed.length > limit;

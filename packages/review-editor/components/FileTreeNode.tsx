@@ -14,7 +14,10 @@ interface FileTreeNodeProps {
   onToggleViewed?: (filePath: string) => void;
   hideViewedFiles: boolean;
   getAnnotationCount: (filePath: string) => number;
-  stagedFiles?: Set<string>;
+  /** EFFECTIVE staged set from useGitAdd (sidecar + session overrides).
+   *  REQUIRED and the ONLY staging source surfaces may render from — the
+   *  sidecar's own `staged` flag is a snapshot and must never be ORed in. */
+  stagedFiles: Set<string>;
   scrollHighlightIndex?: number;
   /** Absolute repo root used to build the "Copy full path" menu item. Null in PR-review mode (files aren't on local disk). */
   repoRoot?: string | null;
@@ -126,17 +129,17 @@ export const FileTreeNodeItem: React.FC<FileTreeNodeProps> = ({
   const isActive = node.fileIndex === activeFileIndex;
   const isScrollActive = !isActive && scrollHighlightIndex != null && node.fileIndex === scrollHighlightIndex;
   const isViewed = viewedFiles.has(node.path);
-  const isStaged = stagedFiles?.has(node.path) ?? false;
+  const isStaged = stagedFiles.has(node.path);
   const annotationCount = getAnnotationCount(node.path);
   // Since-base mode: sidecar-driven markers (U for untracked, staged dot,
   // stage button) replace the legacy staged treatment for this row.
   const sectionEntry = getSectionEntry?.(node.path);
   const sinceBaseMode = getSectionEntry != null;
   const isUntracked = sectionEntry?.group === 'untracked';
-  // stagedFiles is the EFFECTIVE set (sidecar + session overrides) — ORing
-  // the sidecar's snapshot back in would keep a file unstaged this session
-  // rendered as staged (and invert the next toggle). Mirrors SectionsPanel.
-  const sectionStaged = stagedFiles ? isStaged : (sectionEntry?.staged ?? false);
+  // isStaged comes from the EFFECTIVE set (sidecar + session overrides) —
+  // the sidecar's own snapshot flag must never be ORed back in, or a file
+  // unstaged this session would render staged and invert the next toggle.
+  const sectionStaged = isStaged;
   const isStageable = sinceBaseMode && !!onStageFile && sectionEntry != null && sectionEntry.group !== 'committed';
 
   if (hideViewedFiles && isViewed && !isActive) {

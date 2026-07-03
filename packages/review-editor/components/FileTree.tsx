@@ -47,7 +47,10 @@ interface FileTreeProps {
   jjEvologs?: JjEvoLogEntry[];
   /** Default evolog commit ID to compare against (second evolog entry). */
   detectedEvoBase?: string;
-  stagedFiles?: Set<string>;
+  /** EFFECTIVE staged set from useGitAdd (sidecar + session overrides).
+   *  REQUIRED and the ONLY staging source surfaces may render from — the
+   *  sidecar's own `staged` flag is a snapshot and must never be ORed in. */
+  stagedFiles: Set<string>;
   onCopyRawDiff?: () => void;
   canCopyRawDiff?: boolean;
   copyRawDiffStatus?: 'idle' | 'success' | 'error';
@@ -280,7 +283,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
             </span>
           )}
           <div className="flex items-center gap-1.5">
-            {stagedFiles && stagedFiles.size > 0 && (
+            {stagedFiles.size > 0 && (
               <span className="text-xs text-primary font-medium">
                 {stagedFiles.size} added
               </span>

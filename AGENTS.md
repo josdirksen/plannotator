@@ -196,6 +196,8 @@ Approve → "LGTM" sent to agent session
 
 The default code-review diff is **`since-base`** — a composite of `merge-base(base, HEAD)` vs the working tree plus untracked files ("everything a PR would show if you committed and pushed now"). It renders as a three-section **git status** panel (Committed / Changes / Untracked) via `SectionsPanel`, with a `Sections | Tree` toggle. The panel view is persisted in the cookie-only `reviewPanelView` config (`sections` | `tree`); the diff default lives in `defaultDiffType`. The two are coupled: the Sections view only renders `since-base`, so choosing a classic diff snaps the view to Tree and vice-versa (enforced in `ReviewSetupDialog`, the Settings Git tab, and the App first-run reset).
 
+**Staging display invariant:** `useGitAdd`'s `stagedFiles` is the EFFECTIVE staged set (sections-sidecar snapshot + session stage/unstage overrides) and is the only source any surface may render staging state from. The sidecar entry's `staged` flag is a snapshot — ORing it back in makes files unstaged mid-session render as staged (and inverts the next toggle).
+
 `since-base` is only offered when the base ref actually resolves — on a repo whose trunk isn't discoverable (`trunk`, no `origin/HEAD`) `getGitContext` omits it and the default falls through to `uncommitted`, so committed branch work is never silently hidden. The since-base patch/sections/fingerprint/file-content paths all degrade to `HEAD` together when merge-base fails for a resolvable-but-unrelated base. First-run shows `ReviewSetupDialog` (replaces the removed `DiffTypeSetupDialog`), which resets everyone to Git-status + since-base once and is reopenable from the review header menu.
 
 ### Code-review Ask AI context

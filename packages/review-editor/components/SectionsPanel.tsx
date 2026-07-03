@@ -46,7 +46,10 @@ interface SectionsPanelProps {
   onToggleViewed?: (filePath: string) => void;
   hideViewedFiles?: boolean;
   onToggleHideViewed?: () => void;
-  stagedFiles?: Set<string>;
+  /** EFFECTIVE staged set from useGitAdd (sidecar + session overrides).
+   *  REQUIRED and the ONLY staging source surfaces may render from — the
+   *  sidecar's own `staged` flag is a snapshot and must never be ORed in. */
+  stagedFiles: Set<string>;
   stagingFile?: string | null;
   canStage?: boolean;
   onStageFile?: (filePath: string) => void;
@@ -215,7 +218,7 @@ export const SectionsPanel: React.FC<SectionsPanelProps> = ({
       // stagedFiles is the EFFECTIVE set (sidecar + session overrides) — the
       // sidecar's own flag must not be ORed back in, or a file unstaged this
       // session would keep its stale staged dot until the next refresh.
-      const staged = stagedFiles ? stagedFiles.has(file.path) : (entry?.staged ?? false);
+      const staged = stagedFiles.has(file.path);
       // Staging an untracked file makes it tracked+staged in git, but the
       // sidecar snapshot still says untracked until the next diff refresh —
       // anticipate the server and show it under Changes now. Unstaging drops
@@ -295,13 +298,8 @@ export const SectionsPanel: React.FC<SectionsPanelProps> = ({
 
   // "N added" mirrors the rows' staged dots. stagedFiles is the EFFECTIVE
   // set (sidecar + session overrides), so its size IS the count — unioning
-  // the sidecar back in would resurrect files unstaged this session. The
-  // sidecar-only fallback covers callers that don't wire staging.
-  const stagedCount = useMemo(() => {
-    if (stagedFiles) return stagedFiles.size;
-    if (!sections) return 0;
-    return Object.values(sections.files).filter((entry) => entry.staged).length;
-  }, [sections, stagedFiles]);
+  // the sidecar back in would resurrect files unstaged this session.
+  const stagedCount = stagedFiles.size;
 
   // Keyboard file navigation (j/k/arrows/Home/End) over the panel's VISIBLE
   // rows in render order. The tree view had this via FileTree; the sections

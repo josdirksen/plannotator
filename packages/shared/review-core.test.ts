@@ -508,6 +508,7 @@ describe("commit diff mode", () => {
     expect(info!.body).toBe(body);
     expect(info!.author).toBe("Review Core");
     expect(info!.authorEmail).toBe("review-core@example.com");
+    expect(info!.committedAt).toBeGreaterThan(0);
     // Non-hex or unresolvable shas fail closed.
     expect(await getCommitDiffInfo(runtime, "HEAD", repoDir)).toBeNull();
     expect(await getCommitDiffInfo(runtime, "deadbeefdeadbeef", repoDir)).toBeNull();
@@ -568,6 +569,9 @@ describe("listCommitHistory", () => {
     expect(page!.commits[0].author).toBe("Someone Else");
     expect(page!.commits[1].author).toBe("Review Core");
     expect(page!.commits[0].authorEmail).toBe("review-core@example.com");
+    // Committer time is a locale-proof epoch (ms) the client formats itself.
+    expect(page!.commits[0].committedAt).toBeGreaterThan(0);
+    expect(page!.commits[0].committedAt).toBeLessThanOrEqual(Date.now() + 1000);
     expect(branch1).toBe(page!.commits[1].sha);
   });
 
@@ -601,6 +605,25 @@ describe("listCommitHistory", () => {
       before: last!.commits[0].sha,
     });
     expect(past).toEqual({ commits: [], hasMore: false, base: "main" });
+  });
+
+  test("a cursor orphaned by a history rewrite yields an empty terminal page", async () => {
+    const repoDir = initRepo();
+    const runtime = makeRuntime(repoDir);
+    for (let i = 2; i <= 4; i++) commit(repoDir, `commit ${i}`);
+
+    const first = await listCommitHistory(runtime, "main", repoDir, { limit: 2 });
+    const cursor = first!.commits[1].sha; // commit 3
+
+    // Rewrite history: drop commits 3-4, add different ones. The cursor still
+    // resolves in the object store but is no longer on the branch — paging
+    // from it must NOT walk the orphaned pre-rewrite chain.
+    git(repoDir, ["reset", "--hard", "HEAD~2"]);
+    commit(repoDir, "rewritten A");
+    commit(repoDir, "rewritten B");
+
+    const page = await listCommitHistory(runtime, "main", repoDir, { limit: 2, before: cursor });
+    expect(page).toEqual({ commits: [], hasMore: false, base: "main" });
   });
 
   test("an unresolvable base yields no divider instead of failing", async () => {

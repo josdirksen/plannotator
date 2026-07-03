@@ -280,6 +280,24 @@ const RECENT_COMMIT_LIMIT_DEFAULT = 20;
 const COMMIT_FIELD_SEP = "\x1f";
 
 /**
+ * Split a COMMIT_FIELD_SEP-formatted git output into exactly
+ * `head + 1 + tail` fields. A literal US byte inside the one free-text field
+ * (subject or body) over-splits the raw string; the fixed-shape head and tail
+ * fields let us rejoin the middle losslessly. Returns null when the input has
+ * fewer fields than the format guarantees. Shared by every %x1f parser here
+ * so the over-split edge case lives in one place.
+ */
+function splitCommitFormatFields(value: string, head: number, tail: number): string[] | null {
+  const parts = value.split(COMMIT_FIELD_SEP);
+  if (parts.length < head + tail + 1) return null;
+  return [
+    ...parts.slice(0, head),
+    parts.slice(head, parts.length - tail).join(COMMIT_FIELD_SEP),
+    ...parts.slice(parts.length - tail),
+  ];
+}
+
+/**
  * Walk HEAD's ancestry and return the most-recent commits for the
  * commit-baseline picker. Single `git log` call — fast (~ms).
  */
@@ -298,16 +316,9 @@ export async function listRecentCommits(
   const commits: RecentCommit[] = [];
   for (const line of result.stdout.split("\n")) {
     if (!line) continue;
-    const parts = line.split(COMMIT_FIELD_SEP);
-    if (parts.length < 5) continue;
-    // If a subject contains a literal US byte the split over-divides. sha/
-    // shortSha are fixed-shape at the start and relativeDate/author at the
-    // end, so rejoin everything between back into the subject.
-    const sha = parts[0];
-    const shortSha = parts[1];
-    const author = parts[parts.length - 1];
-    const relativeDate = parts[parts.length - 2];
-    const subject = parts.slice(2, parts.length - 2).join(COMMIT_FIELD_SEP);
+    const fields = splitCommitFormatFields(line, 2, 2);
+    if (!fields) continue;
+    const [sha, shortSha, subject, relativeDate, author] = fields;
     commits.push({ sha, shortSha, subject, relativeDate, author });
   }
   return commits;
@@ -328,8 +339,10 @@ export interface CommitListEntry {
   author: string;
   /** Author email — the key the avatar resolver matches on. */
   authorEmail: string;
-  /** Relative age from `%cr`, e.g. "2 hours ago". */
-  ageRelative: string;
+  /** Committer time, epoch milliseconds. Clients format it themselves —
+   * git's `%cr` relative strings are locale-dependent (gettext), so a
+   * pre-formatted string couldn't be compacted reliably. */
+  committedAt: number;
   isHead: boolean;
   /** True once the walk is at/below the base (reachable from it) — everything
    * above the first past-base commit is branch-local work. */
@@ -358,8 +371,10 @@ export interface CommitDiffInfo {
   body: string;
   author: string;
   authorEmail: string;
-  /** Relative age from `%cr`, e.g. "2 hours ago". */
-  ageRelative: string;
+  /** Committer time, epoch milliseconds. Clients format it themselves —
+   * git's `%cr` relative strings are locale-dependent (gettext), so a
+   * pre-formatted string couldn't be compacted reliably. */
+  committedAt: number;
   /** Author profile image (server-enriched via commit-avatars). */
   avatarUrl?: string;
 }
@@ -374,25 +389,26 @@ export async function getCommitDiffInfo(
   cwd?: string,
 ): Promise<CommitDiffInfo | null> {
   if (!BARE_HEX_SHA_RE.test(sha)) return null;
-  // Body (%b) is multiline, so it must be the LAST field — everything after
-  // the sixth separator belongs to it. A literal US byte in the subject would
-  // shift the split (same accepted pathological edge as the list parsers).
-  const fmt = ["%H", "%h", "%an", "%ae", "%cr", "%s", "%b"].join(COMMIT_FIELD_SEP);
+  // Body (%b) is multiline, so it must be the LAST field — the rejoin target
+  // of the shared splitter. A literal US byte in the subject would shift the
+  // split (same accepted pathological edge as the list parsers).
+  const fmt = ["%H", "%h", "%an", "%ae", "%ct", "%s", "%b"].join(COMMIT_FIELD_SEP);
   const result = await runtime.runGit(
     ["--no-optional-locks", "show", "-s", `--pretty=format:${fmt}`, "--end-of-options", sha],
     { cwd },
   );
   if (result.exitCode !== 0) return null;
-  const parts = result.stdout.split(COMMIT_FIELD_SEP);
-  if (parts.length < 7) return null;
+  const fields = splitCommitFormatFields(result.stdout, 6, 0);
+  if (!fields) return null;
+  const [fullSha, shortSha, author, authorEmail, ct, subject, body] = fields;
   return {
-    sha: parts[0],
-    shortSha: parts[1],
-    author: parts[2],
-    authorEmail: parts[3],
-    ageRelative: parts[4],
-    subject: parts[5],
-    body: parts.slice(6).join(COMMIT_FIELD_SEP).trim(),
+    sha: fullSha,
+    shortSha,
+    author,
+    authorEmail,
+    committedAt: (Number(ct) || 0) * 1000,
+    subject,
+    body: body.trim(),
   };
 }
 
@@ -423,10 +439,26 @@ export async function listCommitHistory(
   const runReadOnlyGit = (args: string[]) =>
     runtime.runGit(["--no-optional-locks", ...args], { cwd });
 
+  // A cursor from a rewritten history (rebase/force-push mid-session) still
+  // resolves in the object store but is no longer on the branch — paging on
+  // from it would walk the orphaned pre-rewrite chain. A non-ancestor (or
+  // vanished) cursor ends the pagination with an empty terminal page; the
+  // client's freshness poll replaces the list moments later.
+  if (before) {
+    const onBranch = await runReadOnlyGit([
+      "merge-base",
+      "--is-ancestor",
+      "--end-of-options",
+      before,
+      "HEAD",
+    ]);
+    if (onBranch.exitCode !== 0) return emptyPage;
+  }
+
   // Continue the first-parent walk from `before`'s first parent. +1 over the
   // limit so hasMore is observed, not guessed.
   const startRef = before ? `${before}^` : "HEAD";
-  const fmt = ["%H", "%h", "%s", "%cr", "%an", "%ae"].join(COMMIT_FIELD_SEP);
+  const fmt = ["%H", "%h", "%s", "%ct", "%an", "%ae"].join(COMMIT_FIELD_SEP);
   const log = await runReadOnlyGit([
     "log",
     "--first-parent",
@@ -450,18 +482,16 @@ export async function listCommitHistory(
   const parsed: Array<Omit<CommitListEntry, "isHead" | "isPastBase">> = [];
   for (const line of log.stdout.split("\n")) {
     if (!line) continue;
-    const parts = line.split(COMMIT_FIELD_SEP);
-    if (parts.length < 6) continue;
-    // Same over-split repair as listRecentCommits: a literal US byte in the
-    // subject over-divides; the fixed-shape head (sha, shortSha) and tail
-    // (age, author, email) fields let us rejoin it.
+    const fields = splitCommitFormatFields(line, 2, 3);
+    if (!fields) continue;
+    const [sha, shortSha, subject, ct, author, authorEmail] = fields;
     parsed.push({
-      sha: parts[0],
-      shortSha: parts[1],
-      subject: parts.slice(2, parts.length - 3).join(COMMIT_FIELD_SEP),
-      ageRelative: parts[parts.length - 3],
-      author: parts[parts.length - 2],
-      authorEmail: parts[parts.length - 1],
+      sha,
+      shortSha,
+      subject,
+      committedAt: (Number(ct) || 0) * 1000,
+      author,
+      authorEmail,
     });
   }
   const hasMore = parsed.length > limit;

@@ -3,6 +3,7 @@ import type { CommitListEntry } from '@plannotator/shared/types';
 import { PanelViewToggle, type ReviewPanelView } from './PanelViewToggle';
 import { Avatar } from './Avatar';
 import { OverlayScrollArea } from '@plannotator/ui/components/OverlayScrollArea';
+import { formatRelativeTime } from '@plannotator/ui/utils/aiChatFormat';
 
 /**
  * The Commits panel — a pure linear history rail (`git log --first-parent`,
@@ -35,15 +36,6 @@ interface CommitsPanelProps {
   showSectionsOption: boolean;
 }
 
-/** Compact `%cr` output for the rail: "2 hours ago" → "2h". Compound or
- * unusual phrasings fall back to the raw string. */
-function compactAge(age: string): string {
-  const m = age.match(/^(\d+)\s+(second|minute|hour|day|week|month|year)/);
-  if (!m) return age;
-  const unit = { second: 's', minute: 'm', hour: 'h', day: 'd', week: 'w', month: 'mo', year: 'y' }[m[2]];
-  return `${m[1]}${unit}`;
-}
-
 const CommitRow: React.FC<{
   commit: CommitListEntry;
   isActive: boolean;
@@ -65,7 +57,7 @@ const CommitRow: React.FC<{
         </span>
       )}
       <span className="text-[10px] text-muted-foreground/70 tabular-nums flex-shrink-0">
-        {compactAge(commit.ageRelative)}
+        {formatRelativeTime(commit.committedAt)}
       </span>
     </div>
     {/* Meta — avatar + author (always shown) + sha. */}

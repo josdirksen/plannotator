@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { CommitDiffInfo } from '@plannotator/shared/types';
 import { Avatar } from './Avatar';
 import { MarkdownBody } from './PRSummaryTab';
+import { formatRelativeTime } from '@plannotator/ui/utils/aiChatFormat';
 
 /**
  * The commit description heading the all-files view while a `commit:<sha>`
@@ -33,7 +34,7 @@ export const CommitDescriptionHeader: React.FC<{ info: CommitDiffInfo }> = ({ in
           <Avatar src={info.avatarUrl} name={info.author} size={18} />
           <span className="truncate">{info.author}</span>
           <span className="font-mono text-[11px]" title={info.sha}>{info.shortSha}</span>
-          <span className="text-muted-foreground/70">{info.ageRelative}</span>
+          <span className="text-muted-foreground/70">{formatRelativeTime(info.committedAt)}</span>
         </div>
         {info.body && (
           <>

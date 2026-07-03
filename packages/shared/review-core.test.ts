@@ -7,9 +7,12 @@ import {
   getDefaultBranch,
   getFileContentsForDiff,
   getGitContext,
+  getGitDiffFingerprint,
   gitAddFile,
   gitResetFile,
+  listCommitHistory,
   listRecentCommits,
+  parseCommitDiffType,
   parseWorktreeDiffType,
   runGitDiff,
   splitPorcelainRename,
@@ -389,5 +392,210 @@ describe("review-core", () => {
       const parsed = parseWorktreeDiffType(composite);
       expect(parsed).toEqual({ path: "/tmp/my-worktree", subType: sub });
     }
+  });
+
+  test("parseWorktreeDiffType recognises commit:<sha> sub-types", () => {
+    expect(parseWorktreeDiffType("worktree:/tmp/my-worktree:commit:abc1234")).toEqual({
+      path: "/tmp/my-worktree",
+      subType: "commit:abc1234",
+    });
+    // A non-hex suffix is not a commit sub-type — falls back to the path.
+    expect(parseWorktreeDiffType("worktree:/tmp/my-worktree:commit:not-hex")).toEqual({
+      path: "/tmp/my-worktree:commit:not-hex",
+      subType: "uncommitted",
+    });
+  });
+});
+
+describe("parseCommitDiffType", () => {
+  test("accepts full and abbreviated hex shas", () => {
+    expect(parseCommitDiffType("commit:abc1234")).toEqual({ sha: "abc1234" });
+    expect(parseCommitDiffType(`commit:${"a".repeat(40)}`)).toEqual({ sha: "a".repeat(40) });
+  });
+  test("rejects revspec operators, flags, and non-commit types", () => {
+    expect(parseCommitDiffType("commit:HEAD~1")).toBeNull();
+    expect(parseCommitDiffType("commit:abc1234^{tree}")).toBeNull();
+    expect(parseCommitDiffType("commit:--output=/tmp/x")).toBeNull();
+    expect(parseCommitDiffType("commit:main..feature")).toBeNull();
+    expect(parseCommitDiffType("commit:")).toBeNull();
+    expect(parseCommitDiffType("uncommitted")).toBeNull();
+  });
+});
+
+describe("commit diff mode", () => {
+  test("commit:<sha> diffs one commit against its first parent", async () => {
+    const repoDir = initRepo();
+    const runtime = makeRuntime(repoDir);
+
+    writeFileSync(join(repoDir, "tracked.txt"), "second\n", "utf-8");
+    git(repoDir, ["add", "tracked.txt"]);
+    git(repoDir, ["commit", "-m", "second commit"]);
+    const secondSha = git(repoDir, ["rev-parse", "HEAD"]);
+
+    // A later commit + dirty working tree must NOT leak into the commit's diff.
+    writeFileSync(join(repoDir, "third.txt"), "third\n", "utf-8");
+    git(repoDir, ["add", "third.txt"]);
+    git(repoDir, ["commit", "-m", "third commit"]);
+    writeFileSync(join(repoDir, "tracked.txt"), "dirty\n", "utf-8");
+
+    const result = await runGitDiff(runtime, `commit:${secondSha}` as DiffType, "main");
+
+    expect(result.error).toBeUndefined();
+    expect(result.label).toMatch(/^Commit [0-9a-f]+ — second commit$/);
+    expect(result.patch).toContain("diff --git a/tracked.txt b/tracked.txt");
+    expect(result.patch).toContain("+second");
+    expect(result.patch).not.toContain("third.txt");
+    expect(result.patch).not.toContain("dirty");
+  });
+
+  test("a root commit diffs against the empty tree", async () => {
+    const repoDir = initRepo();
+    const runtime = makeRuntime(repoDir);
+    const rootSha = git(repoDir, ["rev-parse", "HEAD"]);
+
+    const result = await runGitDiff(runtime, `commit:${rootSha}` as DiffType, "main");
+
+    expect(result.error).toBeUndefined();
+    expect(result.patch).toContain("diff --git a/tracked.txt b/tracked.txt");
+    expect(result.patch).toContain("new file mode");
+    expect(result.patch).toContain("+before");
+  });
+
+  test("an invalid commit ref returns an error, not a git invocation", async () => {
+    const repoDir = initRepo();
+    const runtime = makeRuntime(repoDir);
+
+    const result = await runGitDiff(runtime, "commit:HEAD~1" as DiffType, "main");
+
+    expect(result.patch).toBe("");
+    expect(result.error).toBe("Invalid commit ref");
+  });
+
+  test("file contents come from the commit and its parent, not the working tree", async () => {
+    const repoDir = initRepo();
+    const runtime = makeRuntime(repoDir);
+
+    writeFileSync(join(repoDir, "tracked.txt"), "second\n", "utf-8");
+    git(repoDir, ["add", "tracked.txt"]);
+    git(repoDir, ["commit", "-m", "second commit"]);
+    const secondSha = git(repoDir, ["rev-parse", "HEAD"]);
+    writeFileSync(join(repoDir, "tracked.txt"), "dirty\n", "utf-8");
+
+    const contents = await getFileContentsForDiff(
+      runtime,
+      `commit:${secondSha}` as DiffType,
+      "main",
+      "tracked.txt",
+    );
+
+    expect(contents.oldContent).toBe("before\n");
+    expect(contents.newContent).toBe("second\n");
+  });
+
+  test("fingerprint is anchored to the sha — new commits do not flip it", async () => {
+    const repoDir = initRepo();
+    const runtime = makeRuntime(repoDir);
+    const rootSha = git(repoDir, ["rev-parse", "HEAD"]);
+
+    const before = await getGitDiffFingerprint(runtime, `commit:${rootSha}` as DiffType, "main");
+    expect(before).toBe(`git:commit:${rootSha}:present`);
+
+    writeFileSync(join(repoDir, "later.txt"), "later\n", "utf-8");
+    git(repoDir, ["add", "later.txt"]);
+    git(repoDir, ["commit", "-m", "later commit"]);
+    writeFileSync(join(repoDir, "tracked.txt"), "dirty\n", "utf-8");
+
+    const after = await getGitDiffFingerprint(runtime, `commit:${rootSha}` as DiffType, "main");
+    expect(after).toBe(before);
+  });
+});
+
+describe("listCommitHistory", () => {
+  /** Commit an empty marker commit with a given subject and return its sha. */
+  function commit(repoDir: string, subject: string): string {
+    git(repoDir, ["commit", "--allow-empty", "-m", subject]);
+    return git(repoDir, ["rev-parse", "HEAD"]);
+  }
+
+  test("marks HEAD, the repo user, and where the branch meets the base", async () => {
+    const repoDir = initRepo();
+    const runtime = makeRuntime(repoDir);
+    commit(repoDir, "on main");
+    git(repoDir, ["checkout", "-b", "feature"]);
+    const branch1 = commit(repoDir, "branch work 1");
+    git(repoDir, ["config", "user.name", "Someone Else"]);
+    const branch2 = commit(repoDir, "branch work 2");
+    git(repoDir, ["config", "user.name", "Review Core"]);
+
+    const page = await listCommitHistory(runtime, "main", repoDir);
+
+    expect(page).not.toBeNull();
+    expect(page!.base).toBe("main");
+    expect(page!.hasMore).toBe(false);
+    expect(page!.commits.map((c) => c.subject)).toEqual([
+      "branch work 2",
+      "branch work 1",
+      "on main",
+      "initial",
+    ]);
+    expect(page!.commits[0].sha).toBe(branch2);
+    expect(page!.commits[0].isHead).toBe(true);
+    expect(page!.commits[1].isHead).toBe(false);
+    // Divider: branch-local commits above, base history below.
+    expect(page!.commits.map((c) => c.isPastBase)).toEqual([false, false, true, true]);
+    // Author flag: only the commit made under a different user.name differs.
+    expect(page!.commits[0].isRepoUser).toBe(false);
+    expect(page!.commits[1].isRepoUser).toBe(true);
+    expect(page!.commits[0].author).toBe("Someone Else");
+    expect(branch1).toBe(page!.commits[1].sha);
+  });
+
+  test("pages with before and reports hasMore honestly", async () => {
+    const repoDir = initRepo();
+    const runtime = makeRuntime(repoDir);
+    for (let i = 2; i <= 5; i++) commit(repoDir, `commit ${i}`);
+
+    const first = await listCommitHistory(runtime, "main", repoDir, { limit: 2 });
+    expect(first!.commits.map((c) => c.subject)).toEqual(["commit 5", "commit 4"]);
+    expect(first!.hasMore).toBe(true);
+
+    const second = await listCommitHistory(runtime, "main", repoDir, {
+      limit: 2,
+      before: first!.commits[1].sha,
+    });
+    expect(second!.commits.map((c) => c.subject)).toEqual(["commit 3", "commit 2"]);
+    expect(second!.hasMore).toBe(true);
+    expect(second!.commits.every((c) => !c.isHead)).toBe(true);
+
+    const last = await listCommitHistory(runtime, "main", repoDir, {
+      limit: 2,
+      before: second!.commits[1].sha,
+    });
+    expect(last!.commits.map((c) => c.subject)).toEqual(["initial"]);
+    expect(last!.hasMore).toBe(false);
+
+    // Paging past the root commit yields an empty terminal page, not an error.
+    const past = await listCommitHistory(runtime, "main", repoDir, {
+      limit: 2,
+      before: last!.commits[0].sha,
+    });
+    expect(past).toEqual({ commits: [], hasMore: false, base: "main" });
+  });
+
+  test("an unresolvable base yields no divider instead of failing", async () => {
+    const repoDir = initRepo();
+    const runtime = makeRuntime(repoDir);
+    commit(repoDir, "second");
+
+    const page = await listCommitHistory(runtime, "no-such-branch", repoDir);
+    expect(page).not.toBeNull();
+    expect(page!.commits.length).toBe(2);
+    expect(page!.commits.every((c) => !c.isPastBase)).toBe(true);
+  });
+
+  test("rejects a non-hex before cursor", async () => {
+    const repoDir = initRepo();
+    const runtime = makeRuntime(repoDir);
+    expect(await listCommitHistory(runtime, "main", repoDir, { before: "HEAD~1" })).toBeNull();
   });
 });

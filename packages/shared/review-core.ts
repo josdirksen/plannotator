@@ -24,6 +24,7 @@ export type DiffType =
   | "branch"
   | "merge-base"
   | "all"
+  | `commit:${string}`
   | `worktree:${string}`
   | "p4-default"
   | `p4-changelist:${string}`;
@@ -310,6 +311,127 @@ export async function listRecentCommits(
     commits.push({ sha, shortSha, subject, relativeDate, author });
   }
   return commits;
+}
+
+// --- Commit history rail ------------------------------------------------------
+//
+// Backs GET /api/commits: the Commits panel's linear `--first-parent` walk from
+// HEAD, newest first. Paged (before = the previous page's last sha), with a
+// per-commit "past the base" flag so the client can draw the divider where the
+// branch meets the resolved base.
+
+export interface CommitListEntry {
+  /** Full SHA — sent back as `commit:<sha>` on click. */
+  sha: string;
+  shortSha: string;
+  subject: string;
+  author: string;
+  /** True when the commit author matches the repo's configured user.name —
+   * the panel shows the author only when it's someone else. */
+  isRepoUser: boolean;
+  /** Relative age from `%cr`, e.g. "2 hours ago". */
+  ageRelative: string;
+  isHead: boolean;
+  /** True once the walk is at/below the base (reachable from it) — everything
+   * above the first past-base commit is branch-local work. */
+  isPastBase: boolean;
+}
+
+export interface CommitHistoryPage {
+  commits: CommitListEntry[];
+  /** More history exists below this page. */
+  hasMore: boolean;
+  /** The base ref the divider represents (echoed for the divider label). */
+  base: string;
+}
+
+const COMMIT_HISTORY_LIMIT_DEFAULT = 50;
+const COMMIT_HISTORY_LIMIT_MAX = 200;
+
+/**
+ * One page of the linear (`--first-parent`) history from HEAD. Returns null
+ * when the repo can't answer at all (no HEAD, not a repo); an unresolvable
+ * `before` yields an empty terminal page instead (the commit paged past may
+ * be a root commit, whose `^` doesn't resolve).
+ */
+export async function listCommitHistory(
+  runtime: ReviewGitRuntime,
+  defaultBranch: string,
+  cwd?: string,
+  options?: { limit?: number; before?: string },
+): Promise<CommitHistoryPage | null> {
+  const requested = options?.limit ?? COMMIT_HISTORY_LIMIT_DEFAULT;
+  const limit = Math.max(1, Math.min(Math.floor(requested), COMMIT_HISTORY_LIMIT_MAX));
+  const before = options?.before;
+  // `before` flows into a git argv position — same bare-hex rule as commit:<sha>.
+  if (before !== undefined && !/^[0-9a-f]{4,64}$/i.test(before)) return null;
+  const emptyPage: CommitHistoryPage = { commits: [], hasMore: false, base: defaultBranch };
+
+  // --no-optional-locks throughout: read-only queries that may run while the
+  // agent stages/commits concurrently.
+  const runReadOnlyGit = (args: string[]) =>
+    runtime.runGit(["--no-optional-locks", ...args], { cwd });
+
+  // Continue the first-parent walk from `before`'s first parent. +1 over the
+  // limit so hasMore is observed, not guessed.
+  const startRef = before ? `${before}^` : "HEAD";
+  const fmt = ["%H", "%h", "%s", "%cr", "%an"].join(COMMIT_FIELD_SEP);
+  const log = await runReadOnlyGit([
+    "log",
+    "--first-parent",
+    `--max-count=${limit + 1}`,
+    `--pretty=format:${fmt}`,
+    "--end-of-options",
+    startRef,
+  ]);
+  if (log.exitCode !== 0) return before ? emptyPage : null;
+
+  const parsed: Array<Omit<CommitListEntry, "isRepoUser" | "isHead" | "isPastBase">> = [];
+  for (const line of log.stdout.split("\n")) {
+    if (!line) continue;
+    const parts = line.split(COMMIT_FIELD_SEP);
+    if (parts.length < 5) continue;
+    // Same over-split repair as listRecentCommits: a literal US byte in the
+    // subject over-divides; the fixed-shape head/tail fields let us rejoin it.
+    parsed.push({
+      sha: parts[0],
+      shortSha: parts[1],
+      subject: parts.slice(2, parts.length - 2).join(COMMIT_FIELD_SEP),
+      ageRelative: parts[parts.length - 2],
+      author: parts[parts.length - 1],
+    });
+  }
+  const hasMore = parsed.length > limit;
+  const page = parsed.slice(0, limit);
+
+  const [head, user, branchOnly] = await Promise.all([
+    runReadOnlyGit(["rev-parse", "HEAD"]),
+    runReadOnlyGit(["config", "user.name"]),
+    // The branch-local set: first-parent commits from HEAD NOT reachable from
+    // the base. Reachability (not merge-base position) is what the divider
+    // means — a base merged INTO the branch keeps its commits below the line.
+    // Best-effort: an unresolvable base yields no divider (all isPastBase
+    // false), matching how since-base degrades on such repos.
+    defaultBranch
+      ? runReadOnlyGit(["rev-list", "--first-parent", "--end-of-options", "HEAD", `^${defaultBranch}`])
+      : Promise.resolve(null),
+  ]);
+  const headSha = head.exitCode === 0 ? head.stdout.trim() : "";
+  const branchLocal = branchOnly && branchOnly.exitCode === 0
+    ? new Set(branchOnly.stdout.split("\n").filter(Boolean))
+    : null;
+  const userName = user.exitCode === 0 ? user.stdout.trim() : "";
+
+  return {
+    commits: page.map((c) => ({
+      ...c,
+      isRepoUser: !!userName && c.author === userName,
+      isHead: c.sha === headSha,
+      isPastBase: branchLocal ? !branchLocal.has(c.sha) : false,
+    })),
+    hasMore,
+    base: defaultBranch,
+  };
 }
 
 export async function listBranches(
@@ -640,6 +762,18 @@ function displayRef(ref: string): string {
   return /^[0-9a-f]{7,}$/i.test(ref) ? ref.slice(0, 7) : ref;
 }
 
+/** Resolve the empty-tree object id (hash-object honors repo hash algorithm;
+ * the SHA-1 constant is the fallback for the degenerate no-repo case). */
+async function getEmptyTreeSha(
+  runtime: ReviewGitRuntime,
+  cwd?: string,
+): Promise<string> {
+  const result = await runtime.runGit(["hash-object", "-t", "tree", "/dev/null"], { cwd });
+  return result.exitCode === 0
+    ? result.stdout.trim()
+    : "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+}
+
 function assertGitSuccess(
   result: GitCommandResult,
   args: string[],
@@ -666,12 +800,37 @@ const WORKTREE_SUB_TYPES = new Set([
   "all",
 ]);
 
+/**
+ * Parse a `commit:<sha>` diff type — a single historical commit reviewed
+ * against its first parent. The sha must be plain hex (full or abbreviated):
+ * it flows from a client request into git argv positions, so anything that
+ * isn't a bare object name is rejected here rather than trusted downstream
+ * (`--end-of-options` already prevents flag smuggling; this keeps revspec
+ * operators like `..`/`^{}` out too, so the diff is always one commit).
+ */
+export function parseCommitDiffType(diffType: string): { sha: string } | null {
+  if (!diffType.startsWith("commit:")) return null;
+  const sha = diffType.slice("commit:".length);
+  return /^[0-9a-f]{4,64}$/i.test(sha) ? { sha } : null;
+}
+
 export function parseWorktreeDiffType(
   diffType: string,
 ): { path: string; subType: string } | null {
   if (!diffType.startsWith("worktree:")) return null;
 
   const rest = diffType.slice("worktree:".length);
+  // `worktree:<path>:commit:<sha>` — the sub-type itself contains a colon, so
+  // it can't be recognized by the single lastIndexOf(':') split below. Split
+  // on the LAST ':commit:' occurrence (a path that itself ends in ':commit'
+  // followed by a hex segment would be misread — accepted pathological edge).
+  const commitIdx = rest.lastIndexOf(":commit:");
+  if (commitIdx !== -1) {
+    const maybeCommit = rest.slice(commitIdx + 1);
+    if (parseCommitDiffType(maybeCommit)) {
+      return { path: rest.slice(0, commitIdx), subType: maybeCommit };
+    }
+  }
   const lastColon = rest.lastIndexOf(":");
   if (lastColon !== -1) {
     const maybeSub = rest.slice(lastColon + 1);
@@ -711,7 +870,36 @@ export async function runGitDiff(
   const wFlag = options?.hideWhitespace ? ["-w"] : [];
 
   try {
-    switch (effectiveDiffType) {
+    // `commit:<sha>` — one historical commit vs its first parent (git-show
+    // style). Handled before the switch: the sha makes it a family of types,
+    // not a literal case label.
+    const commitRef = parseCommitDiffType(effectiveDiffType);
+    if (commitRef) {
+      const { sha } = commitRef;
+      const infoArgs = ["log", "-1", `--pretty=format:%h${COMMIT_FIELD_SEP}%s`, "--end-of-options", sha];
+      const info = assertGitSuccess(await runtime.runGit(infoArgs, { cwd }), infoArgs);
+      const sepIdx = info.stdout.indexOf(COMMIT_FIELD_SEP);
+      const shortSha = sepIdx === -1 ? sha.slice(0, 7) : info.stdout.slice(0, sepIdx);
+      const subject = sepIdx === -1 ? "" : info.stdout.slice(sepIdx + 1).split("\n")[0];
+      // Root commit has no parent — diff against the empty tree instead.
+      const hasParent =
+        (await runtime.runGit(["rev-parse", "--verify", "--quiet", `${sha}^`], { cwd }))
+          .exitCode === 0;
+      const baseRef = hasParent ? `${sha}^` : await getEmptyTreeSha(runtime, cwd);
+      const commitDiffArgs = [
+        "diff",
+        "--no-ext-diff",
+        ...wFlag,
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
+        "--end-of-options",
+        `${baseRef}..${sha}`,
+      ];
+      patch = assertGitSuccess(await runtime.runGit(commitDiffArgs, { cwd }), commitDiffArgs).stdout;
+      label = subject ? `Commit ${shortSha} — ${subject}` : `Commit ${shortSha}`;
+    } else if (effectiveDiffType.startsWith("commit:")) {
+      return { patch: "", label: `Error: ${diffType}`, error: "Invalid commit ref" };
+    } else switch (effectiveDiffType) {
       case "since-base": {
         // The composite "GitHub view": merge-base(base, HEAD) vs the working
         // tree (note: no right-hand ref on the diff), plus untracked files.
@@ -1008,6 +1196,21 @@ export async function getGitDiffFingerprint(
     const runReadOnlyGit = (args: string[]) =>
       runtime.runGit(["--no-optional-locks", ...args], { cwd });
 
+    // commit:<sha> — the diff is anchored to an immutable object, so the
+    // fingerprint is the sha plus whether it still resolves. Deliberately NOT
+    // headSha-coupled: new commits landing mid-review don't change this diff,
+    // so they must not raise the staleness banner. If the commit vanishes from
+    // the repo (rebase + gc), present→gone flips the fingerprint and the
+    // banner fires — refreshing then surfaces the git error honestly.
+    if (effectiveDiffType.startsWith("commit:")) {
+      const commitRef = parseCommitDiffType(effectiveDiffType);
+      if (!commitRef) return null;
+      const resolves =
+        (await runReadOnlyGit(["rev-parse", "--verify", "--quiet", `${commitRef.sha}^{commit}`]))
+          .exitCode === 0;
+      return `git:commit:${commitRef.sha}:${resolves ? "present" : "gone"}`;
+    }
+
     const head = await runReadOnlyGit(["rev-parse", "HEAD"]);
     const headSha = head.exitCode === 0 ? head.stdout.trim() : "no-head";
     const parts = ["git", effectiveDiffType, headSha];
@@ -1149,6 +1352,16 @@ export async function getFileContentsForDiff(
     const baseDir = await resolveRepoToplevel(runtime, cwd);
     const fullPath = baseDir ? resolvePath(baseDir, path) : path;
     return runtime.readTextFile(fullPath);
+  }
+
+  // commit:<sha> — old side is the first parent (null on a root commit, which
+  // correctly renders every file as an addition), new side the commit itself.
+  const commitRef = parseCommitDiffType(effectiveDiffType);
+  if (commitRef) {
+    return {
+      oldContent: await gitShow(`${commitRef.sha}^`, oldFilePath),
+      newContent: await gitShow(commitRef.sha, filePath),
+    };
   }
 
   switch (effectiveDiffType) {

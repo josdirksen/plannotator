@@ -1,6 +1,7 @@
 import {
   JJ_TRUNK_REVSET,
   jjLineBaseRevset,
+  parseCommitDiffType,
   parseWorktreeDiffType,
   type DiffType,
 } from "./vcs";
@@ -188,6 +189,15 @@ export function getLocalDiffInstruction(
   defaultBranch?: string,
 ): LocalDiffInstruction | null {
   const effectiveDiffType = normalizeLocalDiffType(diffType);
+
+  // commit:<sha> — a single historical commit, not the working tree.
+  const commitRef = parseCommitDiffType(effectiveDiffType);
+  if (commitRef) {
+    return {
+      target: `the changes introduced by commit ${commitRef.sha.slice(0, 7)}`,
+      inspect: `This is a historical commit, not the working tree. Run \`git show ${commitRef.sha}\` to inspect exactly the changeset under review.`,
+    };
+  }
 
   switch (effectiveDiffType) {
     case "since-base": {

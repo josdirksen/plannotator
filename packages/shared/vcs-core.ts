@@ -36,6 +36,7 @@ export {
   JJ_TRUNK_REVSET,
   jjCompareTargetRevset,
   jjLineBaseRevset,
+  parseCommitDiffType,
   parseRemoteBookmark,
   parseWorktreeDiffType,
   validateFilePath,
@@ -176,7 +177,11 @@ export function createGitProvider(runtime: ReviewGitRuntime): VcsProvider {
     },
 
     ownsDiffType(diffType: string): boolean {
-      return GIT_DIFF_TYPES.has(diffType) || diffType.startsWith("worktree:");
+      return (
+        GIT_DIFF_TYPES.has(diffType) ||
+        diffType.startsWith("worktree:") ||
+        diffType.startsWith("commit:")
+      );
     },
 
     canStageFiles(diffType: string): boolean {

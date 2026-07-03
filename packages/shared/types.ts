@@ -17,6 +17,8 @@ export type {
   JjEvoLogEntry,
   RecentCommit,
   AvailableBranches,
+  CommitHistoryPage,
+  CommitListEntry,
   CompareTargetConfig,
   CompareTargetPickerCopy,
   RepositoryContext,

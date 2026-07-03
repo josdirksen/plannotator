@@ -11,42 +11,61 @@ const C_ESCAPES: Record<string, number> = {
 
 /**
  * Undo git's C-style path quoting (core.quotePath): `"caf\303\251.txt"` →
- * `café.txt`. Octal escapes are RAW BYTES of the UTF-8 encoded path, so the
- * whole sequence is collected as bytes and decoded once. JSON.parse cannot
- * do this — octal escapes are invalid JSON, so non-ASCII names silently kept
- * their literal `\303\251` form and broke every downstream file access.
- * Unquoted values pass through untouched.
+ * `café.txt`. Octal escapes are RAW BYTES of the UTF-8 encoded path —
+ * consecutive octal escapes are collected into a byte buffer and decoded as
+ * one UTF-8 sequence. JSON.parse cannot do this: octal escapes are invalid
+ * JSON, so non-ASCII names silently kept their literal `\303\251` form and
+ * broke every downstream file access.
+ *
+ * Literal (non-escaped) characters are appended as-is, NOT pushed through the
+ * byte decoder — our own quoteGitPath (JSON.stringify, used when synthesizing
+ * workspace patch headers) leaves unicode unescaped inside quotes, and those
+ * headers round-trip through this function too. Unquoted values pass through
+ * untouched.
  */
 export function unquoteGitPath(value: string): string {
   if (!value.startsWith('"') || !value.endsWith('"')) return value;
   const inner = value.slice(1, -1);
-  const bytes: number[] = [];
+  const decoder = new TextDecoder();
+  let out = "";
+  let pendingBytes: number[] = [];
+  const flush = (): void => {
+    if (pendingBytes.length > 0) {
+      out += decoder.decode(new Uint8Array(pendingBytes));
+      pendingBytes = [];
+    }
+  };
   for (let i = 0; i < inner.length; i++) {
     if (inner[i] !== "\\") {
-      // git leaves only printable ASCII unescaped inside quotes.
-      bytes.push(inner.charCodeAt(i));
+      // Appending code units in order preserves any literal unicode,
+      // including surrogate pairs.
+      flush();
+      out += inner[i];
       continue;
     }
     const next = inner[i + 1];
     if (next >= "0" && next <= "7") {
-      // Octal escape: up to 3 digits, one raw byte.
+      // Octal escape: up to 3 digits, one raw byte of the UTF-8 path.
       let oct = "";
       let j = i + 1;
       while (j < inner.length && oct.length < 3 && inner[j] >= "0" && inner[j] <= "7") {
         oct += inner[j];
         j++;
       }
-      bytes.push(parseInt(oct, 8) & 0xff);
+      pendingBytes.push(parseInt(oct, 8) & 0xff);
       i = j - 1;
     } else if (next !== undefined && next in C_ESCAPES) {
-      bytes.push(C_ESCAPES[next]);
+      flush();
+      out += String.fromCharCode(C_ESCAPES[next]);
       i++;
     } else {
       // Unknown escape — keep the backslash literally.
-      bytes.push(0x5c);
+      flush();
+      out += "\\";
     }
   }
-  return new TextDecoder().decode(new Uint8Array(bytes));
+  flush();
+  return out;
 }
 
 export function quoteGitPath(value: string): string {

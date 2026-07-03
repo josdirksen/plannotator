@@ -9,6 +9,10 @@ describe("diff path parsing", () => {
     expect(unquoteGitPath('"\\346\\227\\245\\346\\234\\254.md"')).toBe("日本.md");
     expect(unquoteGitPath('"tab\\there"')).toBe("tab\there");
     expect(unquoteGitPath('"quote\\"in name"')).toBe('quote"in name');
+    // Our own quoteGitPath (JSON.stringify) leaves unicode LITERAL inside
+    // quotes — synthesized workspace headers round-trip through here too.
+    expect(unquoteGitPath('"café file.txt"')).toBe("café file.txt");
+    expect(unquoteGitPath('"emoji 🎉.txt"')).toBe("emoji 🎉.txt");
     // Unquoted input passes through untouched.
     expect(unquoteGitPath("plain space.txt")).toBe("plain space.txt");
   });

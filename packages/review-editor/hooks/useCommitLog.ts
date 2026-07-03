@@ -47,6 +47,8 @@ export function useCommitLog({ enabled, contextKey }: UseCommitLogOptions): UseC
   const generationRef = useRef(0);
   const commitsRef = useRef(commits);
   commitsRef.current = commits;
+  const baseRef = useRef(base);
+  baseRef.current = base;
 
   const fetchPage = useCallback(async (before?: string) => {
     const generation = ++generationRef.current;
@@ -106,11 +108,14 @@ export function useCommitLog({ enabled, contextKey }: UseCommitLogOptions): UseC
     };
   }, [enabled, contextKey, fetchPage]);
 
-  // Quiet freshness poll: fetch page 1 and adopt it ONLY when history moved
-  // (head sha differs). No loading flags and no error-state churn — a
-  // transient network blip during a background check must not disturb the
-  // rail the user is reading. Adopting bumps the generation so an in-flight
-  // "Show more" from the OLD history can't append its stale rows.
+  // Quiet freshness poll: fetch page 1 and adopt it ONLY when what the rail
+  // shows would actually change — a new head (commits landed / history
+  // rewritten), a moved base boundary (an agent ran `git fetch` and
+  // origin/<base> advanced while HEAD stayed put), or a relabeled base. No
+  // loading flags and no error-state churn — a transient network blip during
+  // a background check must not disturb the rail the user is reading.
+  // Adopting bumps the generation so an in-flight "Show more" from the OLD
+  // history can't append its stale rows.
   const checkForNewCommits = useCallback(async () => {
     const generation = generationRef.current;
     try {
@@ -119,7 +124,20 @@ export function useCommitLog({ enabled, contextKey }: UseCommitLogOptions): UseC
       const data = (await res.json()) as CommitHistoryPage & { error?: string };
       if (data.error) return;
       if (generation !== generationRef.current) return;
-      if (data.commits[0]?.sha === commitsRef.current[0]?.sha) return;
+      const current = commitsRef.current;
+      const sameHead = data.commits[0]?.sha === current[0]?.sha;
+      // Boundary compared over the overlap window: the current list may be
+      // paged deeper than the poll's single page, and a boundary that sits
+      // beyond both is invisible to the probe (accepted micro-edge — the
+      // divider that deep re-syncs on the next full reload).
+      const window = Math.min(data.commits.length, current.length);
+      const boundaryIn = (list: readonly CommitListEntry[]): number => {
+        for (let i = 0; i < window; i++) if (list[i].isPastBase) return i;
+        return -1;
+      };
+      const sameBoundary = boundaryIn(data.commits) === boundaryIn(current);
+      const sameBase = (data.base || null) === baseRef.current;
+      if (sameHead && sameBoundary && sameBase) return;
       generationRef.current++;
       setCommits(data.commits);
       setBase(data.base || null);

@@ -1709,11 +1709,16 @@ const ReviewApp: React.FC = () => {
       commitsAutoSelectDone.current = true;
       return;
     }
+    // Never auto-select while any diff switch is in flight — whatever is
+    // loading already owns the center. Belt-and-suspenders (the effect fires
+    // before a human can click), but it makes the invariant explicit; the
+    // effect re-runs when the switch settles.
+    if (isLoadingDiff) return;
     const head = commitLog.commits.find((c) => c.isHead) ?? commitLog.commits[0];
     if (!head) return;
     commitsAutoSelectDone.current = true;
     handleSelectCommit(head.sha);
-  }, [showCommitsPanel, activeCommitSha, commitLog.commits, handleSelectCommit]);
+  }, [showCommitsPanel, activeCommitSha, commitLog.commits, handleSelectCommit, isLoadingDiff]);
 
   // Commit-navigation veil predicate. Covers the center dock while commit
   // navigation is settling: a switch in flight, the log still loading, or the

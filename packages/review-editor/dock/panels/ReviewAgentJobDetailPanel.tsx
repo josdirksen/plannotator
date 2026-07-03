@@ -421,7 +421,7 @@ function ProviderPill({ provider, engine, model }: { provider: string; engine?: 
     const engineLabel = engine === 'codex' ? 'Codex' : engine === 'cursor' ? 'Cursor' : engine === 'opencode' ? 'OpenCode' : engine === 'pi' ? 'Pi' : 'Claude';
     label = model && engine === 'claude' ? `Guide · ${engineLabel} ${model.charAt(0).toUpperCase() + model.slice(1)}` : `Guide · ${engineLabel}`;
   } else {
-    label = provider === 'claude' ? 'Claude' : provider === 'codex' ? 'Codex' : provider === 'cursor' ? 'Cursor' : provider === 'opencode' ? 'OpenCode' : 'Shell';
+    label = provider === 'claude' ? 'Claude' : provider === 'codex' ? 'Codex' : provider === 'cursor' ? 'Cursor' : provider === 'opencode' ? 'OpenCode' : provider === 'pi' ? 'Pi' : 'Shell';
   }
   return (
     <span className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded ${

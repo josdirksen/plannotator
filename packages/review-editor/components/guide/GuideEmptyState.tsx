@@ -271,9 +271,17 @@ export const GuideEmptyState: React.FC<GuideEmptyStateProps> = ({ capabilities, 
 
   // Marker model catalogs are discovered server-side and delivered on the
   // capability entry; fall back to the engine-default option until then.
+  // Mirrors AgentsTab's per-engine catalog semantics exactly: opencode/pi
+  // PREPEND their engine-managed "Default" ('' value) to the discovered list —
+  // the discovered catalogs are real models only, and dropping Default left a
+  // saved-default user with a blank pill and no way back after picking a
+  // concrete model. Cursor REPLACES: its discovered list natively includes
+  // 'auto', so prepending would duplicate it.
   const markerModels = (id: 'cursor' | 'opencode' | 'pi', fallback: Option[]): Option[] => {
     const models = capabilities?.providers.find((p) => p.id === id)?.models;
-    return models && models.length > 0 ? models.map((m) => ({ value: m.id, label: m.label })) : fallback;
+    if (!models || models.length === 0) return fallback;
+    const discovered = models.map((m) => ({ value: m.id, label: m.label }));
+    return id === 'cursor' ? discovered : [...fallback, ...discovered];
   };
 
   const modelPicker: { value: string; options: Option[]; onChange: (v: string) => void } =

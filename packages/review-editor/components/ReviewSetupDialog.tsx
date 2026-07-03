@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { configStore, useConfigValue } from '@plannotator/ui/config';
+import { useConfigValue, setReviewPanelView, setReviewDefaultDiffType } from '@plannotator/ui/config';
 import { TextShimmer } from '@plannotator/ui/components/TextShimmer';
 import workspacesImg from '@plannotator/ui/assets/workspaces.webp';
 import sectionsImg from '@plannotator/ui/assets/review-sections.png';
@@ -65,16 +65,10 @@ export const ReviewSetupDialog: React.FC<ReviewSetupDialogProps> = ({ isOpen, on
 
   if (!isOpen) return null;
 
-  const chooseView = (key: 'sections' | 'tree') => {
-    configStore.set('reviewPanelView', key);
-    // Sections requires since-base. Switching to Tree keeps the current diff.
-    if (key === 'sections') configStore.set('defaultDiffType', 'since-base');
-  };
-  const chooseDiff = (value: DiffChoice) => {
-    configStore.set('defaultDiffType', value);
-    // A classic diff can't render as Sections — snap the view to Tree.
-    if (value !== 'since-base') configStore.set('reviewPanelView', 'tree');
-  };
+  // Coupling (sections ⟺ since-base) lives in the shared setters — never
+  // write the pair by hand (see @plannotator/ui/config/reviewView).
+  const chooseView = (key: 'sections' | 'tree') => setReviewPanelView(key);
+  const chooseDiff = (value: DiffChoice) => setReviewDefaultDiffType(value);
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/90 backdrop-blur-sm p-4">

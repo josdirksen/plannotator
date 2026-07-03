@@ -99,7 +99,11 @@ export const ReviewDiffPanel: React.FC<IDockviewPanelProps> = (props) => {
         isStaged={state.stagedFiles.has(file.path)}
         isStaging={state.stagingFile === file.path}
         onStage={() => state.onStage(file.path)}
-        canStage={state.canStageFiles}
+        // Per-path gate (falls back to the mode-level flag): in since-base the
+        // single-file header lists committed files too — mode-level canStageFiles
+        // alone would offer a no-op Git Add on them that flips local state.
+        // Mirrors the `a` shortcut and the all-files header.
+        canStage={state.canStagePath ? state.canStagePath(file.path) : state.canStageFiles}
         stageError={state.stageError}
         searchQuery={state.isSearchPending ? '' : state.debouncedSearchQuery}
         searchMatches={searchMatchesForFile}

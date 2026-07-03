@@ -15,7 +15,7 @@ import { RepoIcon } from '@plannotator/ui/components/RepoIcon';
 import { PullRequestIcon } from '@plannotator/ui/components/PullRequestIcon';
 import { getPlatformLabel, getMRLabel, getMRNumberLabel, getDisplayRepo } from '@plannotator/shared/pr-types';
 import type { SemanticDiffAdvert } from '@plannotator/shared/semantic-diff-types';
-import { configStore, useConfigValue } from '@plannotator/ui/config';
+import { configStore, useConfigValue, setReviewPanelView } from '@plannotator/ui/config';
 import { loadDiffFont } from '@plannotator/ui/utils/diffFonts';
 import { getAgentSwitchSettings, getEffectiveAgentName } from '@plannotator/ui/utils/agentSwitch';
 import { useAIProviderConfig } from '@plannotator/ui/hooks/useAIProviderConfig';
@@ -252,10 +252,11 @@ const ReviewApp: React.FC = () => {
   const [isFetchingBase, setIsFetchingBase] = useState(false);
   // Sections vs classic tree in the left panel — backed by the configStore
   // (also the Settings + first-run-dialog default). The header toggle writes
-  // it too, so the last choice becomes the default.
+  // it too, so the last choice becomes the default. Writes go through the
+  // shared coupled setter (sections ⟺ since-base — see config/reviewView).
   const panelView = useConfigValue('reviewPanelView');
   const selectPanelView = useCallback((view: 'sections' | 'tree') => {
-    configStore.set('reviewPanelView', view);
+    setReviewPanelView(view);
   }, []);
   // First-run review-setup chooser (panel view + tree default diff).
   const [showReviewSetup, setShowReviewSetup] = useState(false);
@@ -1054,8 +1055,7 @@ const ReviewApp: React.FC = () => {
           data.gitContext && data.mode !== 'workspace' && !data.prMetadata &&
           data.gitContext.vcsType === 'git' && sinceBaseAvailable && needsReviewSetup()
         ) {
-          configStore.set('reviewPanelView', 'sections');
-          configStore.set('defaultDiffType', 'since-base');
+          setReviewPanelView('sections'); // coupled setter — also sets since-base
           reviewSetupIsFirstRun.current = true;
           setShowReviewSetup(true);
         }
@@ -1590,16 +1590,11 @@ const ReviewApp: React.FC = () => {
 
   // Toggling to Sections means "show me the since-base review" — if an
   // advanced mode is active, switch the diff back along with the view.
-  // The view choice persists as the default (selectPanelView), so the diff
-  // default must persist WITH it — Sections can only render since-base.
-  // Persisting only the view here left a conflicted pair (sections +
-  // non-since-base default): the next session opened on the stale diff in
-  // the tree view despite the Git-status cookie.
+  // selectPanelView goes through the coupled setter, which also persists
+  // defaultDiffType=since-base; this handler only brings the live session
+  // diff along.
   const handleSwitchToSections = useCallback(() => {
     selectPanelView('sections');
-    if (configStore.get('defaultDiffType') !== 'since-base') {
-      configStore.set('defaultDiffType', 'since-base');
-    }
     if (activeDiffBase !== 'since-base') void handleDiffSwitch('since-base');
   }, [selectPanelView, activeDiffBase, handleDiffSwitch]);
 
@@ -1619,7 +1614,9 @@ const ReviewApp: React.FC = () => {
     if (panelView !== 'sections') return;
     healedPanelPairOnLoad.current = true;
     if (configStore.get('defaultDiffType') !== 'since-base') {
-      configStore.set('defaultDiffType', 'since-base');
+      // Re-assert the pair through the coupled setter (repairs cookie +
+      // config.json), then bring the live session along.
+      setReviewPanelView('sections');
       if (activeDiffBase !== 'since-base') void handleDiffSwitch('since-base');
     }
   }, [isLoading, diffData, sectionsCapable, panelView, activeDiffBase, handleDiffSwitch]);

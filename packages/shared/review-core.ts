@@ -937,6 +937,20 @@ export function hashFingerprintPart(value: string): string {
 
 const MAX_UNTRACKED_FINGERPRINT_FILES = 20;
 
+/**
+ * Circuit-breaker for the fingerprint's untracked enumeration. The freshness
+ * poll runs `git status --porcelain -uall` every few seconds; on a repo with
+ * a huge un-ignored tree (a forgotten `node_modules/`) that's megabytes of
+ * output and sustained CPU for the whole session. Once a cwd's -uall output
+ * exceeds the cap, it degrades PERMANENTLY (per process) to collapsed
+ * `-unormal` — edits INSIDE untracked directories stop flipping the
+ * fingerprint on that repo, which is the right trade on a repo that
+ * pathological. The switch itself makes one probe hash differently, so the
+ * staleness banner may fire once spuriously right after degrading.
+ */
+const UNTRACKED_STATUS_OUTPUT_CAP = 2 * 1024 * 1024;
+const collapsedUntrackedCwds = new Set<string>();
+
 export async function getGitDiffFingerprint(
   runtime: ReviewGitRuntime,
   diffType: DiffType,
@@ -982,9 +996,20 @@ export async function getGitDiffFingerprint(
       // -uall: without it, an untracked directory collapses to a single `?? dir/`
       // line, so edits to files inside it never change the fingerprint and the
       // "Diff out of date" banner never fires — even though the patch (which
-      // enumerates individual untracked files) includes them. Match that here.
-      const status = await runReadOnlyGit(["status", "--porcelain", "-uall"]);
+      // enumerates individual untracked files) includes them. Match that here —
+      // unless this cwd already tripped the output cap (see
+      // UNTRACKED_STATUS_OUTPUT_CAP), in which case stay collapsed.
+      const cwdKey = cwd ?? "";
+      const collapsed = collapsedUntrackedCwds.has(cwdKey);
+      const status = await runReadOnlyGit([
+        "status",
+        "--porcelain",
+        collapsed ? "-unormal" : "-uall",
+      ]);
       if (status.exitCode !== 0) return false;
+      if (!collapsed && status.stdout.length > UNTRACKED_STATUS_OUTPUT_CAP) {
+        collapsedUntrackedCwds.add(cwdKey);
+      }
       parts.push(hashFingerprintPart(status.stdout));
       const untracked = status.stdout
         .split("\n")

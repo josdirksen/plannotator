@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import type { Origin } from '@plannotator/shared/agents';
 import type { DiffLineBgIntensity } from '@plannotator/shared/config';
-import { configStore, useConfigValue } from '../config';
+import { configStore, useConfigValue, setReviewPanelView, setReviewDefaultDiffType } from '../config';
 import { loadDiffFont } from '../utils/diffFonts';
 import { TaterSpritePullup } from './TaterSpritePullup';
 import { getIdentity, regenerateIdentity, setCustomIdentity } from '../utils/identity';
@@ -207,13 +207,7 @@ const GitTab: React.FC = () => {
             { value: 'tree' as const, label: 'Tree' },
           ]}
           value={reviewPanelView}
-          onChange={(v) => {
-            configStore.set('reviewPanelView', v);
-            // Mirror ReviewSetupDialog.chooseView exactly: Sections requires
-            // since-base; switching to Tree LEAVES the diff, since Tree +
-            // since-base is a valid, supported mode we must not coerce away.
-            if (v === 'sections') configStore.set('defaultDiffType', 'since-base');
-          }}
+          onChange={setReviewPanelView}
         />
       </div>
       <div className="space-y-2">
@@ -226,13 +220,9 @@ const GitTab: React.FC = () => {
           <button
             key={opt.value}
             type="button"
-            onClick={() => {
-              configStore.set('defaultDiffType', opt.value);
-              // Mirror ReviewSetupDialog.chooseDiff exactly: a classic diff
-              // can't render as Sections, so snap to Tree; since-base LEAVES the
-              // view (valid in either Sections or Tree), so don't force it.
-              if (opt.value !== 'since-base') configStore.set('reviewPanelView', 'tree');
-            }}
+            // Coupling (sections ⟺ since-base) lives in the shared setter —
+            // never write the pair by hand (see config/reviewView).
+            onClick={() => setReviewDefaultDiffType(opt.value)}
             className={`w-full flex items-start gap-3 p-3 rounded-lg border transition-colors text-left ${
               defaultDiffType === opt.value
                 ? 'border-primary bg-primary/5'

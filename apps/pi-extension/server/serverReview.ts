@@ -1216,7 +1216,9 @@ export async function startReviewServer(options: {
 
 					json(res, {
 						rawPatch: currentPatch,
-						aiReviewContext: buildCurrentAiReviewContext(),
+						// Snapshot arg: robust against a future await sneaking in
+						// between the epoch check and this response.
+						aiReviewContext: buildCurrentAiReviewContext(snapshot.rawPatch),
 						gitRef: currentGitRef,
 						diffType: currentDiffType,
 						diffOptions: workspace.diffOptions,
@@ -1285,7 +1287,9 @@ export async function startReviewServer(options: {
 				}
 				json(res, {
 					rawPatch: currentPatch,
-					aiReviewContext: buildCurrentAiReviewContext(),
+					// Snapshot args: robust against a future await sneaking in
+					// between the epoch check and this response.
+					aiReviewContext: buildCurrentAiReviewContext(result.patch, base),
 					gitRef: currentGitRef,
 					diffType: currentDiffType,
 					// Echo the base the server actually used. resolveBaseBranch

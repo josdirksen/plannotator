@@ -1756,13 +1756,27 @@ const ReviewApp: React.FC = () => {
   // diff mode across the switch — if the reviewer was looking at "PR Diff"
   // in the main repo, they should keep looking at "PR Diff" in the target
   // worktree rather than being silently snapped back to "Uncommitted".
+  //
+  // EXCEPT commit:<sha> diffs: every other mode recomputes meaningfully
+  // against the target worktree, but a commit diff is context-bound content —
+  // worktrees share one object database, so "preserving" it just re-renders
+  // the OLD context's commit byte-for-byte. Fall back to the session's normal
+  // default (same option-availability rule resolveInitialDiffType applies).
   const handleWorktreeSwitch = useCallback(async (worktreePath: string | null) => {
     if (worktreePath === activeWorktreePath) return;
+    let carriedBase = activeDiffBase;
+    if (activeDiffBase.startsWith('commit:')) {
+      const preferred = configStore.get('defaultDiffType');
+      const options = gitContext?.diffOptions ?? [];
+      carriedBase = options.some((o) => o.id === preferred)
+        ? preferred
+        : (options[0]?.id ?? 'uncommitted');
+    }
     const fullDiffType = worktreePath
-      ? `worktree:${worktreePath}:${activeDiffBase}`
-      : activeDiffBase;
+      ? `worktree:${worktreePath}:${carriedBase}`
+      : carriedBase;
     await fetchDiffSwitch(fullDiffType);
-  }, [activeWorktreePath, activeDiffBase, fetchDiffSwitch]);
+  }, [activeWorktreePath, activeDiffBase, gitContext, fetchDiffSwitch]);
 
   // Re-fetch diff when hideWhitespace toggles so the server applies git diff -w.
   // Preserves the active file since only whitespace hunks change.

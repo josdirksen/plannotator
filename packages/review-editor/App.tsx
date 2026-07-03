@@ -1445,6 +1445,15 @@ const ReviewApp: React.FC = () => {
         // dock panel to the first remaining file.
         setDiffData(prev => prev ? { ...prev, rawPatch: data.rawPatch, gitRef: data.gitRef, aiReviewContext: data.aiReviewContext } : prev);
         if (data.diffOptions) setWorkspaceDiffOptions(data.diffOptions);
+        // Adopt the server's base even on in-place refreshes: the staleness
+        // Refresh and post-Fetch paths both preserveFile, and they're exactly
+        // when the server may canonicalize the base (main -> origin/main after
+        // the startup upgrade). Keeping the old name would send /api/file-content
+        // and Ask AI context requests against the wrong base.
+        if (data.base) {
+          setSelectedBase(data.base);
+          setCommittedBase(data.base);
+        }
         setFiles(nextFiles);
         const currentPath = files[activeFileIndex]?.path;
         const nextIdx = currentPath ? nextFiles.findIndex(f => f.path === currentPath) : -1;

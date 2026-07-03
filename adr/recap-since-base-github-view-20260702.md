@@ -68,6 +68,13 @@ landed on this branch:
   is a separate feature, not built here. The common cases are covered: the
   default base, and a bare local default name (`main`) which is canonicalized to
   its tracking ref both at startup and on every `resolveReviewBase` call.
+- **Committed deletion + untracked recreation shows as a plain new file.** If a
+  branch commits the deletion of `f` and the user later recreates `f` untracked,
+  the since-base dedupe (`removeTrackedDeletions`) drops the committed deletion
+  and the review shows only the untracked addition — the removal of the base
+  version is hidden. Fixing it would require two same-path diff entries, which
+  the path-keyed UI (dock panel, nav, sections map, viewed state) cannot
+  represent. Accepted: the reviewer still sees the file's full current content.
 
 ## Reference files
 

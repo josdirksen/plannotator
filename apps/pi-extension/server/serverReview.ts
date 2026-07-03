@@ -356,6 +356,11 @@ export async function startReviewServer(options: {
 		options.gitContext?.defaultBranch || options.gitContext?.compareTarget?.fallback || "main";
 	let currentBase = options.initialBase || detectedCompareTarget();
 	let baseEverSwitched = false;
+	// Whether the initial /api/diff snapshot has been handed to a client. The
+	// startup base upgrade consults this: once a client renders the pre-upgrade
+	// patch, the fingerprint baseline must stay pre-upgrade too, so the client's
+	// freshness poll flags the rebuilt diff instead of silently missing it.
+	let initialDiffServed = false;
 	const resolveReviewBase = (requestedBase?: string): string => {
 		const resolved = resolveBaseBranch(requestedBase, detectedCompareTarget());
 		// Canonicalize a bare local default name ("main") to its tracking ref
@@ -531,7 +536,15 @@ export async function startReviewServer(options: {
 								currentGitRef = rebuilt.label;
 								currentError = rebuilt.error;
 								draftKey = contentHash(currentPatch);
-								captureDiffFingerprint();
+								// Only re-baseline the fingerprint if no client has loaded the
+								// pre-upgrade snapshot. If one has, keep the old baseline: the
+								// freshness probe recomputes against the NEW base, mismatches,
+								// and raises the "Diff out of date · Refresh" banner — the only
+								// signal that client gets (the probe compares server state to
+								// itself, never to what the client renders). When old and new
+								// base point at the same commit the fingerprints agree and no
+								// spurious banner appears.
+								if (!initialDiffServed) captureDiffFingerprint();
 							}
 						} catch {
 							/* keep the initial base+patch — they still match each other */
@@ -1007,6 +1020,7 @@ export async function startReviewServer(options: {
 		if (url.pathname === "/api/diff" && req.method === "GET") {
 			maybeRefreshRemoteBaseInfo();
 			const sections = await buildSectionsSidecar();
+			initialDiffServed = true;
 			json(res, {
 				rawPatch: currentPatch,
 				aiReviewContext: buildCurrentAiReviewContext(),

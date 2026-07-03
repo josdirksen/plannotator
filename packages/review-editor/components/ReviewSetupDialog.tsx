@@ -78,7 +78,7 @@ export const ReviewSetupDialog: React.FC<ReviewSetupDialogProps> = ({ isOpen, on
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/90 backdrop-blur-sm p-4">
-      <div className="bg-card border border-border rounded-xl w-full max-w-5xl h-[800px] shadow-2xl flex flex-col">
+      <div className="bg-card border border-border rounded-xl w-full max-w-5xl h-[800px] max-h-[calc(100vh-2rem)] shadow-2xl flex flex-col">
         {page === 1 ? (
           <>
             {/* Header */}

@@ -503,6 +503,13 @@ export async function getGitContext(
  * parsePatchPathToken (handles C-quoting and git's unquoted-space trailing-tab).
  * Binary deletions carry no `--- ` line, so a binary `rm --cached` isn't deduped
  * — an accepted edge (binary + untracked + unstaged-delete is vanishingly rare).
+ *
+ * Known accepted edge (since-base): a deletion COMMITTED on the branch whose
+ * path was then recreated untracked is also deduped — the review shows the
+ * recreated file as a plain untracked addition and hides that a base version
+ * was removed. Distinguishing it (file absent at HEAD) would mean emitting two
+ * same-path entries, which the path-keyed UI (dock panel, nav, sections map,
+ * viewed state) cannot represent; showing the current content wins.
  */
 function removeTrackedDeletions(patch: string, untrackedPaths: Set<string>): string {
   if (!patch || untrackedPaths.size === 0) return patch;

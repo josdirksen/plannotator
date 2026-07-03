@@ -148,6 +148,27 @@ describe("createCommitAvatarResolver", () => {
     expect(calls.filter((c) => c.cmd === "glab").length).toBe(1);
   });
 
+  test("the GitLab per-call cap does not memoize un-attempted emails as misses", async () => {
+    const { calls, runner } = makeRunner((cmd) => {
+      if (cmd === "git") return ok("git@gitlab.com:group/project.git\n");
+      if (cmd === "glab") return ok(JSON.stringify({ avatar_url: "https://grav.example/x" }));
+      return fail();
+    });
+    const resolver = createCommitAvatarResolver(runner);
+
+    // 12 unique emails — only the first 10 are queried on this call.
+    const emails = Array.from({ length: 12 }, (_, i) => `dev${i}@example.com`);
+    const first = await resolver.resolve("/repo", emails);
+    expect(first.size).toBe(10);
+    expect(calls.filter((c) => c.cmd === "glab").length).toBe(10);
+
+    // The capped-out emails were NOT memoized as misses — a later call
+    // attempts them.
+    const second = await resolver.resolve("/repo", emails);
+    expect(second.size).toBe(12);
+    expect(calls.filter((c) => c.cmd === "glab").length).toBe(12);
+  });
+
   test("an unqueryable forge resolves nothing without touching gh/glab", async () => {
     const { calls, runner } = makeRunner((cmd) => {
       if (cmd === "git") return ok("git@git.internal.example:owner/repo.git\n");

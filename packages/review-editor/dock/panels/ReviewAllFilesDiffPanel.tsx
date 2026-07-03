@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { AllFilesCodeView } from '../../components/AllFilesCodeView';
 import { CommitDescriptionHeader } from '../../components/CommitDescriptionHeader';
@@ -12,6 +12,13 @@ export const ReviewAllFilesDiffPanel: React.FC<IDockviewPanelProps> = () => {
   // file list the shape, and each file expands on demand. The card rides
   // INSIDE the scroller (leadingContent), so it scrolls away with the diff.
   const commitInfo = state.commitInfo;
+  // Stable element identity per commit — an inline JSX literal would be a new
+  // object every context re-render and churn the measuring ResizeObserver in
+  // AllFilesCodeView (leadingContent is in its effect deps).
+  const leadingContent = useMemo(
+    () => (commitInfo ? <CommitDescriptionHeader key={commitInfo.sha} info={commitInfo} /> : undefined),
+    [commitInfo],
+  );
 
   return (
     <AllFilesCodeView
@@ -65,9 +72,7 @@ export const ReviewAllFilesDiffPanel: React.FC<IDockviewPanelProps> = () => {
       onViewAIResponse={state.onViewAIResponse}
       getAIHistoryForFile={state.getAIHistoryForFile}
       defaultCollapsed={!!commitInfo}
-      leadingContent={
-        commitInfo ? <CommitDescriptionHeader key={commitInfo.sha} info={commitInfo} /> : undefined
-      }
+      leadingContent={leadingContent}
     />
   );
 };

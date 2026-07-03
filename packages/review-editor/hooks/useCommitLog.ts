@@ -71,13 +71,28 @@ export function useCommitLog({ enabled, contextKey }: UseCommitLogOptions): UseC
     }
   }, []);
 
+  // The context key the current list was loaded for. Re-entering the view
+  // with the SAME key keeps the cached list (no empty flash before the
+  // refetch); a DIFFERENT key (worktree/base switch while the view was away)
+  // clears it first — consumers like the HEAD auto-select must never act on
+  // rows that belong to another history.
+  const loadedContextKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!enabled) return;
+    if (loadedContextKeyRef.current !== contextKey) {
+      loadedContextKeyRef.current = contextKey;
+      setCommits([]);
+      setBase(null);
+      setHasMore(false);
+    }
     void fetchPage();
-    // On disable, just invalidate in-flight fetches; keep the list so
-    // re-entering the view doesn't flash empty before the refetch lands.
+    // On disable, invalidate in-flight fetches AND reset their loading flags:
+    // a generation-skipped `finally` never clears them, which left "Show more"
+    // stuck disabled as "Loading…" after leaving mid-page.
     return () => {
       generationRef.current++;
+      setIsLoading(false);
+      setIsLoadingMore(false);
     };
   }, [enabled, contextKey, fetchPage]);
 

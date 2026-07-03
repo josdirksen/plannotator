@@ -830,6 +830,19 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
   // with the current default on CodeView remount.
   useEffect(() => setAllCollapsed(defaultCollapsed === true), [identity.items, defaultCollapsed]);
 
+  // Re-derive the collapse-all mirror from live item state after any
+  // per-file toggle. Matters most for commit diffs (seeded all-collapsed):
+  // without this, expanding one file left the dock button on "Expand all",
+  // and clicking it re-collapsed the file the user just opened.
+  const syncAllCollapsedMirror = useStableCallback(() => {
+    const handle = viewerRef.current;
+    if (handle == null) return;
+    const anyExpanded = identity.items.some(
+      ({ id }) => handle.getItem(id)?.collapsed !== true,
+    );
+    setAllCollapsed(!anyExpanded);
+  });
+
   const toggleItemCollapsed = useStableCallback((itemId: string) => {
     const handle = viewerRef.current;
     const viewer = handle?.getInstance();
@@ -843,6 +856,7 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
     item.collapsed = item.collapsed !== true;
     item.version = (item.version ?? 0) + 1;
     if (!handle.updateItem(item)) return;
+    syncAllCollapsedMirror();
 
     if (itemTop != null && itemTop < viewer.getScrollTop()) {
       viewer.scrollTo({ type: 'item', id: itemId, align: 'start' });
@@ -858,6 +872,7 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
     item.collapsed = true;
     item.version = (item.version ?? 0) + 1;
     handle.updateItem(item);
+    syncAllCollapsedMirror();
   });
 
   const isItemCollapsed = useCallback((itemId: string): boolean => {

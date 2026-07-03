@@ -62,7 +62,9 @@ export function classifyAvatarRemote(remoteUrl: string): AvatarRemote | null {
   if (host === "github.com" || host.startsWith("github.")) {
     return { platform: "github", host, path };
   }
-  if (host === "gitlab.com" || host.includes("gitlab")) {
+  // Structured match, not a bare substring: `gitlab.company.com` and
+  // `sub.gitlab.example.io` qualify, `mygitlabproxy.example.com` doesn't.
+  if (host === "gitlab.com" || host.startsWith("gitlab.") || host.includes(".gitlab.")) {
     return { platform: "gitlab", host, path };
   }
   return null;
@@ -213,19 +215,27 @@ export function createCommitAvatarResolver(runner: CommandRunner): CommitAvatarR
       }
 
       const remote = await classifyRemote(cwd);
+      // Misses are memoized ONLY for emails an attempt actually covered —
+      // the GitLab per-call cap is a rate limit, not a verdict, so emails
+      // past it stay unmemoized and get their lookup on a later call.
+      const attempted = new Set<string>();
       if (remote && !brokenPlatforms.has(remote.platform)) {
         if (remote.platform === "github") {
+          // One commits-list fetch covers the whole email map — every pending
+          // email counts as attempted whether or not it resolved (unresolved
+          // means the forge has no linked account for it).
           await fetchGitHubAvatars(remote);
+          for (const email of pending) attempted.add(email);
         } else {
           for (const email of pending.slice(0, MAX_GITLAB_EMAIL_LOOKUPS_PER_CALL)) {
-            await fetchGitLabAvatar(remote, email);
             if (brokenPlatforms.has("gitlab")) break;
+            attempted.add(email);
+            await fetchGitLabAvatar(remote, email);
           }
         }
       }
 
-      // Memoize misses so unlinked emails aren't re-queried every page.
-      for (const email of pending) {
+      for (const email of attempted) {
         if (!emailCache.has(email)) emailCache.set(email, null);
       }
       collect(unique);

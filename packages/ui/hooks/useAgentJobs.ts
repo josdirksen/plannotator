@@ -32,6 +32,11 @@ export type AgentLaunchParams = {
   thinking?: string;
   fastMode?: boolean;
   reviewProfileId?: string;
+  /** Launches a guide-repair job against a failed guide job's captured output
+   *  (see GuideEmptyState's failure-recovery panel). The server resolves a
+   *  schema-capable engine and starts a new, normal guide job rather than
+   *  mutating the failed one in place. */
+  repairOf?: string;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

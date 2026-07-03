@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
 import os from "node:os";
@@ -193,6 +193,19 @@ const piCodeNavRuntime: CodeNavRuntime = {
 
 // Review ingestion completion semantics (REVIEW_OUTPUT_FAILED,
 // markJobReviewFailed) now live in the shared agent-jobs module.
+
+/** Node equivalent of Bun.which(cmd) — used to pick a guide repair engine
+ *  (prefer whichever schema-enforced CLI is on PATH). Mirrors the local
+ *  whichCmd helpers in ai-runtime.ts / agent-jobs.ts. */
+function commandExists(cmd: string): boolean {
+	try {
+		const bin = process.platform === "win32" ? "where" : "which";
+		execFileSync(bin, [cmd], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+		return true;
+	} catch {
+		return false;
+	}
+}
 
 /** Detect if running inside WSL (Windows Subsystem for Linux) */
 function detectWSL(): boolean {
@@ -844,6 +857,28 @@ export async function startReviewServer(options: {
 				// re-derives this list from the CURRENT patch at completion time to
 				// validate refs against whatever the reviewer is looking at then.
 				const changedFiles = listPatchFiles(currentPatch);
+
+				const repairOf = typeof config?.repairOf === "string" ? config.repairOf : undefined;
+				let repair: { payload: string } | undefined;
+				let guideConfig = config;
+				if (repairOf) {
+					const payload = guide.getFailedPayload(repairOf);
+					if (!payload) {
+						throw new Error("No captured output to repair for that job — run the guide again instead.");
+					}
+					// Prefer whichever schema-enforced CLI is on PATH; fall back to
+					// the failed job's own engine (threaded by the client via
+					// config.engine) so a marker-only environment can still retry
+					// with what it has.
+					const repairEngine = commandExists("claude")
+						? "claude"
+						: commandExists("codex")
+							? "codex"
+							: (typeof config?.engine === "string" && config.engine ? config.engine : "claude");
+					repair = { payload };
+					guideConfig = { ...config, engine: repairEngine };
+				}
+
 				const built = await guide.buildCommand({
 					cwd,
 					patch: currentPatch,
@@ -851,7 +886,8 @@ export async function startReviewServer(options: {
 					options: userMessageOptions,
 					prMetadata: prMeta,
 					changedFiles,
-					config,
+					config: guideConfig,
+					...(repair && { repair }),
 				});
 				return { ...built, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label };
 			}
@@ -905,7 +941,7 @@ export async function startReviewServer(options: {
 				const nonce = makeMarkerNonce();
 				const prompt = composeMarkerReviewPrompt(reviewProfile, userMessage, nonce);
 				const { command } = buildMarkerCommand(markerEngine, prompt, model, cwd, { thinking });
-				return { command, prompt, cwd, label: jobLabel, captureStdout: true, model, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label };
+				return { command, prompt, cwd, label: jobLabel, captureStdout: true, model, thinking, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label };
 			}
 
 			return null;
@@ -1160,6 +1196,42 @@ export async function startReviewServer(options: {
 			try {
 				const body = await parseBody(req) as { reviewed: boolean[] };
 				if (Array.isArray(body.reviewed)) guide.saveReviewed(jobId, body.reviewed);
+				json(res, { ok: true });
+			} catch {
+				json(res, { error: "Invalid JSON" }, 400);
+			}
+			return;
+		}
+
+		// API: Get a failed guide job's captured raw output for manual repair
+		const guideOutputMatch = url.pathname.match(/^\/api\/guide\/([^/]+)\/output$/);
+		if (guideOutputMatch && req.method === "GET") {
+			const jobId = guideOutputMatch[1];
+			const payload = guide.getFailedPayload(jobId);
+			if (payload === null) {
+				json(res, { error: "No captured output" }, 404);
+				return;
+			}
+			json(res, { payload });
+			return;
+		}
+
+		// API: Manually submit corrected guide JSON for a failed job
+		const guideSubmitMatch = url.pathname.match(/^\/api\/guide\/([^/]+)\/submit$/);
+		if (guideSubmitMatch && req.method === "POST") {
+			const jobId = guideSubmitMatch[1];
+			try {
+				const body = await parseBody(req) as { payload?: string };
+				const payload = typeof body.payload === "string" ? body.payload : "";
+				// Same changed-file derivation guide's onJobComplete uses: validate
+				// against whatever the reviewer is looking at right now, not the
+				// patch at the failed job's launch time.
+				const changedFiles = listPatchFiles(currentPatch).map((f) => f.path);
+				const result = guide.submitManualOutput(jobId, payload, changedFiles);
+				if ("error" in result) {
+					json(res, { error: result.error }, 400);
+					return;
+				}
 				json(res, { ok: true });
 			} catch {
 				json(res, { error: "Invalid JSON" }, 400);

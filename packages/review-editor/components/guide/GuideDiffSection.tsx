@@ -58,6 +58,11 @@ export const GuideDiffSection: React.FC<GuideDiffSectionProps> = ({ diffRef, isF
     [state.getAIHistoryForFile, file],
   );
 
+  // Re-splitting the whole patch string on every re-render is wasteful — focus
+  // changes re-render every mounted GuideDiffSection (isFocused flips), not
+  // just the one gaining focus. Recompute only when the patch text itself changes.
+  const diffHeight = useMemo(() => (file ? estimateDiffHeight(file.patch) : 0), [file?.patch]);
+
   if (!file) {
     return (
       <div
@@ -82,7 +87,7 @@ export const GuideDiffSection: React.FC<GuideDiffSectionProps> = ({ diffRef, isF
           diffs render at natural height, tall ones cap and scroll internally). */}
       <div
         key={`${file.path}:${state.reviewBase ?? ''}:${state.activeDiffBase ?? ''}`}
-        style={{ height: estimateDiffHeight(file.patch) }}
+        style={{ height: diffHeight }}
         className="rounded-lg border border-border/40 overflow-hidden"
       >
         <DiffViewer

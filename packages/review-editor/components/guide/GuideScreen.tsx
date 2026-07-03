@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import type { AgentJobInfo, AgentCapabilities } from '@plannotator/ui/types';
 import type { AgentLaunchParams } from '@plannotator/ui/hooks/useAgentJobs';
+import type { ReviewEngine } from '@plannotator/ui/hooks/useAgentSettings';
+import { REVIEW_ENGINE_LABEL } from '@plannotator/ui/components/AgentsTab';
 import { isTerminalStatus } from '@plannotator/shared/agent-jobs';
 import { useGuideData } from '../../hooks/guide/useGuideData';
 import { useReviewState } from '../../dock/ReviewStateContext';
@@ -8,13 +10,6 @@ import { GuideEmptyState } from './GuideEmptyState';
 import { GuideGenerating } from './GuideGenerating';
 import { GuideSectionSkeleton } from './GuideSkeleton';
 import { GuideView } from './GuideView';
-
-const ENGINE_LABEL: Record<string, string> = {
-  claude: 'Claude',
-  codex: 'Codex',
-  cursor: 'Cursor',
-  opencode: 'OpenCode',
-};
 
 interface GuideScreenProps {
   /** Latest completed guide job id (or the demo guide id in standalone mode).
@@ -26,6 +21,10 @@ interface GuideScreenProps {
   killJob: (id: string) => Promise<void>;
   /** Close the takeover and return to the diff workspace. */
   onClose: () => void;
+  /** Navigate to a guide by job id once GuideEmptyState's failure-recovery
+   *  panel successfully submits a manually-fixed output (POST .../submit →
+   *  200). Wired to the same handler ReviewSidebar's onOpenGuide uses. */
+  onOpenFixedGuide?: (jobId: string) => void;
 }
 
 /**
@@ -38,7 +37,15 @@ interface GuideScreenProps {
  *   2. otherwise, a known completed guide (`activeGuideJobId`) renders.
  *   3. otherwise, the empty/launch state.
  */
-export const GuideScreen: React.FC<GuideScreenProps> = ({ activeGuideJobId, jobs, capabilities, launchJob, killJob, onClose }) => {
+export const GuideScreen: React.FC<GuideScreenProps> = ({
+  activeGuideJobId,
+  jobs,
+  capabilities,
+  launchJob,
+  killJob,
+  onClose,
+  onOpenFixedGuide,
+}) => {
   const [cancelling, setCancelling] = useState(false);
   const runningJob = jobs.find((j) => j.provider === 'guide' && !isTerminalStatus(j.status)) ?? null;
 
@@ -60,7 +67,10 @@ export const GuideScreen: React.FC<GuideScreenProps> = ({ activeGuideJobId, jobs
   }
 
   if (activeGuideJobId) {
-    return <ActiveGuide jobId={activeGuideJobId} jobs={jobs} />;
+    // Keyed on jobId so per-guide state (focusedFile today, anything added
+    // later) resets when the user switches to a different completed guide
+    // rather than carrying over stale state from the previous one.
+    return <ActiveGuide key={activeGuideJobId} jobId={activeGuideJobId} jobs={jobs} />;
   }
 
   // No running job and no completed guide to show — if the most recent guide
@@ -77,11 +87,20 @@ export const GuideScreen: React.FC<GuideScreenProps> = ({ activeGuideJobId, jobs
 
   if (failedGuideJob) {
     return (
+      // Keyed on jobId: if a repair job also fails, the failure panel remounts
+      // fresh (probe re-runs, textarea edits don't carry over from the prior
+      // failed job) rather than reusing stale state from the last one.
       <GuideEmptyState
+        key={failedGuideJob.id}
         capabilities={capabilities}
         launchJob={launchJob}
         onBack={onClose}
-        errorNotice={failedGuideJob.error ?? 'Guide generation failed.'}
+        failure={{
+          jobId: failedGuideJob.id,
+          engine: failedGuideJob.engine,
+          error: failedGuideJob.error ?? 'Guide generation failed.',
+        }}
+        onOpenFixedGuide={onOpenFixedGuide}
       />
     );
   }
@@ -139,7 +158,7 @@ function ActiveGuide({ jobId, jobs }: { jobId: string; jobs: AgentJobInfo[] }) {
       guide={guide}
       reviewed={reviewed}
       onToggleReviewed={toggleReviewed}
-      engineLabel={engine ? ENGINE_LABEL[engine] ?? engine : undefined}
+      engineLabel={engine ? REVIEW_ENGINE_LABEL[engine as ReviewEngine] ?? engine : undefined}
       focusedFile={focusedFile}
       onFocusFile={setFocusedFile}
     />

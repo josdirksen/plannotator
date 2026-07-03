@@ -823,6 +823,27 @@ export async function startReviewServer(
         // re-derives this list from the CURRENT patch at completion time to
         // validate refs against whatever the reviewer is looking at then.
         const changedFiles = listPatchFiles(launchPatch);
+
+        const repairOf = typeof config?.repairOf === "string" ? config.repairOf : undefined;
+        let repair: { payload: string } | undefined;
+        let guideConfig = config;
+        if (repairOf) {
+          const payload = guide.getFailedPayload(repairOf);
+          if (!payload) {
+            throw new Error("No captured output to repair for that job — run the guide again instead.");
+          }
+          // Prefer whichever schema-enforced CLI is on PATH; fall back to the
+          // failed job's own engine (threaded by the client via config.engine)
+          // so a marker-only environment can still retry with what it has.
+          const repairEngine = Bun.which("claude")
+            ? "claude"
+            : Bun.which("codex")
+              ? "codex"
+              : (typeof config?.engine === "string" && config.engine ? config.engine : "claude");
+          repair = { payload };
+          guideConfig = { ...config, engine: repairEngine };
+        }
+
         const built = await guide.buildCommand({
           cwd,
           patch: launchPatch,
@@ -830,7 +851,8 @@ export async function startReviewServer(
           options: userMessageOptions,
           prMetadata: launchMetadata,
           changedFiles,
-          config,
+          config: guideConfig,
+          ...(repair && { repair }),
         });
         return { ...built, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label };
       }
@@ -884,7 +906,7 @@ export async function startReviewServer(
         const nonce = makeMarkerNonce();
         const prompt = composeMarkerReviewPrompt(reviewProfile, userMessage, nonce);
         const { command } = buildMarkerCommand(markerEngine, prompt, model, cwd, { thinking });
-        return { command, prompt, cwd, label: jobLabel, captureStdout: true, model, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label };
+        return { command, prompt, cwd, label: jobLabel, captureStdout: true, model, thinking, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label };
       }
 
       return null;
@@ -1207,6 +1229,34 @@ export async function startReviewServer(
             try {
               const body = await req.json() as { reviewed: boolean[] };
               if (Array.isArray(body.reviewed)) guide.saveReviewed(jobId, body.reviewed);
+              return Response.json({ ok: true });
+            } catch {
+              return Response.json({ error: "Invalid JSON" }, { status: 400 });
+            }
+          }
+
+          // API: Get a failed guide job's captured raw output for manual repair
+          const guideOutputMatch = url.pathname.match(/^\/api\/guide\/([^/]+)\/output$/);
+          if (guideOutputMatch && req.method === "GET") {
+            const jobId = guideOutputMatch[1];
+            const payload = guide.getFailedPayload(jobId);
+            if (payload === null) return Response.json({ error: "No captured output" }, { status: 404 });
+            return Response.json({ payload });
+          }
+
+          // API: Manually submit corrected guide JSON for a failed job
+          const guideSubmitMatch = url.pathname.match(/^\/api\/guide\/([^/]+)\/submit$/);
+          if (guideSubmitMatch && req.method === "POST") {
+            const jobId = guideSubmitMatch[1];
+            try {
+              const body = await req.json() as { payload?: string };
+              const payload = typeof body.payload === "string" ? body.payload : "";
+              // Same changed-file derivation guide's onJobComplete uses: validate
+              // against whatever the reviewer is looking at right now, not the
+              // patch at the failed job's launch time.
+              const changedFiles = listPatchFiles(currentPatch).map((f) => f.path);
+              const result = guide.submitManualOutput(jobId, payload, changedFiles);
+              if ("error" in result) return Response.json({ error: result.error }, { status: 400 });
               return Response.json({ ok: true });
             } catch {
               return Response.json({ error: "Invalid JSON" }, { status: 400 });

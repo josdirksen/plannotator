@@ -1,22 +1,22 @@
-import React, { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { AgentCapabilities } from '@plannotator/ui/types';
 import type { AgentLaunchParams } from '@plannotator/ui/hooks/useAgentJobs';
 import { useAgentSettings } from '@plannotator/ui/hooks/useAgentSettings';
 import type { ReviewEngine } from '@plannotator/ui/hooks/useAgentSettings';
 // Same catalogs AgentsTab's launch panel uses — one source of truth for both
 // guide launch surfaces (this page and the sidebar's Guided Review mode).
-import { TOUR_CLAUDE_MODELS, CLAUDE_EFFORT, CODEX_MODELS, CODEX_REASONING, PI_THINKING } from '@plannotator/ui/components/AgentsTab';
+import {
+  TOUR_CLAUDE_MODELS,
+  CLAUDE_EFFORT,
+  CODEX_MODELS,
+  CODEX_REASONING,
+  PI_THINKING,
+  REVIEW_ENGINE_LABEL,
+} from '@plannotator/ui/components/AgentsTab';
 import { groupModelOptions, labelWithinGroup } from '@plannotator/ui/components/AgentControls';
 
-const ENGINE_LABEL: Record<ReviewEngine, string> = {
-  claude: 'Claude',
-  codex: 'Codex',
-  cursor: 'Cursor',
-  opencode: 'OpenCode',
-  pi: 'Pi',
-};
-const GUIDE_ENGINES = Object.keys(ENGINE_LABEL) as ReviewEngine[];
+const GUIDE_ENGINES = Object.keys(REVIEW_ENGINE_LABEL) as ReviewEngine[];
 
 // Marker-engine fallbacks until the server delivers the live catalogs on the
 // capability entries (mirrors AgentsTab's fallbacks).
@@ -128,16 +128,27 @@ function InlinePicker({
   );
 }
 
+interface GuideFailure {
+  jobId: string;
+  engine?: string;
+  error: string;
+}
+
 interface GuideEmptyStateProps {
   capabilities: AgentCapabilities | null;
   launchJob: (params: AgentLaunchParams) => Promise<unknown>;
   /** Return to the normal diff workspace (closes the takeover). */
   onBack: () => void;
   /** Set when the most recent guide job failed (or was killed) rather than
-   *  never having been launched — rendered as a banner above the launch
-   *  controls so the failure isn't invisible and the user can adjust settings
-   *  and relaunch. */
-  errorNotice?: string;
+   *  never having been launched — rendered as a recovery panel above the
+   *  launch controls: the failure reason, an optional "Fix output" repair
+   *  launch (offered once a captured payload is confirmed via the output
+   *  probe below), and an editable "Show output" disclosure for manually
+   *  correcting and resubmitting that payload. */
+  failure?: GuideFailure;
+  /** Navigate to a guide by job id once a manually-fixed output is accepted by
+   *  the server (POST /api/guide/:jobId/submit → 200). */
+  onOpenFixedGuide?: (jobId: string) => void;
 }
 
 /**
@@ -147,7 +158,7 @@ interface GuideEmptyStateProps {
  * (the same persisted guide settings AgentsTab's launch panel edits), and a
  * primary Generate button.
  */
-export const GuideEmptyState: React.FC<GuideEmptyStateProps> = ({ capabilities, launchJob, onBack, errorNotice }) => {
+export const GuideEmptyState: React.FC<GuideEmptyStateProps> = ({ capabilities, launchJob, onBack, failure, onOpenFixedGuide }) => {
   const {
     guideEngine,
     guideClaudeModel,
@@ -171,6 +182,84 @@ export const GuideEmptyState: React.FC<GuideEmptyStateProps> = ({ capabilities, 
 
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
+
+  // Failure-recovery panel state (only relevant when `failure` is set — see
+  // GuideScreen, which remounts this component fresh, keyed on jobId, for
+  // each failed guide job so this state never leaks across failures).
+  //
+  // `capturedPayload` doubles as the probe result: null means "not yet probed,
+  // or the server has nothing captured for this job" (404) — either way,
+  // "Fix output" and the output editor stay hidden until it resolves to a
+  // string.
+  const [capturedPayload, setCapturedPayload] = useState<string | null>(null);
+  const [editedPayload, setEditedPayload] = useState('');
+  const [showOutput, setShowOutput] = useState(false);
+  const [repairing, setRepairing] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!failure) return;
+    let alive = true;
+    fetch(`/api/guide/${encodeURIComponent(failure.jobId)}/output`)
+      .then(async (res) => {
+        if (!alive || !res.ok) return;
+        const data = await res.json().catch(() => null);
+        if (data && typeof data.payload === 'string') {
+          setCapturedPayload(data.payload);
+          setEditedPayload(data.payload);
+        }
+      })
+      .catch(() => {
+        // 404/network error ⇒ no captured output to offer — leave hidden.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [failure?.jobId]);
+
+  const handleFixOutput = async () => {
+    if (!failure || repairing) return;
+    setRepairing(true);
+    setLaunchError(null);
+    try {
+      await launchJob({
+        provider: 'guide',
+        label: 'Guide Repair',
+        repairOf: failure.jobId,
+        ...(failure.engine ? { engine: failure.engine } : {}),
+      });
+      // A successful launch lands as a new running guide job — GuideScreen's
+      // existing running-job branch takes over from here automatically.
+    } catch (err) {
+      setLaunchError(err instanceof Error ? err.message : 'Could not start the repair.');
+    } finally {
+      setRepairing(false);
+    }
+  };
+
+  const handleSubmitFixedOutput = async () => {
+    if (!failure || submitting) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const res = await fetch(`/api/guide/${encodeURIComponent(failure.jobId)}/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payload: editedPayload }),
+      });
+      if (res.ok) {
+        onOpenFixedGuide?.(failure.jobId);
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      setSubmitError(typeof data.error === 'string' ? data.error : 'Could not submit the fixed output.');
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Could not submit the fixed output.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const providerAvailable = (id: string) =>
     capabilities?.providers.some((p) => p.id === id && p.available) ?? false;
@@ -258,9 +347,55 @@ export const GuideEmptyState: React.FC<GuideEmptyStateProps> = ({ capabilities, 
         explanation of what changed and why, next to the diffs it covers.
       </p>
 
-      {errorNotice && (
-        <div className="mt-6 w-fit max-w-[72ch] rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs leading-snug text-destructive">
-          {errorNotice}
+      {failure && (
+        <div className="mt-6 max-w-[820px]">
+          <div className="w-fit max-w-full rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs leading-snug text-destructive">
+            {failure.error}
+          </div>
+
+          {capturedPayload !== null && (
+            <div className="mt-2.5 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleFixOutput}
+                disabled={repairing}
+                className="rounded-md border border-border/50 px-2.5 py-1.5 text-[11.5px] font-medium text-foreground transition-colors hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {repairing ? 'Starting repair…' : 'Fix output'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowOutput((v) => !v)}
+                aria-expanded={showOutput}
+                className="flex items-center gap-1 rounded-md px-2 py-1.5 text-[11.5px] text-muted-foreground/70 transition-colors hover:text-foreground"
+              >
+                <ChevronRight className={`transition-transform ${showOutput ? 'rotate-90' : ''}`} size={12} />
+                {showOutput ? 'Hide output' : 'Show output'}
+              </button>
+            </div>
+          )}
+
+          {showOutput && capturedPayload !== null && (
+            <div className="mt-2.5 w-full">
+              <textarea
+                value={editedPayload}
+                onChange={(e) => setEditedPayload(e.target.value)}
+                spellCheck={false}
+                className="h-[320px] w-full resize-none overflow-y-auto rounded-md border border-border/50 bg-background p-2.5 font-mono text-[11px] leading-relaxed text-foreground outline-none focus:border-border"
+              />
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSubmitFixedOutput}
+                  disabled={submitting}
+                  className="rounded-md bg-primary px-3 py-1.5 text-[11.5px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {submitting ? 'Submitting…' : 'Submit fixed output'}
+                </button>
+              </div>
+              {submitError && <p className="mt-1.5 text-[11px] leading-snug text-destructive/80">{submitError}</p>}
+            </div>
+          )}
         </div>
       )}
 
@@ -278,7 +413,7 @@ export const GuideEmptyState: React.FC<GuideEmptyStateProps> = ({ capabilities, 
               <InlinePicker
                 label="Engine"
                 value={engine}
-                options={availableEngines.map((e) => ({ value: e, label: ENGINE_LABEL[e] }))}
+                options={availableEngines.map((e) => ({ value: e, label: REVIEW_ENGINE_LABEL[e] }))}
                 onChange={(v) => setGuideEngine(v as ReviewEngine)}
               />
               <InlinePicker label="Model" {...modelPicker} />
@@ -304,7 +439,7 @@ export const GuideEmptyState: React.FC<GuideEmptyStateProps> = ({ capabilities, 
               disabled={!canLaunch}
               className="rounded-md bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {launching ? 'Starting…' : 'Generate guide'}
+              {launching ? 'Starting…' : failure ? 'Regenerate guide' : 'Generate guide'}
             </button>
             <button
               type="button"

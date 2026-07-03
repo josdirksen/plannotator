@@ -131,8 +131,10 @@ const ENGINE_ICON: Record<AgentEngine, React.FC<{ className?: string }>> = {
 };
 
 // Review-only label map. Keeps Tour's narrow AgentEngine maps valid while the
-// review surface offers the wider set (Cursor/OpenCode).
-const REVIEW_ENGINE_LABEL: Record<ReviewEngine, string> = {
+// review surface offers the wider set (Cursor/OpenCode). Exported so the guide
+// takeover surfaces (GuideScreen, GuideEmptyState in packages/review-editor)
+// share this one source of truth instead of keeping their own copies in sync.
+export const REVIEW_ENGINE_LABEL: Record<ReviewEngine, string> = {
   claude: 'Claude',
   codex: 'Codex',
   cursor: 'Cursor',
@@ -225,8 +227,17 @@ function formatModel(provider: string, engine: string | undefined, model: string
   if (provider === 'pi') return model || 'Default';
   if (provider === 'codex' || engine === 'codex') return catalogLabel(CODEX_MODELS, model);
   if ((provider === 'tour' || provider === 'guide') && engine === 'claude') return catalogLabel(TOUR_CLAUDE_MODELS, model);
+  if (provider === 'tour' || provider === 'guide') {
+    if (engine === 'cursor') return catalogLabel(CURSOR_MODELS, model);
+    if (engine === 'opencode' || engine === 'pi') return model || 'Default';
+  }
   return catalogLabel(CLAUDE_MODELS, model);
 }
+
+function formatThinking(value: string): string {
+  return catalogLabel(PI_THINKING, value);
+}
+
 
 function formatEffort(value: string): string {
   return catalogLabel(CLAUDE_EFFORT, value);
@@ -398,6 +409,7 @@ function JobCard({
             )}
             {job.effort && <span className="rounded bg-surface-1 px-1 py-px">{formatEffort(job.effort)}</span>}
             {job.reasoningEffort && <span className="rounded bg-surface-1 px-1 py-px">{formatReasoning(job.reasoningEffort)}</span>}
+            {job.thinking && <span className="rounded bg-surface-1 px-1 py-px">{formatThinking(job.thinking)}</span>}
             {job.fastMode && (
               <span className="rounded bg-amber-500/10 px-1 py-px text-amber-600 dark:text-amber-400">
                 <Zap className="inline" size={7} /> fast
@@ -525,7 +537,6 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
     guideClaudeEffort,
     guideCodexModel,
     guideCodexReasoning,
-    guideCodexFast,
     setSelectedMode,
     setReviewEngine,
     setReviewProfileId,
@@ -549,7 +560,6 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
     setGuideClaudeEffort,
     setGuideCodexModel,
     setGuideCodexReasoning,
-    setGuideCodexFast,
   } = settings;
 
   // Review profiles (built-in default plus the user's enabled skills). Loaded

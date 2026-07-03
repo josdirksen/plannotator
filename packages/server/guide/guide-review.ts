@@ -518,15 +518,122 @@ export function composeGuideMarkerPrompt(userMessage: string, nonce: string): st
   return GUIDE_REVIEW_PROMPT + "\n\n" + buildGuideMarkerOutputContract(nonce) + "\n\n---\n\n" + userMessage;
 }
 
+// ---------------------------------------------------------------------------
+// Guide REPAIR prompts — a fundamentally different job than the normal guide
+// prompt: the content to process is a previously-captured MALFORMED guide
+// payload, not the diff. The model's only task is a mechanical JSON fix
+// (structure/syntax), never a content rewrite.
+// ---------------------------------------------------------------------------
+
+/** System framing shared verbatim across all three repair engine paths. */
+function buildGuideRepairFraming(): string {
+  return "The JSON below was produced for the schema that follows but is malformed or structurally invalid. Output ONLY the corrected JSON. Fix structure and syntax; NEVER change the content: titles, overviews, file paths stay exactly as written unless syntactically impossible.";
+}
+
+/** Repair prompt for the schema-enforced engines (Claude --json-schema,
+ *  Codex --output-schema): framing + the schema + the malformed payload. */
+export function buildGuideRepairPrompt(payload: string): string {
+  return [buildGuideRepairFraming(), "", GUIDE_SCHEMA_JSON, "", payload].join("\n");
+}
+
+/** Repair prompt for marker engines: same framing + schema, wrapped in the
+ *  marker output contract (nonce-tagged) since they have no schema flag —
+ *  mirrors composeGuideMarkerPrompt's shape, with the malformed payload as
+ *  the trailing content instead of a user message describing a diff. */
+export function composeGuideMarkerRepairPrompt(payload: string, nonce: string): string {
+  return buildGuideRepairFraming() + "\n\n" + GUIDE_SCHEMA_JSON + "\n\n" + buildGuideMarkerOutputContract(nonce) + "\n\n---\n\n" + payload;
+}
+
+// ---------------------------------------------------------------------------
+// Mechanical JSON repair — a last-resort text-level fixup applied when a
+// guide payload fails JSON.parse (or parses but has no non-empty `sections`
+// array). Every failure mode considered here is a MODEL EMISSION problem (a
+// truncated response, a stray code fence, a trailing comma), never a content
+// problem — repair never rewrites titles/overviews/paths, only structure and
+// syntax. Pure string logic; must never throw.
+// ---------------------------------------------------------------------------
+
+/** Closes any brackets/braces left open at end-of-text, in the correct
+ *  nesting order (LIFO), skipping content inside string literals. A "simple
+ *  balance count" per spec: no full JSON grammar, just bracket tracking.
+ *  Returns the input unchanged when already balanced. */
+function closeUnbalancedGuideBrackets(text: string): string {
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (const ch of text) {
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\" && inString) { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") stack.push("}");
+    else if (ch === "[") stack.push("]");
+    else if ((ch === "}" || ch === "]") && stack[stack.length - 1] === ch) stack.pop();
+  }
+  if (stack.length === 0) return text;
+  return text + stack.reverse().join("");
+}
+
+/**
+ * Attempts to recover a valid `CodeGuideOutput` from mechanically-malformed
+ * JSON text: progressively more aggressive fixups, JSON.parse retried after
+ * each, first one that yields a non-empty `sections` array wins. Never
+ * throws; returns null when every attempt is exhausted.
+ *
+ * Steps: (a) parse as-is, (b) strip a markdown code fence, (c) slice the
+ * first `{` to the last `}`, (d) drop trailing commas before `}`/`]`,
+ * (e) close brackets left open at end-of-text (truncated output).
+ */
+export function repairGuideJsonText(text: string): CodeGuideOutput | null {
+  if (!text) return null;
+
+  const attempts: string[] = [];
+  let current = text.trim();
+  attempts.push(current);
+
+  const defenced = current.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  if (defenced !== current) { current = defenced; attempts.push(current); }
+
+  const firstBrace = current.indexOf("{");
+  const lastBrace = current.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    const sliced = current.slice(firstBrace, lastBrace + 1);
+    if (sliced !== current) { current = sliced; attempts.push(current); }
+  }
+
+  const noTrailingCommas = current.replace(/,(\s*[}\]])/g, "$1");
+  if (noTrailingCommas !== current) { current = noTrailingCommas; attempts.push(current); }
+
+  const balanced = closeUnbalancedGuideBrackets(current);
+  if (balanced !== current) { current = balanced; attempts.push(current); }
+
+  for (const attempt of attempts) {
+    try {
+      const parsed = JSON.parse(attempt);
+      if (parsed && typeof parsed === "object") {
+        const sections = (parsed as Record<string, unknown>).sections;
+        if (Array.isArray(sections) && sections.length > 0) {
+          return parsed as CodeGuideOutput;
+        }
+      }
+    } catch {
+      // Try the next, more-aggressively-fixed candidate.
+    }
+  }
+  return null;
+}
+
 /**
  * Parse a marker engine's NDJSON stdout into a raw (untrusted) guide payload.
  *
  * Pipeline: line-buffered NDJSON reduce → reconstruct canonical text → take the
  * LAST complete marker block (nonce-scoped) → JSON.parse → shape-check
  * (non-empty sections array, mirroring parseGuideStreamOutput/parseGuideFileOutput).
- * Returns null on ANY failure so the caller fails the job closed — the payload
- * is still untrusted at this point; onJobComplete's sanitize + validate
- * pipeline (sanitizeGuideSections et al.) is what makes it safe to render.
+ * Falls back to mechanical repair (repairGuideJsonText) on a parse failure or
+ * invalid shape before returning null — the payload is still untrusted at
+ * this point either way; onJobComplete's sanitize + validate pipeline
+ * (sanitizeGuideSections et al., via validateGuideOutput) is what makes it
+ * safe to render.
  */
 export function parseGuideMarkerOutput(stdout: string, engine: MarkerEngine, nonce: string): CodeGuideOutput | null {
   if (!stdout || !stdout.trim()) return null;
@@ -542,16 +649,22 @@ export function parseGuideMarkerOutput(stdout: string, engine: MarkerEngine, non
   try {
     parsed = JSON.parse(block.trim());
   } catch {
-    return null;
+    parsed = undefined;
   }
 
-  if (!parsed || typeof parsed !== "object") return null;
-  const output = parsed as Record<string, unknown>;
-  // A guide with no sections isn't a guide — treat as invalid so the UI error
-  // state fires instead of rendering an empty screen (same rule as the
-  // claude/codex output paths).
-  if (!Array.isArray(output.sections) || output.sections.length === 0) return null;
-  return output as unknown as CodeGuideOutput;
+  if (parsed && typeof parsed === "object") {
+    const output = parsed as Record<string, unknown>;
+    // A guide with no sections isn't a guide — treat as invalid so the UI error
+    // state fires instead of rendering an empty screen (same rule as the
+    // claude/codex output paths).
+    if (Array.isArray(output.sections) && output.sections.length > 0) {
+      return output as unknown as CodeGuideOutput;
+    }
+  }
+
+  // Straight parse failed, or produced an invalid shape — try mechanical
+  // repair on the raw block before giving up (see repairGuideJsonText).
+  return repairGuideJsonText(block);
 }
 
 /**
@@ -616,27 +729,60 @@ export function parseGuideStreamOutput(stdout: string): CodeGuideOutput | null {
         return output as CodeGuideOutput;
       }
     } catch {
-      // Not valid JSON — skip
+      // Not valid JSON as a whole line — this can happen when the final
+      // NDJSON line (the schema-constrained result event) is truncated
+      // mid-stream. If it still carries the structured_output key, try
+      // mechanically repairing just that embedded value before giving up on
+      // this line.
+      const marker = '"structured_output":';
+      const idx = line.indexOf(marker);
+      if (idx !== -1) {
+        const repaired = repairGuideJsonText(line.slice(idx + marker.length));
+        if (repaired) return repaired;
+      }
     }
   }
 
   return null;
 }
 
-export async function parseGuideFileOutput(outputPath: string): Promise<CodeGuideOutput | null> {
+/** Reads and deletes a Codex `--output-file` JSON payload. Deletion happens
+ *  even on read failure (mirrors the original inline try/finally) so a
+ *  crashed job never leaves a stray temp file behind. */
+async function readGuideOutputFile(outputPath: string): Promise<string | null> {
   try {
-    const text = await readFile(outputPath, "utf-8");
+    return await readFile(outputPath, "utf-8");
+  } catch {
+    return null;
+  } finally {
     try { await unlink(outputPath); } catch { /* ignore */ }
-    if (!text.trim()) return null;
+  }
+}
+
+/** Parses guide output text already read from disk/stdout, falling back to
+ *  mechanical repair (repairGuideJsonText) on a parse failure or invalid
+ *  shape before giving up. Shared by parseGuideFileOutput and
+ *  onJobComplete's codex branch (which needs the raw text separately, for
+ *  failed-payload capture). */
+function parseGuideOutputText(text: string): CodeGuideOutput | null {
+  if (!text.trim()) return null;
+  try {
     const parsed = JSON.parse(text);
     // A guide with no sections isn't a guide — treat as invalid so the UI
     // error state fires instead of rendering an empty screen.
-    if (!parsed || !Array.isArray(parsed.sections) || parsed.sections.length === 0) return null;
-    return parsed as CodeGuideOutput;
+    if (parsed && Array.isArray(parsed.sections) && parsed.sections.length > 0) {
+      return parsed as CodeGuideOutput;
+    }
   } catch {
-    try { await unlink(outputPath); } catch { /* ignore */ }
-    return null;
+    // fall through to mechanical repair
   }
+  return repairGuideJsonText(text);
+}
+
+export async function parseGuideFileOutput(outputPath: string): Promise<CodeGuideOutput | null> {
+  const text = await readGuideOutputFile(outputPath);
+  if (text === null) return null;
+  return parseGuideOutputText(text);
 }
 
 export interface GuideSessionBuildCommandOptions {
@@ -649,6 +795,11 @@ export interface GuideSessionBuildCommandOptions {
    * model plans section placement against the real file set. */
   changedFiles?: GuideChangedFile[];
   config?: Record<string, unknown>;
+  /** Set when this launch is a repair attempt for a previously-failed guide
+   *  job — buildCommand produces a REPAIR prompt (fix syntax, never content)
+   *  instead of the normal guide-organizing prompt, and forces low-effort
+   *  defaults regardless of `config`. */
+  repair?: { payload: string };
 }
 
 export interface GuideSessionBuildCommandResult {
@@ -664,6 +815,8 @@ export interface GuideSessionBuildCommandResult {
   effort?: string;
   reasoningEffort?: string;
   fastMode?: boolean;
+  /** Pi's unified reasoning level (marker engines only). */
+  thinking?: string;
 }
 
 export interface GuideSessionJobSummary {
@@ -693,21 +846,178 @@ export interface GuideSessionOnJobCompleteOptions {
 export interface GuideSession {
   guideResults: Map<string, CodeGuideOutput>;
   guideReviewed: Map<string, boolean[]>;
+  /** Best-effort raw-payload capture keyed by job id, for any guide job that
+   *  failed to parse or fully validate — the manual-repair UI reads this via
+   *  getFailedPayload rather than the map directly. */
+  failedPayloads: Map<string, string>;
   buildCommand(opts: GuideSessionBuildCommandOptions): Promise<GuideSessionBuildCommandResult>;
   onJobComplete(opts: GuideSessionOnJobCompleteOptions): Promise<{ summary: GuideSessionJobSummary | null }>;
   getGuide(jobId: string): (CodeGuideOutput & { reviewed: boolean[] }) | null;
   saveReviewed(jobId: string, reviewed: boolean[]): void;
+  getFailedPayload(jobId: string): string | null;
+  /** Manually submit corrected guide JSON (mechanical repair -> parse ->
+   *  validateGuideOutput) for a job whose automatic output failed. Success
+   *  stores under the SAME job id the reviewed state is already keyed to. */
+  submitManualOutput(jobId: string, payloadText: string, changedFiles: string[]): { ok: true } | { error: string };
+}
+
+/** Cap on stored failed-payload size — keeps a looping/verbose engine from
+ *  growing the map unbounded; a manual repair attempt on a >200KB guide
+ *  output is unlikely to succeed anyway. */
+const MAX_FAILED_PAYLOAD_CHARS = 200_000;
+
+/**
+ * Shared validation core for guide output: sanitize the raw sections /
+ * unplacedFiles, enforce the coverage rule against the CURRENT changed-file
+ * set (fail-closed — a ref to a file that isn't part of the changeset is
+ * dropped, not rendered as a dangling reference; a file placed twice keeps
+ * only its first placement), and coerce title/intent to strings. Pure — used
+ * by both onJobComplete (automatic ingestion) and submitManualOutput (manual
+ * repair paste), so a malformed model or human-pasted payload is held to
+ * exactly the same bar either way.
+ */
+export function validateGuideOutput(raw: unknown, changedFiles: string[]): { guide: CodeGuideOutput } | { error: string } {
+  if (!raw || typeof raw !== "object") {
+    return { error: "Malformed guide output (not an object)" };
+  }
+  const output = raw as Record<string, unknown>;
+
+  const changedSet = new Set(changedFiles);
+  const placed = new Set<string>();
+  const validatedSections: GuideSection[] = [];
+  const sanitizedSections = sanitizeGuideSections(output.sections);
+
+  for (const section of sanitizedSections) {
+    const originalDiffCount = section.diffs.length;
+    const diffs: GuideDiffRef[] = [];
+    for (const ref of section.diffs) {
+      if (!changedSet.has(ref.file)) continue; // not a real changed file
+      if (placed.has(ref.file)) continue; // duplicate — first placement wins
+      placed.add(ref.file);
+      diffs.push(ref);
+    }
+
+    if (diffs.length === 0) {
+      // Keep a zero-diff section ONLY if it was already zero-diff in the
+      // model's output (a deliberate prose-only context section) AND has
+      // real overview text. A section that LOST all its diffs to
+      // validation above is dropped, not kept empty.
+      if (originalDiffCount === 0 && section.overview.trim().length > 0) {
+        validatedSections.push({ ...section, diffs });
+      }
+      continue;
+    }
+
+    validatedSections.push({ ...section, diffs });
+  }
+
+  if (validatedSections.length === 0) {
+    // Nothing survived validation — a guide screen with zero sections is
+    // useless (it would just be a single "Everything else" bucket for the
+    // whole diff). Fail closed, same as an unparseable output.
+    return { error: "No sections survived validation" };
+  }
+
+  // unplacedFiles = every changed file that never landed in a section,
+  // merged with any model-provided unplacedFiles that are real changed files
+  // AND not already placed (a file the model lists in both a section and
+  // unplacedFiles must not render twice).
+  const modelUnplaced = sanitizeUnplacedFiles(output.unplacedFiles).filter((f) => changedSet.has(f) && !placed.has(f));
+  const unplacedSet = new Set<string>(modelUnplaced);
+  for (const file of changedFiles) {
+    if (!placed.has(file)) unplacedSet.add(file);
+  }
+  const unplacedFiles = [...unplacedSet];
+
+  const guide: CodeGuideOutput = {
+    // Marker engines are prompt-enforced only (no schema flag) — a non-string
+    // title/intent would otherwise reach the client verbatim and crash
+    // GuideView (React child error, or renderInlineMarkdown's .split on a
+    // non-string).
+    title: typeof output.title === "string" && output.title.trim().length > 0 ? output.title : "Guided review",
+    intent: typeof output.intent === "string" ? output.intent : "",
+    sections: validatedSections,
+    ...(unplacedFiles.length > 0 && { unplacedFiles }),
+  };
+
+  return { guide };
+}
+
+/** Best-effort capture of a job's raw (unparseable/invalidated) output for
+ *  later manual repair. Never throws — a capture failure must never mask the
+ *  original parse/validation failure it's trying to preserve evidence of. */
+function stashFailedPayload(map: Map<string, string>, jobId: string, candidate: string | undefined): void {
+  try {
+    if (!candidate) return;
+    map.set(jobId, candidate.length > MAX_FAILED_PAYLOAD_CHARS ? candidate.slice(-MAX_FAILED_PAYLOAD_CHARS) : candidate);
+  } catch {
+    // Best-effort — never let capture failure mask the original failure path.
+  }
+}
+
+/** Best-effort raw-candidate extraction for a failed marker-engine job: the
+ *  marker block if one can be recovered (even a truncated/garbled one), else
+ *  the raw stdout tail. Deliberately loose — parseGuideMarkerOutput already
+ *  tried the strict path; this just gives the manual-repair UI something to
+ *  start from. */
+function extractMarkerFailedPayload(engine: MarkerEngine, stdout: string, nonce: string | null): string {
+  if (nonce) {
+    const { canonicalText } = reduceMarkerStream(stdout, engine);
+    if (canonicalText) {
+      const block = extractLastMarkerBlock(canonicalText, markerOpen(nonce), markerClose(nonce));
+      if (block !== null) return block;
+    }
+  }
+  return stdout;
+}
+
+/** Finds the last NDJSON `result` event in Claude stream-json stdout,
+ *  regardless of whether it carries a valid structured_output — used only
+ *  for failed-payload capture, never for the trusted parse path. */
+function findLastClaudeResultEvent(stdout: string): Record<string, unknown> | null {
+  if (!stdout.trim()) return null;
+  const lines = stdout.trim().split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    try {
+      const event = JSON.parse(line);
+      if (event && typeof event === "object" && (event as Record<string, unknown>).type === "result") {
+        return event as Record<string, unknown>;
+      }
+    } catch {
+      // keep scanning backward past malformed lines
+    }
+  }
+  return null;
+}
+
+/** Best-effort raw-candidate extraction for a failed Claude-engine job: the
+ *  structured_output value if the last result event carried one (even if it
+ *  failed shape validation), else the raw stdout tail. */
+function extractClaudeFailedPayload(stdout: string): string {
+  const event = findLastClaudeResultEvent(stdout);
+  if (event && event.structured_output !== undefined) {
+    try {
+      return JSON.stringify(event.structured_output);
+    } catch {
+      // fall through to stdout tail
+    }
+  }
+  return stdout;
 }
 
 export function createGuideSession(): GuideSession {
   const guideResults = new Map<string, CodeGuideOutput>();
   const guideReviewed = new Map<string, boolean[]>();
+  const failedPayloads = new Map<string, string>();
 
   return {
     guideResults,
     guideReviewed,
+    failedPayloads,
 
-    async buildCommand({ cwd, patch, diffType, options, prMetadata, changedFiles, config }) {
+    async buildCommand({ cwd, patch, diffType, options, prMetadata, changedFiles, config, repair }) {
       const engine = (typeof config?.engine === "string" ? config.engine : "claude") as "claude" | "codex" | "cursor" | "opencode" | "pi";
       const explicitModel = typeof config?.model === "string" && config.model ? config.model : null;
       // "sonnet" is a Claude model, so we must NOT pass it to Codex or the
@@ -717,6 +1027,34 @@ export function createGuideSession(): GuideSession {
       const reasoningEffort = typeof config?.reasoningEffort === "string" && config.reasoningEffort ? config.reasoningEffort : undefined;
       const effort = typeof config?.effort === "string" && config.effort ? config.effort : undefined;
       const fastMode = config?.fastMode === true;
+
+      if (repair) {
+        // A repair launch replaces the normal guide-organizing prompt
+        // entirely: the payload (a previously-captured malformed guide
+        // output) IS the content to fix, not the diff. Force low-effort
+        // defaults — this is a mechanical JSON-syntax fix, not a
+        // re-analysis, and should be fast and cheap.
+        const markerEngine = MARKER_ENGINES[engine as "cursor" | "opencode" | "pi"];
+        if (markerEngine) {
+          const thinking = "minimal";
+          const nonce = makeMarkerNonce();
+          const markerPrompt = composeGuideMarkerRepairPrompt(repair.payload, nonce);
+          const { command } = buildMarkerCommand(markerEngine, markerPrompt, model || undefined, cwd, { thinking });
+          return { command, prompt: markerPrompt, cwd, label: "Guide Repair", captureStdout: true, engine: markerEngine.id, model, thinking };
+        }
+
+        const repairPrompt = buildGuideRepairPrompt(repair.payload);
+
+        if (engine === "codex") {
+          const outputPath = generateGuideOutputPath();
+          const command = await buildGuideCodexCommand({ cwd, outputPath, prompt: repairPrompt, model: model || undefined, reasoningEffort: "minimal", fastMode: false });
+          return { command, outputPath, prompt: repairPrompt, label: "Guide Repair", engine: "codex", model, reasoningEffort: "minimal" };
+        }
+
+        const { command, stdinPrompt } = buildGuideClaudeCommand(repairPrompt, model, "low");
+        return { command, stdinPrompt, prompt: repairPrompt, cwd, label: "Guide Repair", captureStdout: true, engine: "claude", model, effort: "low" };
+      }
+
       const userMessage = buildGuideUserMessage(patch, diffType, options, prMetadata, changedFiles);
 
       // Marker engines (Cursor, OpenCode, Pi) — none has a schema flag, so the
@@ -731,7 +1069,7 @@ export function createGuideSession(): GuideSession {
         const nonce = makeMarkerNonce();
         const markerPrompt = composeGuideMarkerPrompt(userMessage, nonce);
         const { command } = buildMarkerCommand(markerEngine, markerPrompt, model || undefined, cwd, { thinking });
-        return { command, prompt: markerPrompt, cwd, label: "Guided Review", captureStdout: true, engine: markerEngine.id, model };
+        return { command, prompt: markerPrompt, cwd, label: "Guided Review", captureStdout: true, engine: markerEngine.id, model, thinking };
       }
 
       const prompt = GUIDE_REVIEW_PROMPT + "\n\n---\n\n" + userMessage;
@@ -748,6 +1086,11 @@ export function createGuideSession(): GuideSession {
 
     async onJobComplete({ job, meta, changedFiles }) {
       let output: CodeGuideOutput | null = null;
+      // Best-effort raw candidate for failed-payload capture — populated
+      // alongside `output` regardless of whether parsing ultimately
+      // succeeds, then only stashed below on an actual failure.
+      let rawCandidate: string | undefined;
+
       const markerEngine = MARKER_ENGINES[job.engine as "cursor" | "opencode" | "pi"];
       if (markerEngine) {
         // Recover the per-job nonce embedded in the prompt; without it no
@@ -755,85 +1098,38 @@ export function createGuideSession(): GuideSession {
         // discipline as the review path's marker ingestion).
         const nonce = extractMarkerNonce(job.prompt ?? "");
         output = nonce && meta.stdout ? parseGuideMarkerOutput(meta.stdout, markerEngine, nonce) : null;
+        if (meta.stdout) rawCandidate = extractMarkerFailedPayload(markerEngine, meta.stdout, nonce);
       } else if (job.engine === "codex" && meta.outputPath) {
-        output = await parseGuideFileOutput(meta.outputPath);
+        const rawText = await readGuideOutputFile(meta.outputPath);
+        output = rawText !== null ? parseGuideOutputText(rawText) : null;
+        rawCandidate = rawText ?? undefined;
       } else if (meta.stdout) {
         output = parseGuideStreamOutput(meta.stdout);
+        rawCandidate = extractClaudeFailedPayload(meta.stdout);
       }
 
       if (!output) {
         console.error(`[guide] Failed to parse output for job ${job.id}`);
+        stashFailedPayload(failedPayloads, job.id, rawCandidate);
         return { summary: null };
       }
 
-      // Fail-closed validation against the current changed-file set: the model
-      // is instructed but not trusted. A ref to a file that isn't (or is no
-      // longer) part of the changeset is dropped, not rendered as a dangling
-      // reference; a file placed twice keeps only its first placement.
-      // Sanitize first — a malformed raw section (wrong field types, missing
-      // fields) is coerced or dropped here so nothing below dereferences an
-      // unchecked field. See sanitizeGuideSection(s).
-      const changedSet = new Set(changedFiles);
-      const placed = new Set<string>();
-      const validatedSections: GuideSection[] = [];
-      const sanitizedSections = sanitizeGuideSections(output.sections);
-
-      for (const section of sanitizedSections) {
-        const originalDiffCount = section.diffs.length;
-        const diffs: GuideDiffRef[] = [];
-        for (const ref of section.diffs) {
-          if (!changedSet.has(ref.file)) continue; // not a real changed file
-          if (placed.has(ref.file)) continue; // duplicate — first placement wins
-          placed.add(ref.file);
-          diffs.push(ref);
-        }
-
-        if (diffs.length === 0) {
-          // Keep a zero-diff section ONLY if it was already zero-diff in the
-          // model's output (a deliberate prose-only context section) AND has
-          // real overview text. A section that LOST all its diffs to
-          // validation above is dropped, not kept empty.
-          if (originalDiffCount === 0 && section.overview.trim().length > 0) {
-            validatedSections.push({ ...section, diffs });
-          }
-          continue;
-        }
-
-        validatedSections.push({ ...section, diffs });
-      }
-
-      // unplacedFiles = every changed file that never landed in a section,
-      // merged with any model-provided unplacedFiles that are real changed
-      // files (a model-listed file that isn't in changedFiles is dropped, same
-      // as a dangling diffs[].file ref).
-      const modelUnplaced = sanitizeUnplacedFiles(output.unplacedFiles).filter((f) => changedSet.has(f));
-      const unplacedSet = new Set<string>(modelUnplaced);
-      for (const file of changedFiles) {
-        if (!placed.has(file)) unplacedSet.add(file);
-      }
-      const unplacedFiles = [...unplacedSet];
-
-      if (validatedSections.length === 0) {
-        // Nothing survived validation — a guide screen with zero sections is
-        // useless (it would just be a single "Everything else" bucket for the
-        // whole diff). Fail closed, same as an unparseable output.
-        console.error(`[guide] No sections survived validation for job ${job.id}`);
+      // Fail-closed validation against the current changed-file set: the
+      // model is instructed but not trusted. See validateGuideOutput.
+      const result = validateGuideOutput(output, changedFiles);
+      if ("error" in result) {
+        console.error(`[guide] ${result.error} for job ${job.id}`);
+        stashFailedPayload(failedPayloads, job.id, rawCandidate);
         return { summary: null };
       }
 
-      const validated: CodeGuideOutput = {
-        title: output.title,
-        intent: output.intent,
-        sections: validatedSections,
-        ...(unplacedFiles.length > 0 && { unplacedFiles }),
-      };
+      guideResults.set(job.id, result.guide);
+      failedPayloads.delete(job.id);
 
-      guideResults.set(job.id, validated);
-
-      const totalFiles = validatedSections.reduce((n, s) => n + s.diffs.length, 0);
+      const totalFiles = result.guide.sections.reduce((n, s) => n + s.diffs.length, 0);
       const summary: GuideSessionJobSummary = {
         correctness: "Guide Generated",
-        explanation: `${validatedSections.length} section${validatedSections.length !== 1 ? "s" : ""}, ${totalFiles} file${totalFiles !== 1 ? "s" : ""} placed`,
+        explanation: `${result.guide.sections.length} section${result.guide.sections.length !== 1 ? "s" : ""}, ${totalFiles} file${totalFiles !== 1 ? "s" : ""} placed`,
         confidence: 1.0,
       };
       return { summary };
@@ -847,6 +1143,41 @@ export function createGuideSession(): GuideSession {
 
     saveReviewed(jobId, reviewed) {
       guideReviewed.set(jobId, reviewed);
+    },
+
+    getFailedPayload(jobId) {
+      return failedPayloads.get(jobId) ?? null;
+    },
+
+    submitManualOutput(jobId, payloadText, changedFiles) {
+      if (!payloadText || !payloadText.trim()) {
+        return { error: "Payload is empty" };
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(payloadText);
+      } catch {
+        parsed = undefined;
+      }
+
+      const hasSections = !!parsed && typeof parsed === "object" && Array.isArray((parsed as Record<string, unknown>).sections);
+      if (!hasSections) {
+        // Straight parse failed, or produced something not guide-shaped yet —
+        // let mechanical repair take a pass at the raw text either way.
+        const repaired = repairGuideJsonText(payloadText);
+        if (!repaired) {
+          return { error: "Not valid JSON after repair attempts" };
+        }
+        parsed = repaired;
+      }
+
+      const result = validateGuideOutput(parsed, changedFiles);
+      if ("error" in result) return { error: result.error };
+
+      guideResults.set(jobId, result.guide);
+      failedPayloads.delete(jobId);
+      return { ok: true };
     },
   };
 }

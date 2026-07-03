@@ -99,6 +99,8 @@ export interface AgentJobHandlerOptions {
     reasoningEffort?: string;
     /** Whether Codex fast mode was enabled. */
     fastMode?: boolean;
+    /** Pi's unified reasoning level (marker engines only). */
+    thinking?: string;
     /** PR URL at launch time — used to attribute findings to the correct PR. */
     prUrl?: string;
     /** PR diff scope at launch time — "layer" or "full-stack". */
@@ -218,7 +220,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
     command: string[],
     label: string,
     outputPath?: string,
-    spawnOptions?: { captureStdout?: boolean; stdinPrompt?: string; cwd?: string; prompt?: string; engine?: string; model?: string; effort?: string; reasoningEffort?: string; fastMode?: boolean; prUrl?: string; diffScope?: string; diffContext?: AgentJobInfo["diffContext"]; reviewProfileId?: string; reviewProfileLabel?: string },
+    spawnOptions?: { captureStdout?: boolean; stdinPrompt?: string; cwd?: string; prompt?: string; engine?: string; model?: string; effort?: string; reasoningEffort?: string; fastMode?: boolean; thinking?: string; prUrl?: string; diffScope?: string; diffContext?: AgentJobInfo["diffContext"]; reviewProfileId?: string; reviewProfileLabel?: string },
   ): AgentJobInfo {
     const source = jobSource(id);
 
@@ -236,6 +238,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
       ...(spawnOptions?.effort && { effort: spawnOptions.effort }),
       ...(spawnOptions?.reasoningEffort && { reasoningEffort: spawnOptions.reasoningEffort }),
       ...(spawnOptions?.fastMode && { fastMode: spawnOptions.fastMode }),
+      ...(spawnOptions?.thinking && { thinking: spawnOptions.thinking }),
       ...(spawnOptions?.prUrl && { prUrl: spawnOptions.prUrl }),
       ...(spawnOptions?.diffScope && { diffScope: spawnOptions.diffScope }),
       ...(spawnOptions?.diffContext && { diffContext: spawnOptions.diffContext }),
@@ -541,7 +544,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
           const KNOWN_JOB_FIELDS = new Set([
             "provider", "command", "label",
             "engine", "model", "reasoningEffort", "effort", "thinking", "fastMode",
-            "reviewProfileId",
+            "reviewProfileId", "repairOf",
           ]);
           if (body && typeof body === "object") {
             const unknown = Object.keys(body).filter((k) => !KNOWN_JOB_FIELDS.has(k));
@@ -594,6 +597,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
           let jobEffort: string | undefined;
           let jobReasoningEffort: string | undefined;
           let jobFastMode: boolean | undefined;
+          let jobThinking: string | undefined;
           let jobPrUrl: string | undefined;
           let jobDiffScope: string | undefined;
           let jobDiffContext: AgentJobInfo["diffContext"] | undefined;
@@ -610,6 +614,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
             if (typeof body.thinking === "string") config.thinking = body.thinking;
             if (body.fastMode === true) config.fastMode = true;
             if (typeof body.reviewProfileId === "string") config.reviewProfileId = body.reviewProfileId;
+            if (typeof body.repairOf === "string") config.repairOf = body.repairOf;
             const built = await options.buildCommand(provider, Object.keys(config).length > 0 ? config : undefined);
             if (built) {
               command = built.command;
@@ -624,6 +629,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
               jobEffort = built.effort;
               jobReasoningEffort = built.reasoningEffort;
               jobFastMode = built.fastMode;
+              jobThinking = built.thinking;
               jobPrUrl = built.prUrl;
               jobDiffScope = built.diffScope;
               jobDiffContext = built.diffContext;
@@ -649,6 +655,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
             effort: jobEffort,
             reasoningEffort: jobReasoningEffort,
             fastMode: jobFastMode,
+            thinking: jobThinking,
             prUrl: jobPrUrl,
             diffScope: jobDiffScope,
             diffContext: jobDiffContext,

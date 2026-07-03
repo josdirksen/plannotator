@@ -410,10 +410,6 @@ export function useAgentSettings() {
     (reasoning: string) => patchCodex('guideCodex', { reasoning }, { reasoning: DEFAULT_GUIDE_CODEX_REASONING, fast: DEFAULT_GUIDE_CODEX_FAST }),
     [patchCodex],
   );
-  const setGuideCodexFast = useCallback(
-    (fast: boolean) => patchCodex('guideCodex', { fast }, { reasoning: DEFAULT_GUIDE_CODEX_REASONING, fast: DEFAULT_GUIDE_CODEX_FAST }),
-    [patchCodex],
-  );
 
   const claudeEffort = state.claude.perModel[state.claude.model]?.effort ?? DEFAULT_CLAUDE_EFFORT;
   const codexReasoning = state.codex.perModel[state.codex.model]?.reasoning ?? DEFAULT_CODEX_REASONING;
@@ -423,7 +419,6 @@ export function useAgentSettings() {
   const tourCodexFast = state.tourCodex.perModel[state.tourCodex.model]?.fast ?? DEFAULT_TOUR_CODEX_FAST;
   const guideClaudeEffort = state.guideClaude.perModel[state.guideClaude.model]?.effort ?? DEFAULT_GUIDE_CLAUDE_EFFORT;
   const guideCodexReasoning = state.guideCodex.perModel[state.guideCodex.model]?.reasoning ?? DEFAULT_GUIDE_CODEX_REASONING;
-  const guideCodexFast = state.guideCodex.perModel[state.guideCodex.model]?.fast ?? DEFAULT_GUIDE_CODEX_FAST;
 
   return {
     selectedMode: state.selectedMode,
@@ -449,7 +444,6 @@ export function useAgentSettings() {
     guideClaudeEffort,
     guideCodexModel: state.guideCodex.model,
     guideCodexReasoning,
-    guideCodexFast,
     setSelectedMode,
     setReviewEngine,
     setReviewProfileId,
@@ -473,6 +467,5 @@ export function useAgentSettings() {
     setGuideClaudeEffort,
     setGuideCodexModel,
     setGuideCodexReasoning,
-    setGuideCodexFast,
   };
 }

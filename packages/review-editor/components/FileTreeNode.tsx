@@ -139,7 +139,6 @@ export const FileTreeNodeItem: React.FC<FileTreeNodeProps> = ({
   // isStaged comes from the EFFECTIVE set (sidecar + session overrides) —
   // the sidecar's own snapshot flag must never be ORed back in, or a file
   // unstaged this session would render staged and invert the next toggle.
-  const sectionStaged = isStaged;
   const isStageable = sinceBaseMode && !!onStageFile && sectionEntry != null && sectionEntry.group !== 'committed';
 
   if (hideViewedFiles && isViewed && !isActive) {
@@ -161,9 +160,9 @@ export const FileTreeNodeItem: React.FC<FileTreeNodeProps> = ({
               Name inherits the row font; letter/counts stay the small size. */}
           <div className="flex items-center gap-1.5 flex-1 min-w-0">
             <ViewedControl isViewed={isViewed} onToggle={onToggleViewed ? () => onToggleViewed(node.path) : undefined} forceVisible={isActive} />
-            {sinceBaseMode && (isStageable || sectionStaged) ? (
+            {sinceBaseMode && (isStageable || isStaged) ? (
               <StageControl
-                isStaged={sectionStaged}
+                isStaged={isStaged}
                 isStaging={stagingFile === node.path}
                 onStage={onStageFile ? () => onStageFile(node.path) : undefined}
               />

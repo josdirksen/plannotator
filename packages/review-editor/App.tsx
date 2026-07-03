@@ -118,6 +118,14 @@ function getFileTabTitle(filePath: string): string {
 // unstaged changes → untracked, stable within groups). Every consumer — the
 // sections panel, the all-files view, file navigation — then shares one
 // top-down order instead of raw patch order.
+//
+// INVARIANT: this reads the sidecar's SNAPSHOT `staged` flag, which is only
+// valid at sidecar-fresh moments — every current call site (initial load,
+// diff switch, PR response) also resets the session staging overrides, so
+// snapshot ≡ effective when the order is computed. Do NOT call this
+// mid-session to re-sort on stage/unstage: live staged display belongs to
+// useGitAdd's effective stagedFiles set (see AGENTS.md), and the file order
+// deliberately stays stable until the next refresh.
 function orderFilesBySections(files: DiffFile[], sections?: SinceBaseSections | null): DiffFile[] {
   if (!sections) return files;
   const rank = (file: DiffFile): number => {

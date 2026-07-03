@@ -251,6 +251,10 @@ const ReviewApp: React.FC = () => {
   }, []);
   // First-run review-setup chooser (panel view + tree default diff).
   const [showReviewSetup, setShowReviewSetup] = useState(false);
+  // True only for the first-run showing (where dismissing applies the recommended
+  // default). A reopen from the header menu must NOT snap the user's mid-session
+  // diff back to the default.
+  const reviewSetupIsFirstRun = useRef(false);
   const [agentCwd, setAgentCwd] = useState<string | null>(null);
   const [isLoadingDiff, setIsLoadingDiff] = useState(false);
   const [diffError, setDiffError] = useState<string | null>(null);
@@ -1044,6 +1048,7 @@ const ReviewApp: React.FC = () => {
         ) {
           configStore.set('reviewPanelView', 'sections');
           configStore.set('defaultDiffType', 'since-base');
+          reviewSetupIsFirstRun.current = true;
           setShowReviewSetup(true);
         }
       })
@@ -1295,6 +1300,20 @@ const ReviewApp: React.FC = () => {
   // Staging is never available in PR review mode — the server rejects it and the UI shouldn't offer it.
   const canStageInWorkspace = reviewMode !== 'workspace' || workspaceDiffOptions?.some((option) => option.id === 'workspace-staged');
   const canStageFiles = canStageRaw && !prMetadata && canStageInWorkspace;
+  // Per-file staging gate. In since-base mode only working-tree files
+  // (changes/untracked) are stageable; committed files — or files with no
+  // sidecar entry — are not: `git add` on them is a confusing no-op that would
+  // still flip the local staged/viewed state. Other stageable modes have no
+  // committed section, so the mode-level flag suffices there. Used everywhere
+  // staging is triggered without going through a per-row button (the `a`
+  // shortcut on the focused file, and the All-files surface).
+  const isPathStageable = useCallback((path: string | null | undefined): boolean => {
+    if (!canStageFiles || !path) return false;
+    if (activeDiffBase === 'since-base' && sections) {
+      return (sections.files[path]?.group ?? 'committed') !== 'committed';
+    }
+    return true;
+  }, [canStageFiles, activeDiffBase, sections]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -1306,14 +1325,14 @@ const ReviewApp: React.FC = () => {
       if (e.key === 'v') {
         e.preventDefault();
         handleToggleViewed(filePath);
-      } else if (e.key === 'a' && canStageFiles) {
+      } else if (e.key === 'a' && isPathStageable(filePath)) {
         e.preventDefault();
         stageFile(filePath);
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [files, activeFileIndex, isDiffPanelActive, handleToggleViewed, canStageFiles, stageFile]);
+  }, [files, activeFileIndex, isDiffPanelActive, handleToggleViewed, isPathStageable, stageFile]);
 
   // Shared function: apply a PR response (used by both initial load and PR switch)
   function applyPRResponse(data: PRSessionUpdate & {
@@ -1813,6 +1832,7 @@ const ReviewApp: React.FC = () => {
     stagingFile,
     onStage: stageFile,
     canStageFiles,
+    canStagePath: isPathStageable,
     stageError,
     searchQuery: isSearchPending ? '' : debouncedSearchQuery,
     isSearchPending,
@@ -1869,7 +1889,7 @@ const ReviewApp: React.FC = () => {
     handleAddAnnotation, handleAddFileComment, handleAddFileCommentForFile, handleEditAnnotation,
     handleSelectAnnotation, handleNavigateToAnnotation, handleDeleteAnnotation, viewedFiles,
     handleToggleViewed, stagedFiles, stagingFile, stageFile,
-    canStageFiles, stageError, isSearchPending, debouncedSearchQuery,
+    canStageFiles, isPathStageable, stageError, isSearchPending, debouncedSearchQuery,
     activeFileSearchMatches, activeSearchMatchId, activeSearchMatch, searchMatches,
     aiAvailable, aiMessages, aiIsCreatingSession, aiIsStreaming,
     handleAskAI, handleAskAIForFile, handleViewAIResponse, handleClickAIMarker,
@@ -2631,7 +2651,7 @@ const ReviewApp: React.FC = () => {
 
             <ReviewHeaderMenu
               onOpenSettings={() => setOpenSettingsMenu(true)}
-              onOpenReviewSetup={sectionsCapable ? () => setShowReviewSetup(true) : undefined}
+              onOpenReviewSetup={sectionsCapable ? () => { reviewSetupIsFirstRun.current = false; setShowReviewSetup(true); } : undefined}
               onOpenExport={() => setShowExportModal(true)}
               onCopyAgentInstructions={handleCopyAgentInstructions}
               onToggleFileTree={() => setIsFileTreeOpen(prev => !prev)}
@@ -3043,6 +3063,11 @@ const ReviewApp: React.FC = () => {
             onDismiss={() => {
               markReviewSetupSeen();
               setShowReviewSetup(false);
+              // Apply the chosen default to the live session ONLY on first run.
+              // A reopen from the header menu is a glance — it must not yank the
+              // user's mid-session diff selection back to the default.
+              if (!reviewSetupIsFirstRun.current) return;
+              reviewSetupIsFirstRun.current = false;
               const chosen = configStore.get('defaultDiffType');
               if (chosen && chosen !== activeDiffBase && !prMetadata && reviewMode !== 'workspace') {
                 void handleDiffSwitch(chosen);

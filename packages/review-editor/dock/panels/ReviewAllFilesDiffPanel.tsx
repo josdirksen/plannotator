@@ -34,6 +34,7 @@ export const ReviewAllFilesDiffPanel: React.FC<IDockviewPanelProps> = () => {
       stagedFiles={state.stagedFiles}
       onStage={state.onStage}
       canStageFiles={state.canStageFiles}
+      canStagePath={state.canStagePath}
       stagingFile={state.stagingFile}
       stageError={state.stageError}
       prUrl={state.prMetadata?.url}

@@ -492,42 +492,57 @@ export async function getGitContext(
 }
 
 /**
- * Collect the repo-relative paths a tracked diff already contributes, keyed the
- * same way `parseDiffToFiles` keys entries — the NEW (`+++`) path, or the OLD
- * (`---`) path for a pure deletion (`+++ /dev/null`). Used to keep a path from
- * being emitted twice in a composite patch — e.g. `git rm --cached f` shows f as
- * a tracked deletion AND as an untracked file, and two entries for one path
- * collide on the path-keyed dock/selection layer (wrong file opens, j/k loops).
- *
- * The rename-FROM (`---`) side of a NON-deletion entry is intentionally NOT
- * collected: `git mv a b && touch a` recreates `a` as a distinct untracked file
- * that must still be shown, even though the rename lists `a` on its `---` line.
+ * Strip a diff header path token to its repo-relative path: drop the `a/`/`b/`
+ * prefix, git's trailing-tab metadata (appended to UNquoted paths that contain a
+ * space), and C-quoting. Matches how parseDiffToFiles / git ls-files key paths.
  */
-function extractTrackedPatchPaths(patch: string): Set<string> {
-  const paths = new Set<string>();
-  const strip = (rest: string): string | null => {
-    if (!rest || rest === "/dev/null") return null;
-    // The runtime forces core.quotePath=false so paths are normally unquoted;
-    // unquote defensively in case a caller runs without that wrapper.
-    const unq = rest.startsWith('"') ? unquoteGitPath(rest) : rest;
-    return unq.length > 2 ? unq.slice(2) : unq; // drop a/ or b/
-  };
-  let minusPath: string | null = null; // pending `--- a/<path>` awaiting its `+++`
-  for (const line of patch.split("\n")) {
-    if (line.startsWith("--- ")) {
-      minusPath = strip(line.slice(4));
-    } else if (line.startsWith("+++ ")) {
-      const plus = line.slice(4);
-      if (plus === "/dev/null") {
-        if (minusPath) paths.add(minusPath); // deletion — keyed by the old path
-      } else {
-        const p = strip(plus); // add/modify/rename-to — keyed by the new path
-        if (p) paths.add(p);
-      }
-      minusPath = null;
-    }
+function stripHeaderPath(rest: string): string | null {
+  if (!rest || rest === "/dev/null") return null;
+  if (rest.startsWith('"')) {
+    // C-quoted (path has special chars): unquote, then drop the a/|b/ prefix.
+    const unq = unquoteGitPath(rest);
+    return unq.length > 2 ? unq.slice(2) : unq;
   }
-  return paths;
+  let p = rest.length > 2 ? rest.slice(2) : rest; // drop a/ or b/
+  const tab = p.indexOf("\t"); // git's unquoted-space metadata separator
+  if (tab !== -1) p = p.slice(0, tab);
+  return p || null;
+}
+
+/**
+ * Remove tracked DELETION blocks whose path also exists as an untracked file.
+ * `git rm --cached f` (optionally then editing f) reports f as BOTH a tracked
+ * deletion and an untracked file — the file is still on disk, so the working-tree
+ * (untracked) side carries the real content. Keep THAT and drop the misleading
+ * deletion: exactly one diff entry per path (no path-keyed dock/nav collision)
+ * AND the reviewer sees the actual content, not a phantom delete.
+ */
+function removeTrackedDeletions(patch: string, untrackedPaths: Set<string>): string {
+  if (!patch || untrackedPaths.size === 0) return patch;
+  const lines = patch.split("\n");
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (!lines[i].startsWith("diff --git ")) {
+      out.push(lines[i]);
+      i++;
+      continue;
+    }
+    const start = i;
+    i++;
+    while (i < lines.length && !lines[i].startsWith("diff --git ")) i++;
+    const block = lines.slice(start, i);
+    const isDeletion = block.some(
+      (l) => l.startsWith("deleted file mode") || l === "+++ /dev/null",
+    );
+    let delPath: string | null = null;
+    if (isDeletion) {
+      const minus = block.find((l) => l.startsWith("--- "));
+      if (minus) delPath = stripHeaderPath(minus.slice(4));
+    }
+    if (!(isDeletion && delPath && untrackedPaths.has(delPath))) out.push(...block);
+  }
+  return out.join("\n");
 }
 
 async function getUntrackedFileDiffs(
@@ -536,8 +551,7 @@ async function getUntrackedFileDiffs(
   dstPrefix = "b/",
   cwd?: string,
   options?: GitDiffOptions,
-  excludePaths?: Set<string>,
-): Promise<string> {
+): Promise<{ diff: string; paths: string[] }> {
   // git ls-files scopes to the CWD subtree and returns CWD-relative paths,
   // unlike git diff HEAD which always covers the full repo with root-relative
   // paths.  Resolve the repo root so untracked files from the entire repo are
@@ -553,17 +567,14 @@ async function getUntrackedFileDiffs(
     ["ls-files", "--others", "--exclude-standard"],
     { cwd: rootCwd },
   );
-  if (lsResult.exitCode !== 0) return "";
+  if (lsResult.exitCode !== 0) return { diff: "", paths: [] };
 
   const files = lsResult.stdout
     .trim()
     .split("\n")
-    .filter((file) => file.length > 0)
-    // Skip untracked paths already represented in the tracked patch so a single
-    // path never yields two diff entries (see extractTrackedPatchPaths).
-    .filter((file) => !excludePaths || !excludePaths.has(file));
+    .filter((file) => file.length > 0);
 
-  if (files.length === 0) return "";
+  if (files.length === 0) return { diff: "", paths: [] };
 
   const diffs = await Promise.all(
     files.map(async (file) => {
@@ -584,7 +595,7 @@ async function getUntrackedFileDiffs(
     }),
   );
 
-  return diffs.join("");
+  return { diff: diffs.join(""), paths: files };
 }
 
 /**
@@ -702,15 +713,8 @@ export async function runGitDiff(
             sinceBaseDiffArgs,
           ).stdout;
         }
-        const untrackedDiff = await getUntrackedFileDiffs(
-          runtime,
-          "a/",
-          "b/",
-          cwd,
-          options,
-          extractTrackedPatchPaths(trackedPatch),
-        );
-        patch = trackedPatch + untrackedDiff;
+        const untracked = await getUntrackedFileDiffs(runtime, "a/", "b/", cwd, options);
+        patch = removeTrackedDeletions(trackedPatch, new Set(untracked.paths)) + untracked.diff;
         label = `Since ${displayRef(defaultBranch)}`;
         break;
       }
@@ -733,15 +737,8 @@ export async function runGitDiff(
               trackedDiffArgs,
             ).stdout
           : "";
-        const untrackedDiff = await getUntrackedFileDiffs(
-          runtime,
-          "a/",
-          "b/",
-          cwd,
-          options,
-          extractTrackedPatchPaths(trackedPatch),
-        );
-        patch = trackedPatch + untrackedDiff;
+        const untracked = await getUntrackedFileDiffs(runtime, "a/", "b/", cwd, options);
+        patch = removeTrackedDeletions(trackedPatch, new Set(untracked.paths)) + untracked.diff;
         label = "Uncommitted changes";
         break;
       }
@@ -776,15 +773,8 @@ export async function runGitDiff(
           await runtime.runGit(trackedDiffArgs, { cwd }),
           trackedDiffArgs,
         );
-        const untrackedDiff = await getUntrackedFileDiffs(
-          runtime,
-          "a/",
-          "b/",
-          cwd,
-          options,
-          extractTrackedPatchPaths(trackedDiff.stdout),
-        );
-        patch = trackedDiff.stdout + untrackedDiff;
+        const untracked = await getUntrackedFileDiffs(runtime, "a/", "b/", cwd, options);
+        patch = removeTrackedDeletions(trackedDiff.stdout, new Set(untracked.paths)) + untracked.diff;
         label = "Unstaged changes";
         break;
       }

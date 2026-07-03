@@ -189,6 +189,11 @@ interface AllFilesCodeViewProps {
   stagedFiles?: Set<string>;
   onStage?: (filePath: string) => void;
   canStageFiles?: boolean;
+  /** Per-file staging gate — false for committed files in since-base mode. The
+   * All-files surface lists committed files too, so mode-level canStageFiles is
+   * not enough; without this the `a` shortcut / header would `git add` a
+   * committed file (a no-op that still flips local staged/viewed state). */
+  canStagePath?: (filePath: string) => boolean;
   stagingFile?: string | null;
   stageError?: string | null;
   prUrl?: string;
@@ -400,6 +405,7 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
   stagedFiles,
   onStage,
   canStageFiles = false,
+  canStagePath,
   stagingFile,
   stageError,
   prUrl,
@@ -1752,8 +1758,9 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
         return;
       }
 
-      // a — stage/unstage the current file.
-      if (e.key === 'a' && currentPath && canStageFiles) {
+      // a — stage/unstage the current file (per-file gate: never a committed
+      // file in since-base mode).
+      if (e.key === 'a' && currentPath && (canStagePath ? canStagePath(currentPath) : canStageFiles)) {
         e.preventDefault();
         onStage?.(currentPath);
         return;
@@ -1785,6 +1792,7 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
     onAddFileCommentForFile,
     handleToggleViewedAndCollapse,
     canStageFiles,
+    canStagePath,
     onStage,
   ]);
 
@@ -1815,7 +1823,7 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
         isStaged={stagedFiles?.has(filePath)}
         isStaging={stagingFile === filePath}
         onStage={onStage ? () => onStage(filePath) : undefined}
-        canStage={canStageFiles}
+        canStage={canStagePath ? canStagePath(filePath) : canStageFiles}
         stageError={stagingFile === filePath ? stageError : null}
         onFileComment={onAddFileCommentForFile ? (anchorEl) => handleFileComment(filePath, anchorEl) : undefined}
         // Eager registration so the `c` shortcut can anchor the popover for a

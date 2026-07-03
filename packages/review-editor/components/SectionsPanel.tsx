@@ -284,6 +284,21 @@ export const SectionsPanel: React.FC<SectionsPanelProps> = ({
     return () => observer.disconnect();
   }, [remeasureCommittedFit]);
 
+  // "N added" counts BOTH files staged this session (stagedFiles) and files
+  // already staged when the review opened (from the sidecar's porcelain X
+  // column). The rows show a staged dot for either, so the header must too —
+  // otherwise it reads 0 while several rows show dots.
+  const stagedCount = useMemo(() => {
+    const staged = new Set<string>();
+    if (sections) {
+      for (const [path, entry] of Object.entries(sections.files)) {
+        if (entry.staged) staged.add(path);
+      }
+    }
+    if (stagedFiles) for (const path of stagedFiles) staged.add(path);
+    return staged.size;
+  }, [sections, stagedFiles]);
+
   // Keyboard file navigation (j/k/arrows/Home/End) over the panel's VISIBLE
   // rows in render order. The tree view had this via FileTree; the sections
   // view replaces FileTree, so without this the default view had no file-nav
@@ -394,9 +409,9 @@ export const SectionsPanel: React.FC<SectionsPanelProps> = ({
         <div className="w-full flex items-center justify-between gap-2">
           <PanelViewToggle view="sections" onSelect={onSelectPanelView} />
           <div className="flex items-center gap-1.5">
-            {stagedFiles && stagedFiles.size > 0 && (
+            {stagedCount > 0 && (
               <span className="text-xs text-primary font-medium">
-                {stagedFiles.size} added
+                {stagedCount} added
               </span>
             )}
             {onOpenSearch && (

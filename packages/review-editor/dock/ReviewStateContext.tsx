@@ -95,6 +95,8 @@ export interface ReviewState {
   stagingFile: string | null;
   onStage: (filePath: string) => void;
   canStageFiles: boolean;
+  /** Per-file staging gate — false for committed files in since-base mode. */
+  canStagePath?: (filePath: string) => boolean;
   stageError: string | null;
 
   // Search

@@ -1268,7 +1268,11 @@ export async function startReviewServer(
 
               // Base may have changed — re-evaluate behind-ness from the
               // cached remote tip (cheap, local-only).
-              void recomputeBaseBehindRemote().catch(() => {});
+              // Await (not fire-and-forget) so the switch response carries the
+              // freshly-recomputed baseBehindRemote — otherwise the banner lags a
+              // poll cycle switching INTO a base-relative mode, or lingers stale
+              // switching AWAY from one. Local rev-parse only; cheap.
+              await recomputeBaseBehindRemote().catch(() => {});
               const sections = await buildSectionsSidecar();
               const switchSemanticDiff = await getSemanticDiffAdvert();
               // Final guard: if a newer switch took over during the trailing

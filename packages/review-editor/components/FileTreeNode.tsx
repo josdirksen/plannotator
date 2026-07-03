@@ -133,7 +133,10 @@ export const FileTreeNodeItem: React.FC<FileTreeNodeProps> = ({
   const sectionEntry = getSectionEntry?.(node.path);
   const sinceBaseMode = getSectionEntry != null;
   const isUntracked = sectionEntry?.group === 'untracked';
-  const sectionStaged = (sectionEntry?.staged ?? false) || isStaged;
+  // stagedFiles is the EFFECTIVE set (sidecar + session overrides) — ORing
+  // the sidecar's snapshot back in would keep a file unstaged this session
+  // rendered as staged (and invert the next toggle). Mirrors SectionsPanel.
+  const sectionStaged = stagedFiles ? isStaged : (sectionEntry?.staged ?? false);
   const isStageable = sinceBaseMode && !!onStageFile && sectionEntry != null && sectionEntry.group !== 'committed';
 
   if (hideViewedFiles && isViewed && !isActive) {

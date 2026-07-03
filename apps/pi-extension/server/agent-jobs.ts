@@ -47,8 +47,10 @@ const SERVER_BUILT_PROVIDERS: ReadonlySet<string> = new Set([
 	"claude",
 	"codex",
 	"tour",
+	"guide",
 	"cursor",
 	"opencode",
+	"pi",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -142,9 +144,20 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 		{ id: "claude", name: "Claude Code", available: whichCmd("claude") },
 		{ id: "codex", name: "Codex CLI", available: whichCmd("codex") },
 		{ id: "tour", name: "Code Tour", available: whichCmd("claude") || whichCmd("codex") },
+		{
+			id: "guide",
+			name: "Guided Review",
+			// Guided Review also runs on the marker engines (Cursor, OpenCode, Pi) —
+			// same review-mode + binary-on-PATH gating as their own capability
+			// entries below (NOTE: cursor's binary is `agent`).
+			available:
+				whichCmd("claude") ||
+				whichCmd("codex") ||
+				(mode === "review" && Object.values(MARKER_ENGINES).some((engine) => whichCmd(engine.binary))),
+		},
 	];
-	// Marker engines (Cursor, OpenCode) — same shape, one loop. Available only in
-	// review mode when the binary is on PATH (NOTE: cursor's binary is `agent`).
+	// Marker engines (Cursor, OpenCode, Pi) — same shape, one loop. Available
+	// only in review mode when the binary is on PATH (NOTE: cursor's binary is `agent`).
 	// Model catalogs are discovered LAZILY (see buildCapabilitiesResponse) so a
 	// slow/unauthenticated `<binary> models` spawn never blocks startup.
 	for (const engine of Object.values(MARKER_ENGINES)) {
@@ -158,7 +171,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 	const markerModelsCache = new Map<string, MarkerModel[]>();
 	async function buildCapabilitiesResponse(): Promise<AgentCapabilities> {
 		const providers = await Promise.all(capabilities.map(async (c) => {
-			const engine = MARKER_ENGINES[c.id as "cursor" | "opencode"];
+			const engine = MARKER_ENGINES[c.id as "cursor" | "opencode" | "pi"];
 			if (!engine || !c.available) return c;
 			let models = markerModelsCache.get(engine.id);
 			if (!models) {
@@ -264,10 +277,11 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 						if (formatted !== null) broadcast({ type: "job:log", jobId: id, delta: formatted + '\n' });
 						return;
 					}
-					// Marker engines (Cursor, OpenCode): map their NDJSON stream events
+					// Marker engines (Cursor, OpenCode, Pi): map their NDJSON stream events
 					// into readable log deltas via the engine's own formatter (Cursor
-					// applies the partial-output dedup rule; OpenCode reads text parts).
-					const markerEngine = MARKER_ENGINES[provider as "cursor" | "opencode"];
+					// applies the partial-output dedup rule; OpenCode reads text parts;
+					// Pi reads message_end/tool_execution_start).
+					const markerEngine = MARKER_ENGINES[provider as "cursor" | "opencode" | "pi"];
 					if (markerEngine) {
 						const formatted = formatMarkerLogEvent(line, markerEngine);
 						if (formatted !== null) broadcast({ type: "job:log", jobId: id, delta: formatted + '\n' });
@@ -350,11 +364,11 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 							cwd: jobCwd,
 						});
 					} catch (err) {
-						// Claude/Codex are fail-open; Cursor and OpenCode are fail-closed — an
-						// unexpected throw during prompt-enforced ingestion must fail the job,
-						// not pass it. (Their handlers normally fail by mutation and never
-						// throw; this guards future refactors.)
-						if (MARKER_ENGINES[provider as "cursor" | "opencode"]) {
+						// Claude/Codex are fail-open; Cursor, OpenCode, and Pi are fail-closed —
+						// an unexpected throw during prompt-enforced ingestion must fail the
+						// job, not pass it. (Their handlers normally fail by mutation and
+						// never throw; this guards future refactors.)
+						if (MARKER_ENGINES[provider as "cursor" | "opencode" | "pi"]) {
 							entry.info.status = "failed";
 							entry.info.error = err instanceof Error ? err.message : `${provider} result ingestion failed`;
 						}
@@ -500,7 +514,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 					// custom-reviews spec — a typo'd field should fail loud, not no-op).
 					const KNOWN_JOB_FIELDS = new Set([
 						"provider", "command", "label",
-						"engine", "model", "reasoningEffort", "effort", "fastMode",
+						"engine", "model", "reasoningEffort", "effort", "thinking", "fastMode",
 						"reviewProfileId",
 					]);
 					if (body && typeof body === "object") {
@@ -560,6 +574,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 						if (typeof body.model === "string") config.model = body.model;
 						if (typeof body.reasoningEffort === "string") config.reasoningEffort = body.reasoningEffort;
 						if (typeof body.effort === "string") config.effort = body.effort;
+						if (typeof body.thinking === "string") config.thinking = body.thinking;
 						if (body.fastMode === true) config.fastMode = true;
 						if (typeof body.reviewProfileId === "string") config.reviewProfileId = body.reviewProfileId;
 						const built = await options.buildCommand(provider, Object.keys(config).length > 0 ? config : undefined);

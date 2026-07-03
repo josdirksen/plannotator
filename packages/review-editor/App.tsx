@@ -91,6 +91,8 @@ import type { PRDiffScope, PRDiffScopeOption, PRStackInfo, PRStackTree } from '@
 import { altKey } from '@plannotator/ui/utils/platform';
 import { TourDialog } from './components/tour/TourDialog';
 import { DEMO_TOUR_ID } from './demoTour';
+import { GuideScreen } from './components/guide/GuideScreen';
+import { DEMO_GUIDE_ID } from './demoGuide';
 
 declare const __APP_VERSION__: string;
 
@@ -224,6 +226,11 @@ const ReviewApp: React.FC = () => {
 
   const reviewSidebar = useSidebar<ReviewSidebarTab>(false, 'annotations');
   const [isFileTreeOpen, setIsFileTreeOpen] = useState(true);
+  // Guided Review screen takeover — file tree + center dock hidden (dock stays
+  // mounted, just CSS-hidden; see the dock wrapper below), right sidebar untouched.
+  const [guideOpen, setGuideOpen] = useState(false);
+  // Latest completed `guide` job id (or DEMO_GUIDE_ID in standalone/demo mode).
+  const [activeGuideJobId, setActiveGuideJobId] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [copyRawDiffStatus, setCopyRawDiffStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [viewedFiles, setViewedFiles] = useState<Set<string>>(new Set());
@@ -793,6 +800,13 @@ const ReviewApp: React.FC = () => {
     setTourDialogJobId(jobId);
   }, []);
 
+  // Open guide as a takeover (manual reopen from a completed job's card, distinct
+  // from the auto-open-on-completion effect below).
+  const handleOpenGuide = useCallback((jobId: string) => {
+    setActiveGuideJobId(jobId);
+    setGuideOpen(true);
+  }, []);
+
   // Dev-only: Cmd/Ctrl+Shift+T toggles the demo tour for fast UI iteration.
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -820,6 +834,36 @@ const ReviewApp: React.FC = () => {
       }
     }
   }, [agentJobs.jobs]);
+
+  // Auto-switch to the guide takeover when a guide job completes — mirrors the
+  // tour dialog's auto-open above, including the same caveat: on an SSE
+  // snapshot that already contains a done guide job (e.g. a page reload while
+  // one is in flight from a previous session), the ref-Set dedupe treats it as
+  // "not yet seen" and opens the guide takeover immediately. That matches
+  // tour's existing behavior; kept consistent rather than special-cased here.
+  const guideAutoOpenRef = useRef(new Set<string>());
+  useEffect(() => {
+    for (const job of agentJobs.jobs) {
+      if (
+        job.provider === 'guide' &&
+        job.status === 'done' &&
+        !guideAutoOpenRef.current.has(job.id)
+      ) {
+        guideAutoOpenRef.current.add(job.id);
+        setActiveGuideJobId(job.id);
+        setGuideOpen(true);
+      }
+    }
+  }, [agentJobs.jobs]);
+
+  // Standalone/demo mode (no origin ⇒ no real agent-jobs backend): opening the
+  // guide takeover shows the demo fixture so the UI can be iterated on without
+  // a live agent run, same spirit as the dev-only demo tour toggle below.
+  useEffect(() => {
+    if (import.meta.env.DEV && guideOpen && !origin && !activeGuideJobId) {
+      setActiveGuideJobId(DEMO_GUIDE_ID);
+    }
+  }, [guideOpen, origin, activeGuideJobId]);
 
   // Open the combined PR overview (summary + checks + comments) as a center dock panel
   const openPROverviewPanel = useCallback(() => {
@@ -916,9 +960,11 @@ const ReviewApp: React.FC = () => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Cmd/Ctrl+F to focus file search when diff files are available.
-      // Not intercepted in the Commits view: its rail has no search input, so
-      // capturing the key would silently no-op — let the browser find handle it.
+      // Bail while the guide takeover is open (file tree isn't rendered) and
+      // don't intercept in the Commits view (its rail has no search input) —
+      // in both cases capturing the key would mutate hidden state or no-op.
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f' && !isTypingTarget(e.target)) {
+        if (guideOpen) return;
         if (hasSearchableFiles && !showCommitsPanel) {
           e.preventDefault();
           setIsFileTreeOpen(true);
@@ -955,6 +1001,15 @@ const ReviewApp: React.FC = () => {
         e.preventDefault();
         setIsFileTreeOpen(prev => !prev);
       }
+      // Cmd/Ctrl+Shift+G to toggle the guided review takeover — gated on the
+      // same hasSearchableFiles condition as the header badge so the shortcut
+      // and badge agree on availability.
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'g' && !isTypingTarget(e.target)) {
+        if (hasSearchableFiles) {
+          e.preventDefault();
+          setGuideOpen(prev => !prev);
+        }
+      }
       // Cmd/Ctrl+. to toggle sidebar
       if ((e.metaKey || e.ctrlKey) && e.key === '.' && !isTypingTarget(e.target)) {
         e.preventDefault();
@@ -966,7 +1021,7 @@ const ReviewApp: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showExportModal, showDestinationMenu, isSearchOpen, searchQuery, searchMatches, isSearchPending, openSearch, stepSearchMatch, clearSearch, closeSearch, hasSearchableFiles, showCommitsPanel, reviewSidebar.isOpen, reviewSidebar.open, reviewSidebar.close, isFileTreeOpen]);
+  }, [showExportModal, showDestinationMenu, isSearchOpen, searchQuery, searchMatches, isSearchPending, openSearch, stepSearchMatch, clearSearch, closeSearch, hasSearchableFiles, showCommitsPanel, reviewSidebar.isOpen, reviewSidebar.open, reviewSidebar.close, isFileTreeOpen, guideOpen]);
 
 
   // Load diff content - try API first, fall back to demo
@@ -1954,13 +2009,18 @@ const ReviewApp: React.FC = () => {
       setSelectedAnnotationId(null);
       return;
     }
-    if (!isAllFilesActiveRef.current) {
+    // While the guide takeover is open, the dock's active file is meaningless
+    // (guide renders its own per-section diffs) — skip the dock file-switch
+    // mutation so leaving the guide doesn't land on an unexpected file. Still
+    // set selection/scroll-target state below: the expanded guide viewer for
+    // this file picks it up. Known gap: a collapsed section won't show it.
+    if (!guideOpen && !isAllFilesActiveRef.current) {
       const fileIndex = files.findIndex(f => f.path === annotation.filePath);
       if (fileIndex !== -1) handleFileSwitch(fileIndex);
     }
     setSelectedAnnotationId(id);
     setScrollTargetAnnotation(prev => ({ id, token: (prev?.token ?? 0) + 1 }));
-  }, [files, handleFileSwitch, prMetadata, prDiffScope]);
+  }, [files, handleFileSwitch, prMetadata, prDiffScope, guideOpen]);
 
   // Diff context bundled into local-mode feedback headers so the receiving
   // agent knows which diff the annotations are anchored to. Uses committedBase
@@ -1995,7 +2055,11 @@ const ReviewApp: React.FC = () => {
     files,
     rawPatch: diffData?.rawPatch ?? '',
     focusedFileIndex: activeFileIndex,
-    focusedFilePath: files[activeFileIndex]?.path ?? null,
+    // Null while the guide takeover is open — the CSS-hidden dock's DiffViewer
+    // instances derive `isFocused` from this, so this one line strips their
+    // focus claim at the source instead of threading `guideOpen` through every
+    // dock panel. Guide-side DiffViewers arbitrate focus among themselves.
+    focusedFilePath: guideOpen ? null : (files[activeFileIndex]?.path ?? null),
     diffStyle,
     diffOverflow,
     diffIndicators,
@@ -2098,7 +2162,7 @@ const ReviewApp: React.FC = () => {
     codeNavIsLoading: codeNav.isLoading,
     codeNavActiveSymbol: codeNav.activeSymbol,
   }), [
-    files, diffData?.rawPatch, activeFileIndex, diffStyle, diffOverflow, diffIndicators,
+    files, diffData?.rawPatch, activeFileIndex, guideOpen, diffStyle, diffOverflow, diffIndicators,
     diffLineDiffType, diffShowLineNumbers, diffShowBackground,
     diffExpandUnchanged, diffFontFamily, diffFontSize, activeDiffBase, committedBase, feedbackDiffContext, prReviewScopeLabel, prDiffScope, agentCwd,
     allAnnotations, externalAnnotations,
@@ -2490,6 +2554,20 @@ const ReviewApp: React.FC = () => {
                   title={isFileTreeOpen ? 'Hide file tree' : 'Show file tree'}
                 >
                   <FolderTree className="w-3.5 h-3.5" />
+                </button>
+                <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
+              </>
+            )}
+            {hasSearchableFiles && (
+              <>
+                <button
+                  onClick={() => setGuideOpen(prev => !prev)}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                    guideOpen ? 'bg-primary/15 text-primary' : 'bg-muted hover:bg-muted/80'
+                  }`}
+                  title={guideOpen ? 'Back to the diff workspace' : 'Open guided review'}
+                >
+                  {guideOpen ? 'Go back' : 'Guide'}
                 </button>
                 <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
               </>
@@ -2890,7 +2968,7 @@ const ReviewApp: React.FC = () => {
 
         {/* Main content */}
         <div className={`flex-1 flex overflow-hidden ${isResizing ? 'select-none' : ''}`}>
-          {shouldShowFileTree && isFileTreeOpen && sectionsAvailable && panelView === 'sections' && (
+          {!guideOpen && shouldShowFileTree && isFileTreeOpen && sectionsAvailable && panelView === 'sections' && (
             <div className="contents group/sidebar">
               <SectionsPanel
                 files={files}
@@ -2944,7 +3022,7 @@ const ReviewApp: React.FC = () => {
               <ResizeHandle {...fileTreeResize.handleProps} className="z-10" side="left" onCollapse={() => setIsFileTreeOpen(false)} />
             </div>
           )}
-          {shouldShowFileTree && isFileTreeOpen && showCommitsPanel && (
+          {!guideOpen && shouldShowFileTree && isFileTreeOpen && showCommitsPanel && (
             <div className="contents group/sidebar">
               <CommitsPanel
                 width={fileTreeResize.width}
@@ -2964,7 +3042,7 @@ const ReviewApp: React.FC = () => {
               <ResizeHandle {...fileTreeResize.handleProps} className="z-10" side="left" onCollapse={() => setIsFileTreeOpen(false)} />
             </div>
           )}
-          {shouldShowFileTree && isFileTreeOpen && !(sectionsAvailable && panelView === 'sections') && !showCommitsPanel && (
+          {!guideOpen && shouldShowFileTree && isFileTreeOpen && !(sectionsAvailable && panelView === 'sections') && !showCommitsPanel && (
             <div className="contents group/sidebar">
               <FileTree
                 files={files}
@@ -3032,8 +3110,25 @@ const ReviewApp: React.FC = () => {
             </div>
           )}
 
+          {/* Guide takeover — peer of the file tree / center dock, not a
+              replacement for either in the tree: the dock below stays
+              mounted (just CSS-hidden) so its layout/scroll state survives
+              toggling the guide open and closed. */}
+          {guideOpen && (
+            <div className="flex-1 min-w-0 overflow-y-auto">
+              <GuideScreen
+                activeGuideJobId={activeGuideJobId}
+                jobs={agentJobs.jobs}
+                capabilities={agentJobs.capabilities}
+                launchJob={agentJobs.launchJob}
+                killJob={agentJobs.killJob}
+                onClose={() => setGuideOpen(false)}
+              />
+            </div>
+          )}
+
           {/* Center dock area */}
-          <div className="flex-1 min-w-0 overflow-hidden relative">
+          <div className={`flex-1 min-w-0 overflow-hidden relative ${guideOpen ? 'hidden' : ''}`}>
             {/* Commit navigation veil: while a commit switch is in flight (or
                 the view was just entered and HEAD auto-select hasn't landed),
                 cover the stale previous diff instead of letting it sit there
@@ -3180,6 +3275,7 @@ const ReviewApp: React.FC = () => {
                 onAgentKillAll={agentJobs.killAll}
                 externalAnnotations={externalAnnotations}
                 onOpenJobDetail={handleOpenJobDetail}
+                onOpenGuide={handleOpenGuide}
               />
             </div>
           )}

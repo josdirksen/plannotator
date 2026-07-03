@@ -21,6 +21,7 @@ import {
   resolveBaseBranch,
   getSinceBaseSections,
   detectRemoteDefaultInfo,
+  listPatchFiles,
   type RemoteDefaultInfo,
   type SinceBaseSections,
 } from "@plannotator/shared/review-core";
@@ -74,6 +75,7 @@ import {
   transformClaudeFindings,
 } from "./claude-review";
 import { createTourSession, TOUR_EMPTY_OUTPUT_ERROR } from "./tour/tour-review";
+import { createGuideSession, GUIDE_EMPTY_OUTPUT_ERROR } from "./guide/guide-review";
 import {
   MARKER_ENGINES,
   composeMarkerReviewPrompt,
@@ -212,6 +214,7 @@ export async function startReviewServer(
   const externalAnnotations = createExternalAnnotationHandler("review");
 
   const tour = createTourSession();
+  const guide = createGuideSession();
 
   // Mutable state for diff switching
   let currentPatch = options.rawPatch;
@@ -813,6 +816,25 @@ export async function startReviewServer(
         return built ? { ...built, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label } : built;
       }
 
+      if (provider === "guide") {
+        // The changed-file list is derived from the same launch-time patch
+        // snapshot as the rest of this closure — it's what the model plans
+        // section placement against at generation time. onJobComplete
+        // re-derives this list from the CURRENT patch at completion time to
+        // validate refs against whatever the reviewer is looking at then.
+        const changedFiles = listPatchFiles(launchPatch);
+        const built = await guide.buildCommand({
+          cwd,
+          patch: launchPatch,
+          diffType: launchDiffType as DiffType,
+          options: userMessageOptions,
+          prMetadata: launchMetadata,
+          changedFiles,
+          config,
+        });
+        return { ...built, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label };
+      }
+
       // A custom review skill carries its own instructions and becomes the whole
       // prompt; strip the default framing prose from the user message so only the
       // git/PR context remains. The default review keeps today's message verbatim.
@@ -844,21 +866,24 @@ export async function startReviewServer(
         return { command, stdinPrompt, prompt, cwd, label: jobLabel, captureStdout: true, model, effort, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label };
       }
 
-      // Marker engines (Cursor, OpenCode) — one branch, same shape as Claude.
-      // Neither CLI has a schema flag, so composeMarkerReviewPrompt ALWAYS
+      // Marker engines (Cursor, OpenCode, Pi) — one branch, same shape as Claude.
+      // None of the three has a schema flag, so composeMarkerReviewPrompt ALWAYS
       // appends the marker-block output contract (even for a custom profile —
       // it's the only thing that makes their prose output parseable). The
       // engine's buildArgv passes the prompt as the trailing positional arg and
-      // threads the spawn cwd (--workspace for Cursor, --dir for OpenCode).
+      // threads the spawn cwd (--workspace for Cursor, --dir for OpenCode; Pi has
+      // no cwd flag — it always uses the process's actual cwd, which spawnJob
+      // already sets from this same cwd).
       // captureStdout is required: the marker block comes back on stdout NDJSON.
-      const markerEngine = MARKER_ENGINES[provider as "cursor" | "opencode"];
+      const markerEngine = MARKER_ENGINES[provider as "cursor" | "opencode" | "pi"];
       if (markerEngine) {
         const model = typeof config?.model === "string" && config.model ? config.model : undefined;
+        const thinking = typeof config?.thinking === "string" && config.thinking ? config.thinking : undefined;
         // Per-job nonce embedded in the marker contract; recovered from job.prompt
         // at parse time so echoed/quoted bare tags can't be mistaken for the payload.
         const nonce = makeMarkerNonce();
         const prompt = composeMarkerReviewPrompt(reviewProfile, userMessage, nonce);
-        const { command } = buildMarkerCommand(markerEngine, prompt, model, cwd);
+        const { command } = buildMarkerCommand(markerEngine, prompt, model, cwd, { thinking });
         return { command, prompt, cwd, label: jobLabel, captureStdout: true, model, prUrl: launchPrUrl, diffScope: launchDiffScope, diffContext, reviewProfileId: reviewProfile.id, reviewProfileLabel: reviewProfile.label };
       }
 
@@ -961,14 +986,14 @@ export async function startReviewServer(
         return;
       }
 
-      // --- Marker path (Cursor, OpenCode) ---
+      // --- Marker path (Cursor, OpenCode, Pi) ---
       // FAIL-CLOSED: marker output is prompt-enforced (no schema flag), so any
       // missing/malformed/schema/transform/insertion failure must MUTATE the job
       // to failed — NEVER throw (agent-jobs.ts swallows throws, silently leaving
       // an exit-0 job marked done). Mirrors the Tour fail-closed pattern below.
       // Findings carry nullable file/line, classified into line/whole-file/
       // general by transformMarkerFindings — nothing is dropped (same as Claude).
-      const markerEngine = MARKER_ENGINES[job.provider as "cursor" | "opencode"];
+      const markerEngine = MARKER_ENGINES[job.provider as "cursor" | "opencode" | "pi"];
       if (markerEngine) {
         // Recover the per-job nonce embedded in the prompt; without it no block
         // can be trusted, so parse fails closed below.
@@ -1023,6 +1048,26 @@ export async function startReviewServer(
           // a successful-looking card that 404s on /api/tour/:id.
           job.status = "failed";
           job.error = TOUR_EMPTY_OUTPUT_ERROR;
+        }
+        return;
+      }
+
+      // --- Guide path ---
+      if (job.provider === "guide") {
+        // Validate refs against the CURRENT patch, not the one at launch time —
+        // the client resolves guide diffs against whatever files are on screen
+        // right now, so a ref must still be a real changed file at completion
+        // time to survive.
+        const changedFiles = listPatchFiles(currentPatch).map((f) => f.path);
+        const { summary } = await guide.onJobComplete({ job, meta, changedFiles });
+        if (summary) {
+          job.summary = summary;
+        } else {
+          // Same fail-closed precedent as Tour: an exit-0 job with empty,
+          // malformed, or fully-invalidated output must not look like a
+          // successful card that 404s on /api/guide/:id.
+          job.status = "failed";
+          job.error = GUIDE_EMPTY_OUTPUT_ERROR;
         }
         return;
       }
@@ -1141,6 +1186,27 @@ export async function startReviewServer(
             try {
               const body = await req.json() as { checked: boolean[] };
               if (Array.isArray(body.checked)) tour.saveChecklist(jobId, body.checked);
+              return Response.json({ ok: true });
+            } catch {
+              return Response.json({ error: "Invalid JSON" }, { status: 400 });
+            }
+          }
+
+          // API: Get guide result
+          if (url.pathname.match(/^\/api\/guide\/[^/]+$/) && req.method === "GET") {
+            const jobId = url.pathname.slice("/api/guide/".length);
+            const result = guide.getGuide(jobId);
+            if (!result) return Response.json({ error: "Guide not found" }, { status: 404 });
+            return Response.json(result);
+          }
+
+          // API: Save guide reviewed state
+          const reviewedMatch = url.pathname.match(/^\/api\/guide\/([^/]+)\/reviewed$/);
+          if (reviewedMatch && req.method === "PUT") {
+            const jobId = reviewedMatch[1];
+            try {
+              const body = await req.json() as { reviewed: boolean[] };
+              if (Array.isArray(body.reviewed)) guide.saveReviewed(jobId, body.reviewed);
               return Response.json({ ok: true });
             } catch {
               return Response.json({ error: "Invalid JSON" }, { status: 400 });

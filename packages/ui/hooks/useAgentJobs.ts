@@ -28,6 +28,8 @@ export type AgentLaunchParams = {
   model?: string;
   reasoningEffort?: string;
   effort?: string;
+  /** Pi's unified reasoning level (`--thinking off|minimal|low|medium|high|xhigh`). */
+  thinking?: string;
   fastMode?: boolean;
   reviewProfileId?: string;
 };

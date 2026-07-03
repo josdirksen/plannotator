@@ -361,15 +361,24 @@ export async function startReviewServer(options: {
 	// patch, the fingerprint baseline must stay pre-upgrade too, so the client's
 	// freshness poll flags the rebuilt diff instead of silently missing it.
 	let initialDiffServed = false;
+	// True once the user picks a base from the picker (explicitBase on the
+	// switch body). Disables the bare-local-name → origin/* canonicalization:
+	// the picker offers local and remote refs as distinct choices, so an
+	// explicit local pick must be honored even when the two point at
+	// different commits.
+	let baseExplicitlyChosen = false;
 	const resolveReviewBase = (requestedBase?: string): string => {
 		const resolved = resolveBaseBranch(requestedBase, detectedCompareTarget());
 		// Canonicalize a bare local default name ("main") to its tracking ref
 		// ("origin/main") — the startup upgrade races the first /api/diff, so a
 		// client that loaded early re-sends "main" on the next switch/refresh and
 		// would revert the server to the stale local branch. Only when the remote
-		// default is known and the requested base is exactly its local name.
+		// default is known, the requested base is exactly its local name, AND the
+		// user has never explicitly picked a base — an explicit local pick (and
+		// every echo after it) is honored verbatim.
 		const remoteBranch = remoteDefaultInfo?.branch;
 		if (
+			!baseExplicitlyChosen &&
 			remoteBranch &&
 			remoteBranch.startsWith("origin/") &&
 			resolved === remoteBranch.replace(/^origin\//, "")
@@ -452,7 +461,11 @@ export async function startReviewServer(options: {
 
 	// Local-only recompute from the cached remote tip — no network.
 	async function recomputeBaseBehindRemote(): Promise<void> {
-		if (!remoteBaseCheckApplies() || !baseRelevantDiffType() || !remoteDefaultInfo?.remoteHeadSha) {
+		// Capture once: a concurrent refreshRemoteBaseInfo can null
+		// remoteDefaultInfo (transient ls-remote failure) during the rev-parse
+		// await below — reading the global after it would throw.
+		const remoteInfo = remoteDefaultInfo;
+		if (!remoteBaseCheckApplies() || !baseRelevantDiffType() || !remoteInfo?.remoteHeadSha) {
 			baseBehindRemote = false;
 			return;
 		}
@@ -461,9 +474,17 @@ export async function startReviewServer(options: {
 		// what makes the check work when currentBase is the bare local name (the
 		// case whenever origin/HEAD's local symref isn't set; Pi forwards that
 		// local name as initialBase).
-		const remoteBranch = remoteDefaultInfo.branch;
+		//
+		// A local name the user EXPLICITLY picked is exempt: they chose the local
+		// ref over origin/* on purpose, and Fetch advances origin/* — the banner
+		// would be un-clearable nagging about a deliberate choice (same treatment
+		// as any non-default base).
+		const remoteBranch = remoteInfo.branch;
 		const localName = remoteBranch.replace(/^origin\//, "");
-		if (currentBase !== remoteBranch && currentBase !== localName) {
+		const matchesDefault =
+			currentBase === remoteBranch ||
+			(currentBase === localName && !baseExplicitlyChosen);
+		if (!matchesDefault) {
 			baseBehindRemote = false;
 			return;
 		}
@@ -474,7 +495,7 @@ export async function startReviewServer(options: {
 			["--no-optional-locks", "rev-parse", "--verify", "--end-of-options", currentBase],
 			{ cwd: options.gitContext?.cwd },
 		);
-		baseBehindRemote = local.exitCode === 0 && local.stdout.trim() !== remoteDefaultInfo.remoteHeadSha;
+		baseBehindRemote = local.exitCode === 0 && local.stdout.trim() !== remoteInfo.remoteHeadSha;
 	}
 
 	async function refreshRemoteBaseInfo(): Promise<void> {
@@ -605,11 +626,18 @@ export async function startReviewServer(options: {
 	// SAME machine the review jobs use (contextOnly=true). Returned in the diff
 	// payloads so the chat latches it onto user messages; recomputed wherever the
 	// view changes. Mirrors packages/server/review.ts buildCurrentAiReviewContext.
-	function buildCurrentAiReviewContext(): string {
+	// Parameterized so response handlers that SNAPSHOT the served state before
+	// an await can build the AI context from that same snapshot — reading the
+	// live globals here would let the startup base upgrade hand Ask AI a
+	// context for a different changeset than the rendered patch.
+	function buildCurrentAiReviewContext(
+		patch: string = currentPatch,
+		base: string = currentBase,
+	): string {
 		const workspacePrompt = getWorkspacePromptContext();
 		if (workspacePrompt) {
 			return buildAgentReviewUserMessageForTarget(
-				{ kind: "workspace", patch: currentPatch, workspace: workspacePrompt },
+				{ kind: "workspace", patch, workspace: workspacePrompt },
 				true,
 			);
 		}
@@ -618,9 +646,9 @@ export async function startReviewServer(options: {
 		const hasLocalAccess = !!options.gitContext ||
 			(options.worktreePool && prMeta ? resolvePRLocalCwd() !== null : !!options.agentCwd);
 		return buildAgentReviewUserMessage(
-			currentPatch,
+			patch,
 			currentDiffType as DiffType,
-			{ defaultBranch: currentBase, hasLocalAccess, prDiffScope: currentPRDiffScope },
+			{ defaultBranch: base, hasLocalAccess, prDiffScope: currentPRDiffScope },
 			prMeta,
 			true,
 		);
@@ -1038,7 +1066,7 @@ export async function startReviewServer(options: {
 			const sections = await buildSectionsSidecar(servedBase);
 			json(res, {
 				rawPatch: servedPatch,
-				aiReviewContext: buildCurrentAiReviewContext(),
+				aiReviewContext: buildCurrentAiReviewContext(servedPatch, servedBase),
 				gitRef: servedGitRef,
 				origin: options.origin ?? "pi",
 				mode: isWorkspaceMode ? "workspace" : undefined,
@@ -1197,6 +1225,14 @@ export async function startReviewServer(options: {
 						semanticDiff: await getSemanticDiffAdvert(),
 					});
 					return;
+				}
+				// An explicit pick from the base picker is honored verbatim —
+				// the local/remote groups are distinct choices, so "main" must
+				// not be canonicalized to "origin/main" when the user chose the
+				// local ref on purpose. Sticky: later echoes of that choice
+				// (diff-type switches, refreshes) must not re-canonicalize it.
+				if (body.explicitBase === true && typeof body.base === "string") {
+					baseExplicitlyChosen = true;
 				}
 				const base = resolveReviewBase(
 					typeof body.base === "string" ? body.base : undefined,

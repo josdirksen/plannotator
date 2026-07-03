@@ -1171,12 +1171,14 @@ export interface SinceBaseSections {
 
 /**
  * Split a porcelain rename/copy path token (`<from> -> <to>`) into its two
- * sides. Git independently double-quotes either side when it contains a space
- * or special char, so the ` -> ` that separates them is the one OUTSIDE any
- * quoted span — a filename that literally contains ` -> ` is always quoted, so
- * its internal separator sits inside the quotes and must be skipped. Splitting
- * on the raw string (naive indexOf) would tear such a filename into garbage
- * tokens, leave the real file with no entry, and default it to "committed".
+ * sides. Git double-quotes a side when it contains a double quote, backslash,
+ * control char, or (with core.quotePath on) non-ASCII — in those cases the
+ * real separator is the ` -> ` OUTSIDE the quoted span, so a leading quote is
+ * skipped before searching. Plain spaces are NOT quoted by porcelain v1,
+ * which means a filename literally containing ` -> ` (and nothing else
+ * unusual) is emitted unquoted and ambiguous — only `--porcelain -z` fully
+ * disambiguates. Accepted edge: such a name splits at its first separator
+ * and both sides misgroup to "committed" in the sidebar; nothing else breaks.
  * Returns [from, to] for a rename/copy, or [token] otherwise.
  */
 export function splitPorcelainRename(rest: string): string[] {

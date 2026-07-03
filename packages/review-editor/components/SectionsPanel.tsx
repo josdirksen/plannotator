@@ -212,11 +212,14 @@ export const SectionsPanel: React.FC<SectionsPanelProps> = ({
       // A file in the composite patch with no status entry has a clean
       // working tree — it is committed branch work.
       let group: SectionGroup = entry?.group ?? 'committed';
-      const staged = (entry?.staged ?? false) || (stagedFiles?.has(file.path) ?? false);
+      // stagedFiles is the EFFECTIVE set (sidecar + session overrides) — the
+      // sidecar's own flag must not be ORed back in, or a file unstaged this
+      // session would keep its stale staged dot until the next refresh.
+      const staged = stagedFiles ? stagedFiles.has(file.path) : (entry?.staged ?? false);
       // Staging an untracked file makes it tracked+staged in git, but the
       // sidecar snapshot still says untracked until the next diff refresh —
-      // anticipate the server and show it under Changes now. Unstaging
-      // removes it from stagedFiles, which falls back to the sidecar group.
+      // anticipate the server and show it under Changes now. Unstaging drops
+      // it from the effective set, which falls back to the sidecar group.
       if (group === 'untracked' && staged) group = 'changes';
       grouped[group].push({ file, index, group, staged });
     });
@@ -290,19 +293,14 @@ export const SectionsPanel: React.FC<SectionsPanelProps> = ({
     return () => observer.disconnect();
   }, [remeasureCommittedFit]);
 
-  // "N added" counts BOTH files staged this session (stagedFiles) and files
-  // already staged when the review opened (from the sidecar's porcelain X
-  // column). The rows show a staged dot for either, so the header must too —
-  // otherwise it reads 0 while several rows show dots.
+  // "N added" mirrors the rows' staged dots. stagedFiles is the EFFECTIVE
+  // set (sidecar + session overrides), so its size IS the count — unioning
+  // the sidecar back in would resurrect files unstaged this session. The
+  // sidecar-only fallback covers callers that don't wire staging.
   const stagedCount = useMemo(() => {
-    const staged = new Set<string>();
-    if (sections) {
-      for (const [path, entry] of Object.entries(sections.files)) {
-        if (entry.staged) staged.add(path);
-      }
-    }
-    if (stagedFiles) for (const path of stagedFiles) staged.add(path);
-    return staged.size;
+    if (stagedFiles) return stagedFiles.size;
+    if (!sections) return 0;
+    return Object.values(sections.files).filter((entry) => entry.staged).length;
   }, [sections, stagedFiles]);
 
   // Keyboard file navigation (j/k/arrows/Home/End) over the panel's VISIBLE

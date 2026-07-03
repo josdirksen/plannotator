@@ -256,6 +256,12 @@ export async function startReviewServer(
   const detectedCompareTarget = (): string => gitContext?.defaultBranch || gitContext?.compareTarget?.fallback || "main";
   let currentBase = options.initialBase || detectedCompareTarget();
   let baseEverSwitched = false;
+  // True once the user picks a base from the picker (explicitBase on the
+  // switch body). Disables the bare-local-name → origin/* canonicalization:
+  // the picker offers local and remote refs as distinct choices, so an
+  // explicit local pick must be honored even when the two point at
+  // different commits.
+  let baseExplicitlyChosen = false;
   // Whether the initial /api/diff snapshot has been handed to a client. The
   // startup base upgrade consults this: once a client renders the pre-upgrade
   // patch, the fingerprint baseline must stay pre-upgrade too, so the client's
@@ -366,10 +372,12 @@ export async function startReviewServer(
     // client that loaded early re-sends the un-upgraded "main" on the next
     // switch/refresh; without this the server would revert to the stale local
     // branch and lose the upstream baseline. Only when the remote default is
-    // known and the requested base is exactly its local name — an explicitly
-    // chosen different branch is left untouched.
+    // known, the requested base is exactly its local name, AND the user has
+    // never explicitly picked a base — an explicit local pick (and every
+    // echo after it) is honored verbatim.
     const remoteBranch = remoteDefaultInfo?.branch;
     if (
+      !baseExplicitlyChosen &&
       remoteBranch &&
       remoteBranch.startsWith("origin/") &&
       resolved === remoteBranch.replace(/^origin\//, "")
@@ -404,7 +412,11 @@ export async function startReviewServer(
 
   // Local-only recompute from the cached remote tip — no network.
   const recomputeBaseBehindRemote = async (): Promise<void> => {
-    if (!remoteBaseCheckApplies() || !baseRelevantDiffType() || !remoteDefaultInfo?.remoteHeadSha) {
+    // Capture once: a concurrent refreshRemoteBaseInfo can null
+    // remoteDefaultInfo (transient ls-remote failure) during the rev-parse
+    // await below — reading the global after it would throw.
+    const remoteInfo = remoteDefaultInfo;
+    if (!remoteBaseCheckApplies() || !baseRelevantDiffType() || !remoteInfo?.remoteHeadSha) {
       baseBehindRemote = false;
       return;
     }
@@ -414,9 +426,17 @@ export async function startReviewServer(
     // makes this correct when currentBase is the bare local name, which is the
     // case whenever origin/HEAD's local symref isn't set (Pi forwards that
     // local name as initialBase; the hook upgrades to origin/*).
-    const remoteBranch = remoteDefaultInfo.branch;
+    //
+    // A local name the user EXPLICITLY picked is exempt: they chose the local
+    // ref over origin/* on purpose, and Fetch advances origin/* — the banner
+    // would be un-clearable nagging about a deliberate choice (same treatment
+    // as any non-default base).
+    const remoteBranch = remoteInfo.branch;
     const localName = remoteBranch.replace(/^origin\//, "");
-    if (currentBase !== remoteBranch && currentBase !== localName) {
+    const matchesDefault =
+      currentBase === remoteBranch ||
+      (currentBase === localName && !baseExplicitlyChosen);
+    if (!matchesDefault) {
       baseBehindRemote = false;
       return;
     }
@@ -427,7 +447,7 @@ export async function startReviewServer(
       ["--no-optional-locks", "rev-parse", "--verify", "--end-of-options", currentBase],
       { cwd: gitContext?.cwd },
     );
-    baseBehindRemote = local.exitCode === 0 && local.stdout.trim() !== remoteDefaultInfo.remoteHeadSha;
+    baseBehindRemote = local.exitCode === 0 && local.stdout.trim() !== remoteInfo.remoteHeadSha;
   };
 
   const refreshRemoteBaseInfo = async (): Promise<void> => {
@@ -561,11 +581,18 @@ export async function startReviewServer(
   // "provide findings" framing. Returned in the diff payloads so the chat can
   // latch it onto the user's messages; recomputed wherever the view changes so a
   // mid-session switch (diff type, base, whitespace, PR, scope) stays accurate.
-  const buildCurrentAiReviewContext = (): string => {
+  // Parameterized so response handlers that SNAPSHOT the served state before
+  // an await can build the AI context from that same snapshot — reading the
+  // live globals here would let the startup base upgrade hand Ask AI a
+  // context for a different changeset than the rendered patch.
+  const buildCurrentAiReviewContext = (
+    patch: string = currentPatch,
+    base: string = currentBase,
+  ): string => {
     const workspacePrompt = getWorkspacePromptContext();
     if (workspacePrompt) {
       return buildAgentReviewUserMessageForTarget(
-        { kind: "workspace", patch: currentPatch, workspace: workspacePrompt },
+        { kind: "workspace", patch, workspace: workspacePrompt },
         true,
       );
     }
@@ -574,9 +601,9 @@ export async function startReviewServer(
         ? resolvePRLocalCwd(prMetadata) !== undefined
         : !!options.agentCwd);
     return buildAgentReviewUserMessage(
-      currentPatch,
+      patch,
       currentDiffType as DiffType,
-      { defaultBranch: currentBase, hasLocalAccess, prDiffScope: currentPRDiffScope },
+      { defaultBranch: base, hasLocalAccess, prDiffScope: currentPRDiffScope },
       prMetadata,
       true,
     );
@@ -1091,7 +1118,7 @@ export async function startReviewServer(
             const sections = await buildSectionsSidecar(servedBase);
             return Response.json({
               rawPatch: servedPatch,
-              aiReviewContext: buildCurrentAiReviewContext(),
+              aiReviewContext: buildCurrentAiReviewContext(servedPatch, servedBase),
               gitRef: servedGitRef,
               origin,
               mode: isWorkspaceMode ? "workspace" : undefined,
@@ -1233,7 +1260,7 @@ export async function startReviewServer(
               );
             }
             try {
-              const body = (await req.json()) as { diffType: DiffType | WorkspaceDiffType; base?: string; hideWhitespace?: boolean };
+              const body = (await req.json()) as { diffType: DiffType | WorkspaceDiffType; base?: string; hideWhitespace?: boolean; explicitBase?: boolean };
               let newDiffType = body.diffType;
 
               if (!newDiffType) {
@@ -1282,6 +1309,14 @@ export async function startReviewServer(
               // string methods and would throw a TypeError otherwise. Mirrors
               // Pi's guard so both runtimes validate identically.
               const requestedBase = typeof body.base === "string" ? body.base : undefined;
+              // An explicit pick from the base picker is honored verbatim —
+              // the local/remote groups are distinct choices, so "main" must
+              // not be canonicalized to "origin/main" when the user chose the
+              // local ref on purpose. Sticky: later echoes of that choice
+              // (diff-type switches, refreshes) must not re-canonicalize it.
+              if (body.explicitBase === true && requestedBase) {
+                baseExplicitlyChosen = true;
+              }
               const base = resolveReviewBase(requestedBase);
               const defaultCwd = gitContext?.cwd;
 

@@ -1293,9 +1293,21 @@ const ReviewApp: React.FC = () => {
     (path: string) => setViewedFiles(prev => new Set(prev).add(path)),
     [],
   );
+  // Files already staged when the sidecar snapshot was taken — the hook folds
+  // these into the effective staged set so pre-staged files toggle correctly.
+  const sidecarStaged = useMemo(() => {
+    const staged = new Set<string>();
+    if (sections) {
+      for (const [path, entry] of Object.entries(sections.files)) {
+        if (entry.staged) staged.add(path);
+      }
+    }
+    return staged;
+  }, [sections]);
   const { stagedFiles, stagingFile, canStageFiles: canStageRaw, stageFile, resetStagedFiles, stageError } = useGitAdd({
     activeDiffBase,
     onFileViewed: handleFileViewedFromStage,
+    sidecarStaged,
   });
   // Staging is never available in PR review mode — the server rejects it and the UI shouldn't offer it.
   const canStageInWorkspace = reviewMode !== 'workspace' || workspaceDiffOptions?.some((option) => option.id === 'workspace-staged');
@@ -1398,7 +1410,7 @@ const ReviewApp: React.FC = () => {
   // Shared helper: fetch a diff switch and update state.
   // Returns true on success, false on failure — callers that optimistically
   // updated UI state (e.g. the base picker) can use this to revert.
-  const fetchDiffSwitch = useCallback(async (fullDiffType: string, baseOverride?: string, options?: { preserveFile?: boolean }): Promise<boolean> => {
+  const fetchDiffSwitch = useCallback(async (fullDiffType: string, baseOverride?: string, options?: { preserveFile?: boolean; explicitBase?: boolean }): Promise<boolean> => {
     setIsLoadingDiff(true);
     try {
       const res = await fetch('/api/diff/switch', {
@@ -1410,6 +1422,11 @@ const ReviewApp: React.FC = () => {
           // so forwarding unconditionally is safe and keeps the request shape uniform.
           ...((baseOverride ?? selectedBase) && { base: baseOverride ?? selectedBase }),
           hideWhitespace: diffHideWhitespace,
+          // True only when the base came from the picker THIS request — the
+          // server then honors it verbatim (no origin/* canonicalization).
+          // Echoed bases (diff-type switches, refreshes) stay canonicalizable
+          // so an early-loaded client can't revert the startup base upgrade.
+          ...(options?.explicitBase && { explicitBase: true }),
         }),
       });
 
@@ -1467,6 +1484,9 @@ const ReviewApp: React.FC = () => {
         // selection anchored to the old patch is stale — clear it (the
         // non-preserve branch below already does).
         setPendingSelection(null);
+        // The refetched sidecar already reflects this session's staging;
+        // stale overrides would fight the fresh snapshot.
+        resetStagedFiles();
       } else {
         dockApi?.getPanel(REVIEW_DIFF_PANEL_ID)?.api.close();
         needsInitialDiffPanel.current = true;
@@ -1530,7 +1550,7 @@ const ReviewApp: React.FC = () => {
       const previous = selectedBase;
       setSelectedBase(branch);
       if (activeDiffBase === 'since-base' || activeDiffBase === 'branch' || activeDiffBase === 'merge-base' || activeDiffBase === 'jj-line' || activeDiffBase === 'jj-evolog') {
-        const ok = await fetchDiffSwitch(diffType, branch);
+        const ok = await fetchDiffSwitch(diffType, branch, { explicitBase: true });
         if (!ok) setSelectedBase(previous);
       }
     },

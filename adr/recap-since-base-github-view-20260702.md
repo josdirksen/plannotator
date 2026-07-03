@@ -75,6 +75,17 @@ landed on this branch:
   version is hidden. Fixing it would require two same-path diff entries, which
   the path-keyed UI (dock panel, nav, sections map, viewed state) cannot
   represent. Accepted: the reviewer still sees the file's full current content.
+- **Index-only changes are not a separate layer.** Since-base diffs the
+  WORKING TREE against the merge-base — "what lands if you `git add -A &&
+  git commit` right now", which is the product promise. A change that exists
+  only in the index (edit → `git add` → restore the working tree to base
+  content) does not appear, because committing everything now would not
+  include it. Deliberate semantics, not an oversight.
+- **A filename literally containing ` -> ` can misgroup in the sidebar.**
+  Porcelain v1 doesn't quote plain spaces, so a rename involving such a name
+  splits at the wrong separator and both sides fall back to the Committed
+  group. Only `--porcelain -z` fully disambiguates; not worth the parser
+  rewrite for a pathological name. Display-only.
 
 ## Reference files
 

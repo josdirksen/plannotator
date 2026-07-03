@@ -37,6 +37,7 @@ import {
 	detectRemoteDefaultInfo,
 	getFileContentsForDiff as getFileContentsForDiffCore,
 	getSinceBaseSections,
+	listCommitHistory,
 	parseWorktreeDiffType,
 	resolveBaseBranch,
 	validateFilePath,
@@ -1210,6 +1211,27 @@ export async function startReviewServer(options: {
 			});
 		} else if (url.pathname === "/api/semantic-diff" && req.method === "GET") {
 			json(res, await getSemanticDiff(url));
+		} else if (url.pathname === "/api/commits" && req.method === "GET") {
+			// Linear commit history for the Commits panel (mirrors Bun review.ts).
+			// Git-local sessions only — PR/workspace/jj/p4 don't offer the view.
+			// Computed against the active diff's cwd (worktree-aware) and the
+			// active base so the divider matches the review baseline.
+			if (!options.gitContext || isPRMode || workspace || (sessionVcsType && sessionVcsType !== "git")) {
+				json(res, { error: "Commit history is only available for local git reviews" }, 400);
+				return;
+			}
+			const limitParam = Number.parseInt(url.searchParams.get("limit") ?? "", 10);
+			const before = url.searchParams.get("before") ?? undefined;
+			const commitsCwd = resolveVcsCwd(currentDiffType as DiffType, options.gitContext.cwd);
+			const page = await listCommitHistory(reviewRuntime, currentBase, commitsCwd, {
+				...(Number.isFinite(limitParam) && { limit: limitParam }),
+				...(before !== undefined && { before }),
+			});
+			if (!page) {
+				json(res, { error: "Could not read commit history" }, 500);
+				return;
+			}
+			json(res, page);
 		} else if (url.pathname === "/api/diff/switch" && req.method === "POST") {
 			// Capture the ordering token BEFORE any await — body delivery can
 			// finish out of arrival order under network jitter, so capturing after

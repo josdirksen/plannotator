@@ -19,6 +19,7 @@ import {
   resolveBaseBranch,
   getSinceBaseSections,
   detectRemoteDefaultInfo,
+  listCommitHistory,
   type RemoteDefaultInfo,
   type SinceBaseSections,
 } from "@plannotator/shared/review-core";
@@ -1281,6 +1282,32 @@ export async function startReviewServer(
           // API: Get semantic diff content
           if (url.pathname === "/api/semantic-diff" && req.method === "GET") {
             return Response.json(await getSemanticDiff(url));
+          }
+
+          // API: Linear commit history for the Commits panel. Git-local
+          // sessions only — PR/workspace/jj/p4 don't offer the view (same
+          // gate the client's commitsCapable applies). Computed against the
+          // same cwd as the active diff so worktree sessions list the
+          // worktree's history, and against the active base so the divider
+          // matches the review baseline.
+          if (url.pathname === "/api/commits" && req.method === "GET") {
+            if (!gitContext || isPRMode || workspace || (sessionVcsType && sessionVcsType !== "git")) {
+              return Response.json(
+                { error: "Commit history is only available for local git reviews" },
+                { status: 400 },
+              );
+            }
+            const limitParam = Number.parseInt(url.searchParams.get("limit") ?? "", 10);
+            const before = url.searchParams.get("before") ?? undefined;
+            const commitsCwd = resolveVcsCwd(currentDiffType as DiffType, gitContext.cwd);
+            const page = await listCommitHistory(gitRuntime, currentBase, commitsCwd, {
+              ...(Number.isFinite(limitParam) && { limit: limitParam }),
+              ...(before !== undefined && { before }),
+            });
+            if (!page) {
+              return Response.json({ error: "Could not read commit history" }, { status: 500 });
+            }
+            return Response.json(page);
           }
 
           // API: Switch diff type (requires local file access)

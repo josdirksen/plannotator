@@ -1562,10 +1562,39 @@ const ReviewApp: React.FC = () => {
 
   // Toggling to Sections means "show me the since-base review" — if an
   // advanced mode is active, switch the diff back along with the view.
+  // The view choice persists as the default (selectPanelView), so the diff
+  // default must persist WITH it — Sections can only render since-base.
+  // Persisting only the view here left a conflicted pair (sections +
+  // non-since-base default): the next session opened on the stale diff in
+  // the tree view despite the Git-status cookie.
   const handleSwitchToSections = useCallback(() => {
     selectPanelView('sections');
+    if (configStore.get('defaultDiffType') !== 'since-base') {
+      configStore.set('defaultDiffType', 'since-base');
+    }
     if (activeDiffBase !== 'since-base') void handleDiffSwitch('since-base');
   }, [selectPanelView, activeDiffBase, handleDiffSwitch]);
+
+  // Self-heal a conflicted persisted pair: reviewPanelView=sections with a
+  // non-since-base defaultDiffType. Every UI writer enforces the coupling
+  // (sections ⟺ since-base), but configStore.init() applies config.json over
+  // the cookie WITHOUT it — so a stale server value (a debounced write lost
+  // when a session closed, or a pre-feature config file) re-corrupts the pair
+  // on every load: the server opens on the stale diff in the classic tree
+  // while the cookie still says Git status. Trust the view choice, repair the
+  // diff default (cookie + config.json), and bring the live session along.
+  const healedPanelPairOnLoad = useRef(false);
+  useEffect(() => {
+    if (healedPanelPairOnLoad.current || isLoading || !diffData) return;
+    // First-run resets + applies the pair itself (on dialog dismiss).
+    if (!sectionsCapable || reviewSetupIsFirstRun.current) return;
+    if (panelView !== 'sections') return;
+    healedPanelPairOnLoad.current = true;
+    if (configStore.get('defaultDiffType') !== 'since-base') {
+      configStore.set('defaultDiffType', 'since-base');
+      if (activeDiffBase !== 'since-base') void handleDiffSwitch('since-base');
+    }
+  }, [isLoading, diffData, sectionsCapable, panelView, activeDiffBase, handleDiffSwitch]);
 
   // Switch worktree context (or back to main repo). Preserves the current
   // diff mode across the switch — if the reviewer was looking at "PR Diff"

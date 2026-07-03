@@ -6,7 +6,7 @@
  */
 
 import { resolve as resolvePath } from "node:path";
-import { unquoteGitPath } from "./diff-paths";
+import { unquoteGitPath, parsePatchPathToken } from "./diff-paths";
 
 export const JJ_TRUNK_REVSET = "trunk()";
 
@@ -492,30 +492,17 @@ export async function getGitContext(
 }
 
 /**
- * Strip a diff header path token to its repo-relative path: drop the `a/`/`b/`
- * prefix, git's trailing-tab metadata (appended to UNquoted paths that contain a
- * space), and C-quoting. Matches how parseDiffToFiles / git ls-files key paths.
- */
-function stripHeaderPath(rest: string): string | null {
-  if (!rest || rest === "/dev/null") return null;
-  if (rest.startsWith('"')) {
-    // C-quoted (path has special chars): unquote, then drop the a/|b/ prefix.
-    const unq = unquoteGitPath(rest);
-    return unq.length > 2 ? unq.slice(2) : unq;
-  }
-  let p = rest.length > 2 ? rest.slice(2) : rest; // drop a/ or b/
-  const tab = p.indexOf("\t"); // git's unquoted-space metadata separator
-  if (tab !== -1) p = p.slice(0, tab);
-  return p || null;
-}
-
-/**
  * Remove tracked DELETION blocks whose path also exists as an untracked file.
  * `git rm --cached f` (optionally then editing f) reports f as BOTH a tracked
  * deletion and an untracked file — the file is still on disk, so the working-tree
  * (untracked) side carries the real content. Keep THAT and drop the misleading
  * deletion: exactly one diff entry per path (no path-keyed dock/nav collision)
  * AND the reviewer sees the actual content, not a phantom delete.
+ *
+ * The deletion's path is read from its `--- a/<path>` line via the shared
+ * parsePatchPathToken (handles C-quoting and git's unquoted-space trailing-tab).
+ * Binary deletions carry no `--- ` line, so a binary `rm --cached` isn't deduped
+ * — an accepted edge (binary + untracked + unstaged-delete is vanishingly rare).
  */
 function removeTrackedDeletions(patch: string, untrackedPaths: Set<string>): string {
   if (!patch || untrackedPaths.size === 0) return patch;
@@ -538,7 +525,10 @@ function removeTrackedDeletions(patch: string, untrackedPaths: Set<string>): str
     let delPath: string | null = null;
     if (isDeletion) {
       const minus = block.find((l) => l.startsWith("--- "));
-      if (minus) delPath = stripHeaderPath(minus.slice(4));
+      if (minus) {
+        const p = parsePatchPathToken(minus.slice(4), "a");
+        if (p && p !== "/dev/null") delPath = p;
+      }
     }
     if (!(isDeletion && delPath && untrackedPaths.has(delPath))) out.push(...block);
   }

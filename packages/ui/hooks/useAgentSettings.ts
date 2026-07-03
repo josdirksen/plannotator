@@ -34,7 +34,12 @@ export const DEFAULT_GUIDE_CLAUDE_MODEL = 'sonnet';
 export const DEFAULT_GUIDE_CLAUDE_EFFORT = 'low';
 export const DEFAULT_GUIDE_CODEX_MODEL = 'gpt-5.5';
 export const DEFAULT_GUIDE_CODEX_REASONING = 'low';
-export const DEFAULT_GUIDE_CODEX_FAST = false;
+// No DEFAULT_GUIDE_CODEX_FAST: fast mode is deliberately not offered for
+// guide (product decision — see AgentsTab's guide codex config block), so
+// there is no getter/setter to default. patchCodex below still needs SOME
+// `fast` default to satisfy CodexSection's per-model shape when it seeds a
+// new model entry; DEFAULT_CODEX_FAST (false, same value) covers that without
+// implying a guide-specific fast toggle exists.
 // `auto` is Cursor's own default model id (from `agent models`); lowercase so it
 // matches the discovered catalog and the buildCursorCommand omit-`--model` check.
 export const DEFAULT_CURSOR_MODEL = 'auto';
@@ -417,7 +422,7 @@ export function useAgentSettings() {
   }, []);
 
   const setGuideCodexReasoning = useCallback(
-    (reasoning: string) => patchCodex('guideCodex', { reasoning }, { reasoning: DEFAULT_GUIDE_CODEX_REASONING, fast: DEFAULT_GUIDE_CODEX_FAST }),
+    (reasoning: string) => patchCodex('guideCodex', { reasoning }, { reasoning: DEFAULT_GUIDE_CODEX_REASONING, fast: DEFAULT_CODEX_FAST }),
     [patchCodex],
   );
 

@@ -622,6 +622,18 @@ function piBuildArgv(prompt: string, model?: string, cwd?: string, opts?: Marker
     "json",
     "--no-session",
     "--no-approve",
+    // Full read-only (`--tools read,grep,find,ls`) would break these jobs:
+    // the review/guide/tour prompt tells the agent to inspect the diff itself
+    // (git diff/log, gh pr view, etc. per buildAgentReviewUserMessage), which
+    // needs Bash, not just file-read tools. `--exclude-tools edit,write`
+    // instead removes only Pi's purpose-built mutation tools while keeping
+    // every inspection path (Bash included) intact. Bash itself is therefore
+    // still available here — the same residual trust level as Cursor and
+    // OpenCode, whose CLIs offer no tool-restriction flags at all and so run
+    // with Bash unrestricted too. PR jobs additionally run inside disposable
+    // worktrees, bounding the blast radius of anything Bash could still do.
+    "--exclude-tools",
+    "edit,write",
     ...(useModel ? ["--model", model] : []),
     // Pi's unified reasoning knob (thinking level) applies to whatever model
     // is selected; omitted ⇒ Pi's own default (medium).

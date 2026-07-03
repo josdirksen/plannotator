@@ -30,6 +30,12 @@ export function useGuideData(jobId: string): UseGuideDataReturn {
   const [reviewed, setReviewed] = useState<boolean[]>([]);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingReviewedRef = useRef<boolean[] | null>(null);
+  // Bumped by retry() to re-run the fetch effect without calling fetchGuide
+  // directly — a direct call would return a fresh cleanup closure that the
+  // caller (a button's onClick) has nowhere to store, so the in-flight
+  // request it just superseded would never get its `cancelled` flag set and
+  // could still clobber state after a later retry resolves first.
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
   const fetchGuide = useCallback((): (() => void) | void => {
     if (!jobId) return;
@@ -75,7 +81,11 @@ export function useGuideData(jobId: string): UseGuideDataReturn {
 
   useEffect(() => {
     return fetchGuide();
-  }, [fetchGuide]);
+    // refreshNonce has no bearing on WHAT is fetched (fetchGuide already
+    // captures jobId) — it exists purely to force this effect to re-run on
+    // retry(), so the cancellation guard below is owned by the same effect
+    // instance for every fetch, manual retries included.
+  }, [fetchGuide, refreshNonce]);
 
   const saveReviewed = useCallback(
     (next: boolean[]) => {
@@ -126,5 +136,7 @@ export function useGuideData(jobId: string): UseGuideDataReturn {
     };
   }, [jobId]);
 
-  return { guide, loading, error, reviewed, toggleReviewed, retry: fetchGuide };
+  const retry = useCallback(() => setRefreshNonce((n) => n + 1), []);
+
+  return { guide, loading, error, reviewed, toggleReviewed, retry };
 }

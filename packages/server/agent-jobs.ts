@@ -414,15 +414,24 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
               changedFilesSnapshot,
             });
           } catch (err) {
-            // Claude/Codex are fail-open: an ingestion error is logged but does
-            // not change the terminal state. Cursor, OpenCode, and Pi are
+            // Claude/Codex REVIEW jobs stay fail-open by design: annotations
+            // may already be partially ingested by the time something throws,
+            // and flipping the job to "failed" would hide a review the user
+            // can otherwise still see/use. Cursor, OpenCode, and Pi are
             // fail-closed — their findings are prompt-enforced, so an unexpected
             // throw here must surface as a failed job rather than a green one.
             // (Their handlers normally fail by mutation and never throw; this
-            // guards future refactors.)
+            // guards future refactors.) Tour and guide widen that fail-closed
+            // rule too: both are single-shot, all-or-nothing outputs (a tour's
+            // stops/checklist, a guide's sections) with nothing meaningful
+            // partially ingested, so an unexpected throw here means the whole
+            // result is unusable — it must not sit at "done" with no content.
             if (MARKER_ENGINES[provider as "cursor" | "opencode" | "pi"]) {
               entry.info.status = "failed";
               entry.info.error = err instanceof Error ? err.message : `${provider} result ingestion failed`;
+            } else if (provider === "tour" || provider === "guide") {
+              entry.info.status = "failed";
+              entry.info.error = `Result ingestion failed: ${err instanceof Error ? err.message : String(err)}`;
             }
           }
         }

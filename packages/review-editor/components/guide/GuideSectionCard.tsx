@@ -104,22 +104,28 @@ export const GuideSectionCard: React.FC<GuideSectionCardProps> = ({
   };
 
   if (isCollapsed) {
+    // Two SIBLING buttons in a flex row, not a button nested inside a button:
+    // the previous markup put a clickable checkbox `<span onClick>` inside
+    // the row's `<button>`, which is both invalid HTML (interactive-in-
+    // interactive) and unreachable by keyboard/screen reader as its own
+    // control. Same visual result, valid semantics, both independently
+    // focusable and operable with Enter/Space.
     return (
-      <div className="rounded-lg border border-border/50 bg-muted/10">
+      <div className="flex w-full items-center gap-3 rounded-lg border border-border/50 bg-muted/10 px-4 py-3">
+        <button
+          type="button"
+          onClick={handleToggleReviewed}
+          aria-label={reviewed ? 'Un-mark as reviewed' : 'Mark as reviewed'}
+          className="flex-shrink-0 rounded"
+        >
+          <Checkbox checked={reviewed} />
+        </button>
         <button
           type="button"
           onClick={() => setCollapsedOverride(false)}
-          className="group flex w-full items-center gap-3 px-4 py-3 text-left"
+          className="group flex min-w-0 flex-1 items-center gap-3 text-left"
           title="Expand"
         >
-          <span
-            onClick={(e) => {
-              e.stopPropagation();
-              handleToggleReviewed();
-            }}
-          >
-            <Checkbox checked={reviewed} />
-          </span>
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/70">{section.title}</span>
           <span className="flex-shrink-0 text-[11px] text-muted-foreground/60">
             {section.diffs.length} diff{section.diffs.length !== 1 ? 's' : ''}

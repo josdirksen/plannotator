@@ -610,7 +610,9 @@ function stripTrailingCommasOutsideStrings(text: string): string {
  *
  * Steps: (a) parse as-is, (b) strip a markdown code fence, (c) slice the
  * first `{` to the last `}`, (d) drop trailing commas before `}`/`]`,
- * (e) close brackets left open at end-of-text (truncated output).
+ * (e) close brackets left open at end-of-text (truncated output), (f) drop
+ * trailing commas once more (bracket-closing in (e) can introduce a fresh
+ * one right before the closer it just appended).
  */
 export function repairGuideJsonText(text: string): CodeGuideOutput | null {
   if (!text) return null;
@@ -634,6 +636,16 @@ export function repairGuideJsonText(text: string): CodeGuideOutput | null {
 
   const balanced = closeUnbalancedGuideBrackets(current);
   if (balanced !== current) { current = balanced; attempts.push(current); }
+
+  // Closing brackets (step e, above) can itself create a NEW trailing comma
+  // right before the closer it just appended — truncation cut off text
+  // immediately after a comma, e.g. `..."file": "a.ts",` with nothing after
+  // it, so closeUnbalancedGuideBrackets appends `}]}` directly onto that
+  // trailing comma. Running the trailing-comma strip once more, now that
+  // the structure is closed, catches that pattern without re-opening any of
+  // the earlier (already-tried) attempts.
+  const recleaned = stripTrailingCommasOutsideStrings(current);
+  if (recleaned !== current) { current = recleaned; attempts.push(current); }
 
   for (const attempt of attempts) {
     try {
@@ -893,6 +905,12 @@ export interface GuideSession {
   getGuide(jobId: string): (CodeGuideOutput & { reviewed: boolean[] }) | null;
   saveReviewed(jobId: string, reviewed: boolean[]): void;
   getFailedPayload(jobId: string): string | null;
+  /** The changed-file set (as of LAUNCH time) recorded for a given job id, or
+   *  null if none was ever recorded (job unknown, or predates this session).
+   *  Used by review.ts to snapshot a REPAIR job's `changedFilesSnapshot` from
+   *  the FAILED job's own recorded set, rather than from whatever diff is on
+   *  screen at repair time (see the repairOf branch in buildAgentJob). */
+  getLaunchChangedFiles(jobId: string): string[] | null;
   /** Manually submit corrected guide JSON (mechanical repair -> parse ->
    *  validateGuideOutput) for a job whose automatic output failed. Success
    *  stores under the SAME job id the reviewed state is already keyed to.
@@ -1198,6 +1216,10 @@ export function createGuideSession(): GuideSession {
 
     getFailedPayload(jobId) {
       return failedPayloads.get(jobId) ?? null;
+    },
+
+    getLaunchChangedFiles(jobId) {
+      return launchChangedFiles.get(jobId) ?? null;
     },
 
     submitManualOutput(jobId, payloadText, fallbackChangedFiles) {

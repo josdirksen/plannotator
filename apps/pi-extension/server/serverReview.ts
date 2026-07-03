@@ -903,6 +903,19 @@ export async function startReviewServer(options: {
 					config: guideConfig,
 					...(repair && { repair }),
 				});
+				// A repair job's payload is the FAILED job's previously-captured
+				// output, not this launch's diff — its file refs were validated
+				// (and, for onJobComplete, must be re-validated) against the failed
+				// job's own recorded changed-file set. Falling back to this launch's
+				// freshly-derived `changedFiles` here would validate a repair against
+				// whatever diff/base happens to be on screen right now, reintroducing
+				// the destroy-on-switch bug this snapshot exists to prevent — just
+				// for repairs instead of the original launch. Fall back only if the
+				// failed job's set was never recorded (defensive; shouldn't happen
+				// since onJobComplete always records it before returning).
+				const changedFilesSnapshot = repairOf
+					? guide.getLaunchChangedFiles(repairOf) ?? changedFiles.map((f) => f.path)
+					: changedFiles.map((f) => f.path);
 				return {
 					...built,
 					prUrl: launchPrUrl,
@@ -910,7 +923,7 @@ export async function startReviewServer(options: {
 					diffContext,
 					reviewProfileId: reviewProfile.id,
 					reviewProfileLabel: reviewProfile.label,
-					changedFilesSnapshot: changedFiles.map((f) => f.path),
+					changedFilesSnapshot,
 				};
 			}
 

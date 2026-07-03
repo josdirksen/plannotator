@@ -71,6 +71,10 @@ interface ReviewSidebarProps {
   externalAnnotations?: Array<{ source?: string }>;
   onOpenJobDetail?: (jobId: string) => void;
   onOpenGuide?: (jobId: string) => void;
+  /** Pass-through to AgentsTab — gates the sidebar's Guided Review mode on
+   *  file availability, mirroring the header's hasSearchableFiles gate on
+   *  the "Guide" badge/shortcut (see App.tsx). */
+  guideLaunchable?: boolean;
 }
 
 const SuggestionPreview: React.FC<{ code: string; originalCode?: string; language?: string }> = ({ code, originalCode, language }) => {
@@ -165,6 +169,7 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
   externalAnnotations,
   onOpenJobDetail,
   onOpenGuide,
+  guideLaunchable,
 }) => {
   const totalCount = annotations.length + (editorAnnotations?.length ?? 0) + (descriptionAnnotations?.length ?? 0) + (commentAnnotations?.length ?? 0);
   const [copied, setCopied] = useState(false);
@@ -545,6 +550,7 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
               externalAnnotations={externalAnnotations ?? []}
               onOpenJobDetail={onOpenJobDetail}
               onOpenGuide={onOpenGuide}
+              guideLaunchable={guideLaunchable}
             />
           )}
 

@@ -162,6 +162,13 @@ interface AgentsTabProps {
   externalAnnotations: Array<{ source?: string }>;
   onOpenJobDetail?: (jobId: string) => void;
   onOpenGuide?: (jobId: string) => void;
+  /** Whether the current diff has any files a guide could reference — mirrors
+   *  the review-editor header's `hasSearchableFiles` gate (the "Guide" badge
+   *  and its keyboard shortcut). A guide organizes changed files into
+   *  chapters, so with none available there is nothing for it to do; default
+   *  true so callers that don't pass it (e.g. the plan editor, which has no
+   *  concept of "files") see unchanged behavior. */
+  guideLaunchable?: boolean;
 }
 
 // --- Duration display ---
@@ -507,6 +514,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
   externalAnnotations,
   onOpenJobDetail,
   onOpenGuide,
+  guideLaunchable = true,
 }) => {
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [pendingLaunch, setPendingLaunch] = useState<{ label: string; provider?: string; startedAt: number } | null>(null);
@@ -642,9 +650,12 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
     if (availableReviewEngines.length > 0) modes.push('review');
     if (tourAvailable && availableEngines.length > 0) modes.push('tour');
     // Guide runs on the wide union — marker engines generate guides too.
-    if (guideAvailable && availableReviewEngines.length > 0) modes.push('guide');
+    // Also gated on guideLaunchable: a guide organizes changed files into
+    // chapters, so it has nothing to do against a diff with no files (same
+    // gate the review-editor header applies to the "Guide" badge/shortcut).
+    if (guideAvailable && availableReviewEngines.length > 0 && guideLaunchable) modes.push('guide');
     return modes;
-  }, [availableReviewEngines.length, availableEngines.length, tourAvailable, guideAvailable]);
+  }, [availableReviewEngines.length, availableEngines.length, tourAvailable, guideAvailable, guideLaunchable]);
   // (availableReviewEngines.length covers the guide gate above.)
 
   const firstAvailableEngine = availableEngines[0] ?? null;
@@ -848,7 +859,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
     : selectedMode === 'tour'
       ? tourAvailable && engineAvailable(tourEngine)
       : selectedMode === 'guide'
-        ? guideAvailable && reviewEngineAvailable(guideEngine)
+        ? guideAvailable && reviewEngineAvailable(guideEngine) && guideLaunchable
         : false;
 
   const handleLaunch = async () => {
@@ -1090,7 +1101,9 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
                   </ConfigRow>
                 )}
 
-                {/* Codex-only: reasoning effort */}
+                {/* Codex-only: reasoning effort. No "Fast mode" toggle here
+                    (unlike review/tour's codex blocks above) — fast mode is
+                    deliberately not offered for guide. */}
                 {guideEngine === 'codex' && (
                   <ConfigRow label="Reasoning" stacked>
                     <SegmentedPicker options={CODEX_REASONING} value={guideCodexReasoning} onChange={setGuideCodexReasoning} />

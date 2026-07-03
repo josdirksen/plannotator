@@ -3277,6 +3277,7 @@ const ReviewApp: React.FC = () => {
                 externalAnnotations={externalAnnotations}
                 onOpenJobDetail={handleOpenJobDetail}
                 onOpenGuide={handleOpenGuide}
+                guideLaunchable={hasSearchableFiles}
               />
             </div>
           )}

@@ -24,7 +24,7 @@ import {
   markLookAndFeelAnnouncementSeen,
   needsLookAndFeelAnnouncement,
 } from '@plannotator/ui/utils/lookAndFeelAnnouncement';
-import { CodeAnnotation, CodeAnnotationType, SelectedLineRange, TokenAnnotationMeta, ConventionalLabel, ConventionalDecoration, Annotation, CommentAnnotation } from '@plannotator/ui/types';
+import { CodeAnnotation, CodeAnnotationType, SelectedLineRange, TokenAnnotationMeta, ConventionalLabel, ConventionalDecoration, Annotation, CommentAnnotation, AgentJobInfo } from '@plannotator/ui/types';
 import type { CommentAskAIHandler } from '@plannotator/ui/components/CommentPopover';
 import { useResizablePanel } from '@plannotator/ui/hooks/useResizablePanel';
 import { useCodeAnnotationDraft } from '@plannotator/ui/hooks/useCodeAnnotationDraft';
@@ -820,20 +820,32 @@ const ReviewApp: React.FC = () => {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // Auto-open tour dialog when a tour job completes
+  // Context rule shared by both auto-open effects below (and mirrored by
+  // GuideScreen's matchesContext): a job stamped with a PR url only belongs
+  // to that PR; a job with no PR url only belongs to local-diff mode.
+  // Auto-opening a job from a DIFFERENT context than what's on screen would
+  // rip the reviewer away from what they're currently looking at into an
+  // unrelated PR/diff's artifact.
+  const jobMatchesCurrentContext = useCallback(
+    (job: AgentJobInfo) => (prMetadata ? job.prUrl === prMetadata.url : !job.prUrl),
+    [prMetadata],
+  );
+
+  // Auto-open tour dialog when a tour job completes — scoped to the current
+  // review context, same rule and same deferred-open semantics as the guide
+  // effect below (an away-context tour stays unmarked so it opens when the
+  // reviewer returns to its context).
   const tourAutoOpenRef = useRef(new Set<string>());
   useEffect(() => {
     for (const job of agentJobs.jobs) {
-      if (
-        job.provider === 'tour' &&
-        job.status === 'done' &&
-        !tourAutoOpenRef.current.has(job.id)
-      ) {
-        tourAutoOpenRef.current.add(job.id);
-        setTourDialogJobId(job.id);
+      if (job.provider !== 'tour' || job.status !== 'done' || tourAutoOpenRef.current.has(job.id)) {
+        continue;
       }
+      if (!jobMatchesCurrentContext(job)) continue;
+      tourAutoOpenRef.current.add(job.id);
+      setTourDialogJobId(job.id);
     }
-  }, [agentJobs.jobs]);
+  }, [agentJobs.jobs, jobMatchesCurrentContext]);
 
   // Auto-switch to the guide takeover when a guide job completes — mirrors the
   // tour dialog's auto-open above, including the same caveat: on an SSE
@@ -847,13 +859,7 @@ const ReviewApp: React.FC = () => {
       if (job.provider !== 'guide' || job.status !== 'done' || guideAutoOpenRef.current.has(job.id)) {
         continue;
       }
-      // Same context rule as GuideScreen's matchesContext: a guide stamped
-      // with a PR url only belongs to that PR; a guide with no PR url only
-      // belongs to local-diff mode. Auto-opening a job from a DIFFERENT
-      // context than what's on screen would rip the reviewer away from what
-      // they're currently looking at into an unrelated PR/diff's guide.
-      const matchesCurrentContext = prMetadata ? job.prUrl === prMetadata.url : !job.prUrl;
-      if (!matchesCurrentContext) {
+      if (!jobMatchesCurrentContext(job)) {
         // Deliberately left OUT of guideAutoOpenRef: marking it here would
         // permanently suppress the auto-open. Leaving it unmarked means that
         // if the reviewer later returns to THIS job's context (switches back
@@ -866,7 +872,7 @@ const ReviewApp: React.FC = () => {
       setActiveGuideJobId(job.id);
       setGuideOpen(true);
     }
-  }, [agentJobs.jobs, prMetadata]);
+  }, [agentJobs.jobs, jobMatchesCurrentContext]);
 
   // Standalone/demo mode (no origin ⇒ no real agent-jobs backend): opening the
   // guide takeover shows the demo fixture so the UI can be iterated on without

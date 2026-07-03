@@ -2,6 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CommitHistoryPage, CommitListEntry } from '@plannotator/shared/types';
 
 const PAGE_SIZE = 50;
+// Quiet head-compare poll cadence while the Commits view is visible. The
+// commit diff itself is immutable (sha-anchored fingerprint — the staleness
+// banner correctly never fires for it), so the RAIL needs its own freshness:
+// an agent committing while the user walks history must show up without
+// leaving and re-entering the view.
+const POLL_INTERVAL_MS = 10_000;
 
 interface UseCommitLogOptions {
   /** Fetch only while the Commits view is visible in an API-mode session. */
@@ -46,6 +52,10 @@ export function useCommitLog({ enabled, contextKey }: UseCommitLogOptions): UseC
     const generation = ++generationRef.current;
     const setBusy = before ? setIsLoadingMore : setIsLoading;
     setBusy(true);
+    // A page-1 fetch supersedes any in-flight paging request, whose
+    // generation-skipped `finally` will never clear its own flag — reset it
+    // here or "Show more" stays stuck disabled as "Loading…".
+    if (!before) setIsLoadingMore(false);
     setError(null);
     try {
       const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
@@ -95,6 +105,38 @@ export function useCommitLog({ enabled, contextKey }: UseCommitLogOptions): UseC
       setIsLoadingMore(false);
     };
   }, [enabled, contextKey, fetchPage]);
+
+  // Quiet freshness poll: fetch page 1 and adopt it ONLY when history moved
+  // (head sha differs). No loading flags and no error-state churn — a
+  // transient network blip during a background check must not disturb the
+  // rail the user is reading. Adopting bumps the generation so an in-flight
+  // "Show more" from the OLD history can't append its stale rows.
+  const checkForNewCommits = useCallback(async () => {
+    const generation = generationRef.current;
+    try {
+      const res = await fetch(`/api/commits?limit=${PAGE_SIZE}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as CommitHistoryPage & { error?: string };
+      if (data.error) return;
+      if (generation !== generationRef.current) return;
+      if (data.commits[0]?.sha === commitsRef.current[0]?.sha) return;
+      generationRef.current++;
+      setCommits(data.commits);
+      setBase(data.base || null);
+      setHasMore(data.hasMore);
+      setIsLoadingMore(false);
+    } catch {
+      /* transient — next poll tries again */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const timer = setInterval(() => {
+      void checkForNewCommits();
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [enabled, checkForNewCommits]);
 
   const showMore = useCallback(() => {
     const last = commitsRef.current[commitsRef.current.length - 1];

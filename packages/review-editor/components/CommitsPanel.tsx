@@ -139,7 +139,10 @@ export const CommitsPanel: React.FC<CommitsPanelProps> = ({
 
       <OverlayScrollArea className="flex-1 min-h-0">
         <div className="py-1">
-          {error ? (
+          {error && commits.length === 0 ? (
+            // Full-panel error only when there's nothing to show — an error
+            // with a populated list renders inline below it instead, so a
+            // failed page/refresh never wipes the rail the user is reading.
             <div className="px-2 py-4 text-center space-y-2">
               <div className="text-xs text-destructive break-words">{error}</div>
               <button
@@ -179,6 +182,17 @@ export const CommitsPanel: React.FC<CommitsPanelProps> = ({
                 >
                   {isLoadingMore ? 'Loading…' : 'Show more'}
                 </button>
+              )}
+              {error && (
+                <div className="px-2 py-1.5 flex items-center gap-2 text-[11px] text-destructive">
+                  <span className="truncate flex-1" title={error}>{error}</span>
+                  <button
+                    onClick={onRetry}
+                    className="flex-shrink-0 text-primary/80 underline underline-offset-2 decoration-primary/40 hover:text-primary transition-colors"
+                  >
+                    Retry
+                  </button>
+                </div>
               )}
             </>
           )}

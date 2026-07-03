@@ -1344,6 +1344,7 @@ export async function startReviewServer(options: {
 					json(res, { superseded: true });
 					return;
 				}
+				const previousDiffType = currentDiffType;
 				currentHideWhitespace = effectiveHideWhitespace;
 				currentPatch = result.patch;
 				currentGitRef = result.label;
@@ -1357,8 +1358,17 @@ export async function startReviewServer(options: {
 				// Recompute gitContext for the effective cwd so the client's
 				// sidebar reflects the worktree we're now reviewing.
 				// Best-effort: on failure the client keeps its existing context.
+				// Skipped for same-cwd commit:<sha> switches (the commit-rail hot
+				// path — mirrors Bun review.ts): a historical commit's diff can't
+				// change branches/worktrees/recent commits, and the recompute
+				// dominated click latency.
+				const newParsed = parseWorktreeDiffType(newType as string);
+				const isSameCwdCommitSwitch =
+					!!parseCommitDiffType(newParsed?.subType ?? (newType as string)) &&
+					(newParsed?.path ?? null) ===
+						(parseWorktreeDiffType(previousDiffType as string)?.path ?? null);
 				let updatedContext: GitContext | undefined;
-				if (options.gitContext) {
+				if (options.gitContext && !isSameCwdCommitSwitch) {
 					try {
 						const effectiveCwd = resolveVcsCwd(newType as DiffType, options.gitContext.cwd);
 						updatedContext = await getVcsContext(effectiveCwd, sessionVcsType);

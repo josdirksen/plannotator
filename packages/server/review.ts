@@ -1438,6 +1438,7 @@ export async function startReviewServer(
               }
 
               // Update state (commit hideWhitespace only now that we've won).
+              const previousDiffType = currentDiffType;
               currentHideWhitespace = effectiveHideWhitespace;
               currentPatch = result.patch;
               currentGitRef = result.label;
@@ -1453,8 +1454,19 @@ export async function startReviewServer(
               // reflects the worktree we're now reviewing — not the main
               // repo's startup state. Best-effort: on failure the client
               // keeps its existing context.
+              //
+              // Skipped for same-cwd commit:<sha> switches — the commit-rail
+              // hot path. A historical commit's diff can't change branches,
+              // worktrees, or recent commits, and this recompute (three git
+              // enumerations) dominated click latency. The client keeps its
+              // existing context when the field is absent.
+              const newParsed = parseWorktreeDiffType(newDiffType as string);
+              const isSameCwdCommitSwitch =
+                !!parseCommitDiffType(newParsed?.subType ?? (newDiffType as string)) &&
+                (newParsed?.path ?? null) ===
+                  (parseWorktreeDiffType(previousDiffType as string)?.path ?? null);
               let updatedContext: GitContext | undefined;
-              if (gitContext) {
+              if (gitContext && !isSameCwdCommitSwitch) {
                 try {
                   const effectiveCwd = resolveVcsCwd(newDiffType as DiffType, gitContext.cwd);
                   updatedContext = await getVcsContext(effectiveCwd, sessionVcsType);

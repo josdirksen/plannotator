@@ -256,26 +256,17 @@ const ReviewApp: React.FC = () => {
   // "your snapshot moved" is independent of whether the VCS changed.
   const [snapshotId, setSnapshotId] = useState<string | undefined>(undefined);
   const [isFetchingBase, setIsFetchingBase] = useState(false);
-  // Sections vs classic tree in the left panel — backed by the configStore
-  // (also the Settings + first-run-dialog default). The header toggle writes
-  // it too, so the last choice becomes the default. Persisted writes go
-  // through the shared coupled setter (sections ⟺ since-base — see
-  // config/reviewView).
-  //
-  // The Commits view is a session-only overlay on top of that: entering it
-  // never writes the config, so a review always OPENS on the persisted
-  // sections/tree default — commits is never the opening view. Leaving
-  // commits clears the overlay and persists the chosen files view as usual.
+  // Which left panel is showing. The persisted value (Settings / first-run
+  // dialog, written through the coupled setters in config/reviewView)
+  // decides what a review OPENS on; the header toggle is a pure session
+  // control layered over it — it NEVER writes config. Changing the default
+  // is an explicit Settings/setup-dialog act, not a side effect of looking
+  // at another view mid-review.
   const persistedPanelView = useConfigValue('reviewPanelView');
-  const [commitsViewActive, setCommitsViewActive] = useState(false);
-  const panelView: 'sections' | 'commits' | 'tree' = commitsViewActive ? 'commits' : persistedPanelView;
+  const [sessionPanelView, setSessionPanelView] = useState<'sections' | 'commits' | 'tree' | null>(null);
+  const panelView: 'sections' | 'commits' | 'tree' = sessionPanelView ?? persistedPanelView;
   const selectPanelView = useCallback((view: 'sections' | 'commits' | 'tree') => {
-    if (view === 'commits') {
-      setCommitsViewActive(true);
-      return;
-    }
-    setCommitsViewActive(false);
-    setReviewPanelView(view);
+    setSessionPanelView(view);
   }, []);
   // First-run review-setup chooser (panel view + tree default diff).
   const [showReviewSetup, setShowReviewSetup] = useState(false);
@@ -1641,11 +1632,12 @@ const ReviewApp: React.FC = () => {
     await fetchDiffSwitch(fullDiffType, baseOverride);
   }, [diffType, activeWorktreePath, fetchDiffSwitch, gitContext]);
 
-  // Toggling to Sections means "show me the since-base review" — if an
-  // advanced mode is active, switch the diff back along with the view.
-  // selectPanelView goes through the coupled setter, which also persists
-  // defaultDiffType=since-base; this handler only brings the live session
-  // diff along.
+  // Toggling to Sections means "show me the since-base review" — if another
+  // mode is active, switch the LIVE diff back along with the view. No config
+  // writes: the toggle is session-only, so there is no persisted view/diff
+  // pair to keep consistent here (Settings and the setup dialog, which do
+  // persist, enforce the sections ⟺ since-base coupling via the shared
+  // setters in config/reviewView).
   const handleSwitchToSections = useCallback(() => {
     selectPanelView('sections');
     if (activeDiffBase !== 'since-base') void handleDiffSwitch('since-base');

@@ -212,7 +212,7 @@ export const SectionsPanel: React.FC<SectionsPanelProps> = ({
       // A file in the composite patch with no status entry has a clean
       // working tree — it is committed branch work.
       const group: SectionGroup = entry?.group ?? 'committed';
-      grouped[group].push({ file, index, group, staged: entry?.staged ?? (stagedFiles?.has(file.path) ?? false) });
+      grouped[group].push({ file, index, group, staged: (entry?.staged ?? false) || (stagedFiles?.has(file.path) ?? false) });
     });
     // Staged work floats to the top of Changes.
     grouped.changes.sort((a, b) => Number(b.staged) - Number(a.staged));

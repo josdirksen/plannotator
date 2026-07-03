@@ -451,11 +451,34 @@ export async function startReviewServer(
   //     deliberately-chosen different base (a feature branch is left as-is).
   if (gitContext && !isPRMode) {
     detectRemoteDefaultCompareTarget(gitContext.cwd, sessionVcsType).then(
-      (remote) => {
-        if (remote && !baseEverSwitched) {
+      async (remote) => {
+        if (remote && !baseEverSwitched && currentBase !== remote) {
           const localName = remote.replace(/^origin\//, "");
-          if (!options.initialBase || currentBase === localName || currentBase === remote) {
-            currentBase = remote;
+          if (!options.initialBase || currentBase === localName) {
+            // Rebuild the diff for the upgraded base BEFORE swapping it in, and
+            // commit base+patch+ref+fingerprint together — otherwise the initial
+            // patch (built against the old base by the caller) would be served
+            // under the new base label: a mixed-base review. Skip if the user
+            // switched meanwhile. The fingerprint change makes the client's
+            // freshness poll pick up the rebuilt diff.
+            try {
+              const rebuilt = await runVcsDiff(
+                currentDiffType as DiffType,
+                remote,
+                gitContext.cwd,
+                { hideWhitespace: currentHideWhitespace },
+              );
+              if (!baseEverSwitched) {
+                currentBase = remote;
+                currentPatch = rebuilt.patch;
+                currentGitRef = rebuilt.label;
+                currentError = rebuilt.error;
+                draftKey = contentHash(currentPatch);
+                captureDiffFingerprint();
+              }
+            } catch {
+              /* keep the initial base+patch — they still match each other */
+            }
           }
         }
         void refreshRemoteBaseInfo().catch(() => {});
@@ -1108,12 +1131,16 @@ export async function startReviewServer(
             // checkout exists. Non-PR sessions never carry this field.
             const prCwdAdvert = isPRMode ? { agentCwd: resolvePRLocalCwd() ?? null } : {};
             const baseline = currentFingerprint;
-            if (baseline == null) return Response.json({ fresh: true, ...prCwdAdvert });
+            // Carry baseBehindRemote on EVERY response — the client sets the flag
+            // unconditionally on each probe, so omitting it here clears the
+            // "behind GitHub" banner for that poll (a flicker) until the next one.
+            const behind = baseBehindRemote ? { baseBehindRemote: true } : {};
+            if (baseline == null) return Response.json({ fresh: true, ...behind, ...prCwdAdvert });
             const probe = await computeDiffFingerprint();
             // A diff switch landing mid-probe replaces the snapshot (and its
             // fingerprint); report fresh and let the next poll compare
             // against the new baseline.
-            if (currentFingerprint !== baseline) return Response.json({ fresh: true, ...prCwdAdvert });
+            if (currentFingerprint !== baseline) return Response.json({ fresh: true, ...behind, ...prCwdAdvert });
             const fresh = probe == null || probe === baseline;
             maybeRefreshRemoteBaseInfo();
             // The probe fingerprint lets the client distinguish "still the

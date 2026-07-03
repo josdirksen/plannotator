@@ -508,12 +508,34 @@ export async function startReviewServer(options: {
 	// un-clearable (Fetch advances origin/main, not local main). Canonicalizing
 	// "main" -> "origin/main" never overrides a deliberately-chosen feature base.
 	if (options.gitContext && !isPRMode) {
-		detectRemoteDefaultCompareTarget(options.gitContext.cwd, sessionVcsType).then(
-			(remote) => {
-				if (remote && !baseEverSwitched) {
+		const gitCwd = options.gitContext.cwd;
+		detectRemoteDefaultCompareTarget(gitCwd, sessionVcsType).then(
+			async (remote) => {
+				if (remote && !baseEverSwitched && currentBase !== remote) {
 					const localName = remote.replace(/^origin\//, "");
-					if (!options.initialBase || currentBase === localName || currentBase === remote) {
-						currentBase = remote;
+					if (!options.initialBase || currentBase === localName) {
+						// Rebuild the diff for the upgraded base BEFORE swapping it in, and
+						// commit base+patch+ref+fingerprint together — otherwise the initial
+						// patch (built against the old base) would be served under the new
+						// base label: a mixed-base review. Skip if the user switched meanwhile.
+						try {
+							const rebuilt = await runVcsDiff(
+								currentDiffType as DiffType,
+								remote,
+								gitCwd,
+								{ hideWhitespace: currentHideWhitespace },
+							);
+							if (!baseEverSwitched) {
+								currentBase = remote;
+								currentPatch = rebuilt.patch;
+								currentGitRef = rebuilt.label;
+								currentError = rebuilt.error;
+								draftKey = contentHash(currentPatch);
+								captureDiffFingerprint();
+							}
+						} catch {
+							/* keep the initial base+patch — they still match each other */
+						}
 					}
 				}
 				void refreshRemoteBaseInfo().catch(() => {});
@@ -1069,8 +1091,12 @@ export async function startReviewServer(options: {
 			// resolves a path only once ready). Non-PR sessions omit this field.
 			const prCwdAdvert = isPRMode ? { agentCwd: resolvePRLocalCwd() } : {};
 			const baseline = currentFingerprint;
+			// Carry baseBehindRemote on EVERY response — the client sets the flag
+			// unconditionally each probe, so omitting it clears the 'behind GitHub'
+			// banner for that poll (a flicker) until the next one.
+			const behind = baseBehindRemote ? { baseBehindRemote: true } : {};
 			if (baseline == null) {
-				json(res, { fresh: true, ...prCwdAdvert });
+				json(res, { fresh: true, ...behind, ...prCwdAdvert });
 				return;
 			}
 			const probe = await computeDiffFingerprint();
@@ -1078,7 +1104,7 @@ export async function startReviewServer(options: {
 			// fingerprint); report fresh and let the next poll compare against
 			// the new baseline.
 			if (currentFingerprint !== baseline) {
-				json(res, { fresh: true, ...prCwdAdvert });
+				json(res, { fresh: true, ...behind, ...prCwdAdvert });
 				return;
 			}
 			const fresh = probe == null || probe === baseline;

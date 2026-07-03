@@ -9,10 +9,6 @@ interface DiffTypePickerProps {
   onSelect: (diffType: string) => void;
   isLoading?: boolean;
   hasBasePicker: boolean;
-  /** Trigger label when the active diff type isn't in `options` — e.g. the
-   * tree view showing the since-base diff, whose mode lives in the sections
-   * view rather than this dropdown. */
-  activeLabelFallback?: string;
 }
 
 /**
@@ -45,7 +41,6 @@ export const DiffTypePicker: React.FC<DiffTypePickerProps> = ({
   onSelect,
   isLoading,
   hasBasePicker,
-  activeLabelFallback,
 }) => {
   const [open, setOpen] = useState(false);
 
@@ -60,7 +55,7 @@ export const DiffTypePicker: React.FC<DiffTypePickerProps> = ({
   };
 
   const active = options.find((o) => o.id === activeDiffType);
-  const activeLabel = active ? displayLabel(active) : (activeLabelFallback ?? 'Select diff');
+  const activeLabel = active ? displayLabel(active) : 'Select diff';
 
   return (
     <DropdownMenu.Root open={open} onOpenChange={setOpen}>

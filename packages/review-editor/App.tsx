@@ -1309,7 +1309,11 @@ const ReviewApp: React.FC = () => {
   // shortcut on the focused file, and the All-files surface).
   const isPathStageable = useCallback((path: string | null | undefined): boolean => {
     if (!canStageFiles || !path) return false;
-    if (activeDiffBase === 'since-base' && sections) {
+    if (activeDiffBase === 'since-base') {
+      // Sidecar not loaded yet → can't tell committed from working-tree, so
+      // don't offer staging (the panel is in its marker-less tree fallback
+      // anyway). Prevents a git-add no-op on a clean committed file.
+      if (!sections) return false;
       return (sections.files[path]?.group ?? 'committed') !== 'committed';
     }
     return true;

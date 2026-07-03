@@ -328,9 +328,6 @@ export interface CommitListEntry {
   author: string;
   /** Author email — the key the avatar resolver matches on. */
   authorEmail: string;
-  /** True when the commit author matches the repo's configured user.name —
-   * the panel shows the author only when it's someone else. */
-  isRepoUser: boolean;
   /** Relative age from `%cr`, e.g. "2 hours ago". */
   ageRelative: string;
   isHead: boolean;
@@ -450,7 +447,7 @@ export async function listCommitHistory(
     return headResolves ? null : emptyPage;
   }
 
-  const parsed: Array<Omit<CommitListEntry, "isRepoUser" | "isHead" | "isPastBase">> = [];
+  const parsed: Array<Omit<CommitListEntry, "isHead" | "isPastBase">> = [];
   for (const line of log.stdout.split("\n")) {
     if (!line) continue;
     const parts = line.split(COMMIT_FIELD_SEP);
@@ -470,9 +467,8 @@ export async function listCommitHistory(
   const hasMore = parsed.length > limit;
   const page = parsed.slice(0, limit);
 
-  const [head, user, branchOnly] = await Promise.all([
+  const [head, branchOnly] = await Promise.all([
     runReadOnlyGit(["rev-parse", "HEAD"]),
-    runReadOnlyGit(["config", "user.name"]),
     // The branch-local set: first-parent commits from HEAD NOT reachable from
     // the base. Reachability (not merge-base position) is what the divider
     // means — a base merged INTO the branch keeps its commits below the line.
@@ -486,12 +482,10 @@ export async function listCommitHistory(
   const branchLocal = branchOnly && branchOnly.exitCode === 0
     ? new Set(branchOnly.stdout.split("\n").filter(Boolean))
     : null;
-  const userName = user.exitCode === 0 ? user.stdout.trim() : "";
 
   return {
     commits: page.map((c) => ({
       ...c,
-      isRepoUser: !!userName && c.author === userName,
       isHead: c.sha === headSha,
       isPastBase: branchLocal ? !branchLocal.has(c.sha) : false,
     })),

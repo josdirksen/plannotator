@@ -227,11 +227,12 @@ export function createCommitAvatarResolver(runner: CommandRunner): CommitAvatarR
           await fetchGitHubAvatars(remote);
           for (const email of pending) attempted.add(email);
         } else {
-          for (const email of pending.slice(0, MAX_GITLAB_EMAIL_LOOKUPS_PER_CALL)) {
-            if (brokenPlatforms.has("gitlab")) break;
-            attempted.add(email);
-            await fetchGitLabAvatar(remote, email);
-          }
+          // Parallel, not sequential: these lookups sit on /api/commits'
+          // critical path, and ten serial subprocess spawns added seconds to
+          // the rail's first paint on multi-author GitLab histories.
+          const batch = pending.slice(0, MAX_GITLAB_EMAIL_LOOKUPS_PER_CALL);
+          for (const email of batch) attempted.add(email);
+          await Promise.all(batch.map((email) => fetchGitLabAvatar(remote, email)));
         }
       }
 

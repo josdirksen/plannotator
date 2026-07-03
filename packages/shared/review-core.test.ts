@@ -538,7 +538,7 @@ describe("listCommitHistory", () => {
     return git(repoDir, ["rev-parse", "HEAD"]);
   }
 
-  test("marks HEAD, the repo user, and where the branch meets the base", async () => {
+  test("marks HEAD, carries authors, and marks where the branch meets the base", async () => {
     const repoDir = initRepo();
     const runtime = makeRuntime(repoDir);
     commit(repoDir, "on main");
@@ -564,11 +564,9 @@ describe("listCommitHistory", () => {
     expect(page!.commits[1].isHead).toBe(false);
     // Divider: branch-local commits above, base history below.
     expect(page!.commits.map((c) => c.isPastBase)).toEqual([false, false, true, true]);
-    // Author flag: only the commit made under a different user.name differs.
-    expect(page!.commits[0].isRepoUser).toBe(false);
-    expect(page!.commits[1].isRepoUser).toBe(true);
+    // Author name + email ride along (email is the avatar resolver's key).
     expect(page!.commits[0].author).toBe("Someone Else");
-    // Author email rides along — the avatar resolver keys on it.
+    expect(page!.commits[1].author).toBe("Review Core");
     expect(page!.commits[0].authorEmail).toBe("review-core@example.com");
     expect(branch1).toBe(page!.commits[1].sha);
   });

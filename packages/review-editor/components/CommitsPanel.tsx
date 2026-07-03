@@ -44,53 +44,57 @@ function compactAge(age: string): string {
   return `${m[1]}${unit}`;
 }
 
-const CommitCard: React.FC<{
+const CommitRow: React.FC<{
   commit: CommitListEntry;
   isActive: boolean;
   onSelect: () => void;
 }> = ({ commit, isActive, onSelect }) => (
   <button
     onClick={onSelect}
-    className={`w-full text-left rounded-md border px-2.5 py-2 mb-1.5 transition-colors ${
-      isActive
-        ? 'border-primary bg-primary/5'
-        : 'border-border/60 hover:border-muted-foreground/40 hover:bg-muted/40'
+    className={`w-full text-left px-2 py-1.5 transition-colors ${
+      isActive ? 'bg-primary/10' : 'hover:bg-muted/50'
     }`}
     title={`${commit.sha}\n${commit.author} <${commit.authorEmail}>\n${commit.subject}`}
   >
-    <div className="text-xs font-medium leading-snug line-clamp-2 break-words">
-      {commit.subject}
-    </div>
-    <div className="mt-1.5 flex items-center gap-1.5 min-w-0">
-      <Avatar src={commit.avatarUrl} name={commit.author} size={18} />
-      {!commit.isRepoUser && (
-        <span className="text-[11px] text-muted-foreground truncate">{commit.author}</span>
-      )}
+    {/* Subject — always one line, ellipsized. */}
+    <div className="flex items-center gap-1.5 min-w-0">
+      <span className="text-xs truncate flex-1">{commit.subject}</span>
       {commit.isHead && (
-        <span className="text-[9px] leading-none px-1 py-0.5 rounded bg-primary/15 text-primary font-medium">
+        <span className="text-[9px] leading-none px-1 py-0.5 rounded bg-primary/15 text-primary font-medium flex-shrink-0">
           HEAD
         </span>
       )}
-      <span className="flex-1" />
-      <span className="font-mono text-[10px] text-muted-foreground flex-shrink-0">{commit.shortSha}</span>
       <span className="text-[10px] text-muted-foreground/70 tabular-nums flex-shrink-0">
         {compactAge(commit.ageRelative)}
       </span>
     </div>
+    {/* Meta — avatar + author (always shown) + sha. */}
+    <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
+      <Avatar src={commit.avatarUrl} name={commit.author} size={14} />
+      <span className="text-[11px] text-muted-foreground truncate">{commit.author}</span>
+      <span className="flex-1" />
+      <span className="font-mono text-[10px] text-muted-foreground/70 flex-shrink-0">{commit.shortSha}</span>
+    </div>
   </button>
 );
 
-const GroupHeader: React.FC<{ label: string; title: string; withRule?: boolean }> = ({
-  label,
-  title,
-  withRule,
-}) => (
+/** The base boundary — commits below are already part of the base. Rendered
+ * as a prominent labeled rule so the split reads at a glance. */
+const BaseBoundary: React.FC<{ base: string }> = ({ base }) => (
   <div
-    className={`px-1 pb-1.5 text-[11px] font-medium text-muted-foreground ${
-      withRule ? 'mt-1 pt-2 border-t border-border/50' : 'pt-1'
-    }`}
-    title={title}
+    className="flex items-center gap-2 px-2 py-2"
+    title={`Commits from here down are already part of ${base} — shared history, not branch work.`}
   >
+    <span className="h-px flex-1 bg-foreground/30" />
+    <span className="text-[11px] font-semibold text-foreground/80 truncate max-w-[160px]">
+      In {base}
+    </span>
+    <span className="h-px flex-1 bg-foreground/30" />
+  </div>
+);
+
+const GroupHeader: React.FC<{ label: string; title: string }> = ({ label, title }) => (
+  <div className="px-2 pt-1 pb-1 text-[11px] font-medium text-muted-foreground" title={title}>
     {label}
   </div>
 );
@@ -134,7 +138,7 @@ export const CommitsPanel: React.FC<CommitsPanelProps> = ({
       </div>
 
       <OverlayScrollArea className="flex-1 min-h-0">
-        <div className="px-1.5 py-1.5">
+        <div className="py-1">
           {error ? (
             <div className="px-2 py-4 text-center space-y-2">
               <div className="text-xs text-destructive break-words">{error}</div>
@@ -159,14 +163,8 @@ export const CommitsPanel: React.FC<CommitsPanelProps> = ({
                       title={`Commits that exist only on this branch — not yet part of ${base}.`}
                     />
                   )}
-                  {showGroups && index === boundaryIndex && (
-                    <GroupHeader
-                      label={`In ${base}`}
-                      title={`Commits from here down are already part of ${base} — shared history, not branch work.`}
-                      withRule={boundaryIndex > 0}
-                    />
-                  )}
-                  <CommitCard
+                  {showGroups && index === boundaryIndex && <BaseBoundary base={base!} />}
+                  <CommitRow
                     commit={commit}
                     isActive={commit.sha === activeCommitSha}
                     onSelect={() => onSelectCommit(commit.sha)}

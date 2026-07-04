@@ -15,6 +15,7 @@ import {
   extractLastMarkerBlock,
   buildMarkerCommand,
   type MarkerEngine,
+  type MarkerEngineId,
 } from "../marker-review";
 import type {
   CodeGuideOutput,
@@ -873,7 +874,7 @@ export interface GuideSessionBuildCommandResult {
   cwd?: string;
   label?: string;
   prompt?: string;
-  engine: "claude" | "codex" | "cursor" | "opencode" | "pi";
+  engine: "claude" | "codex" | MarkerEngineId;
   model: string;
   effort?: string;
   reasoningEffort?: string;
@@ -1104,7 +1105,7 @@ export function createGuideSession(): GuideSession {
     launchChangedFiles,
 
     async buildCommand({ cwd, patch, diffType, options, prMetadata, changedFiles, config, repair }) {
-      const engine = (typeof config?.engine === "string" ? config.engine : "claude") as "claude" | "codex" | "cursor" | "opencode" | "pi";
+      const engine = (typeof config?.engine === "string" ? config.engine : "claude") as "claude" | "codex" | MarkerEngineId;
       const explicitModel = typeof config?.model === "string" && config.model ? config.model : null;
       // "sonnet" is a Claude model, so we must NOT pass it to Codex or the
       // marker engines (Cursor, OpenCode, Pi) when no model is explicitly
@@ -1120,7 +1121,7 @@ export function createGuideSession(): GuideSession {
         // output) IS the content to fix, not the diff. Force low-effort
         // defaults — this is a mechanical JSON-syntax fix, not a
         // re-analysis, and should be fast and cheap.
-        const markerEngine = MARKER_ENGINES[engine as "cursor" | "opencode" | "pi"];
+        const markerEngine = MARKER_ENGINES[engine as MarkerEngineId];
         if (markerEngine) {
           const thinking = "minimal";
           const nonce = makeMarkerNonce();
@@ -1149,7 +1150,7 @@ export function createGuideSession(): GuideSession {
       // marker branch: per-job nonce embedded in the prompt, recovered from
       // job.prompt at parse time in onJobComplete below. captureStdout is
       // required — the marker block comes back on stdout NDJSON.
-      const markerEngine = MARKER_ENGINES[engine as "cursor" | "opencode" | "pi"];
+      const markerEngine = MARKER_ENGINES[engine as MarkerEngineId];
       if (markerEngine) {
         const thinking = typeof config?.thinking === "string" && config.thinking ? config.thinking : undefined;
         const nonce = makeMarkerNonce();
@@ -1183,7 +1184,7 @@ export function createGuideSession(): GuideSession {
       // succeeds, then only stashed below on an actual failure.
       let rawCandidate: string | undefined;
 
-      const markerEngine = MARKER_ENGINES[job.engine as "cursor" | "opencode" | "pi"];
+      const markerEngine = MARKER_ENGINES[job.engine as MarkerEngineId];
       if (markerEngine) {
         // Recover the per-job nonce embedded in the prompt; without it no
         // block can be trusted, so parsing fails closed below (same

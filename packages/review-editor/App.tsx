@@ -1465,6 +1465,11 @@ const ReviewApp: React.FC = () => {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.shiftKey || isTypingTarget(e.target)) return;
+      // The guide takeover only CSS-hides the dock, so a diff panel can still
+      // be "active" underneath — without this gate, bare `a`/`v` while
+      // reading the guide would stage/mark-viewed that hidden file. The
+      // guide's own diffs surface visible per-file controls instead.
+      if (guideOpen) return;
       if (!isDiffPanelActive) return;
       const filePath = files[activeFileIndex]?.path;
       if (!filePath) return;
@@ -1479,7 +1484,7 @@ const ReviewApp: React.FC = () => {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [files, activeFileIndex, isDiffPanelActive, handleToggleViewed, isPathStageable, stageFile]);
+  }, [files, activeFileIndex, isDiffPanelActive, guideOpen, handleToggleViewed, isPathStageable, stageFile]);
 
   // Shared function: apply a PR response (used by both initial load and PR switch)
   function applyPRResponse(data: PRSessionUpdate & {

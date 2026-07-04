@@ -52,4 +52,15 @@ describe("renderMarkdownProse", () => {
     expect(isElement(nodes[0]) && nodes[0].type).toBe("p");
     expect(textOf(nodes[0])).toBe("Just a paragraph.");
   });
+
+  it("applies inline markdown inside ### headings (regression: rendered raw tokens)", () => {
+    const nodes = renderMarkdownProse("### The `useGuideData` hook");
+    expect(nodes).toHaveLength(1);
+    const heading = nodes[0];
+    expect(isElement(heading) && heading.type).toBe("h3");
+    // Inline rendering strips the backticks into a <code> element, so the
+    // flattened text must NOT contain the raw markdown tokens.
+    expect(textOf(heading)).toBe("The useGuideData hook");
+    expect(textOf(heading)).not.toContain("`");
+  });
 });

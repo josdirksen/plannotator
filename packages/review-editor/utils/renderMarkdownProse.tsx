@@ -87,11 +87,12 @@ export function renderMarkdownProse(
       continue;
     }
 
-    // Heading h3
+    // Heading h3 — inline markdown applies here too (the guide prompt
+    // encourages backticked symbols/file names, including in headings).
     if (line.startsWith('### ')) {
       nodes.push(
         <h3 key={key++} className="text-[12px] font-semibold text-foreground mt-3 mb-1">
-          {line.slice(4)}
+          {renderInlineMarkdown(line.slice(4))}
         </h3>
       );
       i++;

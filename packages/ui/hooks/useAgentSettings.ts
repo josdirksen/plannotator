@@ -278,15 +278,18 @@ function readCookie(): AgentSettingsState {
 
 export function useAgentSettings() {
   const [state, setState] = useState<AgentSettingsState>(readCookie);
-  // Set true right before a remote broadcast (see below) is applied to local
-  // state, so the persist effect can tell "this change came from another
-  // instance" apart from "this change came from one of THIS hook's own
-  // setters" — only the latter should re-write the cookie and re-broadcast.
-  const isRemoteUpdateRef = useRef(false);
+  // Serialized form of the state this instance knows is already persisted
+  // and broadcast. The persist effect compares VALUES against this instead
+  // of using a "was the last update remote?" boolean: a boolean conflates
+  // "a commit happened" with "the LAST change was remote", so a local edit
+  // landing in the same commit window as an incoming broadcast (fast input
+  // between paint and effects, or a setter batched with the remote apply)
+  // would consume the flag and silently skip its own cookie write and
+  // rebroadcast. Value comparison is idempotent: a pure remote apply
+  // serializes identically and skips; ANY local delta differs and persists.
+  const lastSyncedJsonRef = useRef<string | null>(null);
   // This instance's own listener function, so the broadcast loop below can
-  // skip notifying itself (self-notification would flip isRemoteUpdateRef
-  // for a change this instance already knows about, corrupting the flag for
-  // the NEXT genuine local change).
+  // skip notifying itself.
   const ownListenerRef = useRef<((s: AgentSettingsState) => void) | null>(null);
 
   // Register to receive broadcasts from other mounted instances (e.g. the
@@ -295,7 +298,7 @@ export function useAgentSettings() {
   // last writer's cookie write would clobber the other's in-flight change).
   useEffect(() => {
     const listener = (next: AgentSettingsState) => {
-      isRemoteUpdateRef.current = true;
+      lastSyncedJsonRef.current = JSON.stringify(next);
       setState(next);
     };
     ownListenerRef.current = listener;
@@ -307,11 +310,10 @@ export function useAgentSettings() {
   }, []);
 
   useEffect(() => {
-    if (isRemoteUpdateRef.current) {
-      isRemoteUpdateRef.current = false;
-      return;
-    }
-    setItem(COOKIE_KEY, JSON.stringify(state));
+    const json = JSON.stringify(state);
+    if (json === lastSyncedJsonRef.current) return;
+    lastSyncedJsonRef.current = json;
+    setItem(COOKIE_KEY, json);
     for (const listener of settingsListeners) {
       if (listener !== ownListenerRef.current) listener(state);
     }

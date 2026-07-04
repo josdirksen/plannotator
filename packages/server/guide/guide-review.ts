@@ -540,7 +540,7 @@ export function composeGuideMarkerPrompt(userMessage: string, nonce: string): st
 
 /** System framing shared verbatim across all three repair engine paths. */
 function buildGuideRepairFraming(): string {
-  return "The JSON below was produced for the schema that follows but is malformed or structurally invalid. Output ONLY the corrected JSON. Fix structure and syntax; NEVER change the content: titles, overviews, file paths stay exactly as written unless syntactically impossible.";
+  return "The JSON below was produced for the schema that follows but is malformed or structurally invalid. Output ONLY the corrected JSON. Fix structure and syntax; NEVER change the content: titles, overviews, file paths, summaries stay exactly as written unless syntactically impossible. If a required field is missing from the payload (e.g. a diff entry's summary), fill it with an empty string; never invent content.";
 }
 
 /** Repair prompt for the schema-enforced engines (Claude --json-schema,

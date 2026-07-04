@@ -25,6 +25,12 @@ export type {
 } from "./review-core";
 
 export type {
+  CommitDiffInfo,
+  CommitHistoryPage,
+  CommitListEntry,
+} from "./commit-history";
+
+export type {
   WorkspaceDiffType,
   WorkspaceRepoState,
   WorkspaceReviewState,

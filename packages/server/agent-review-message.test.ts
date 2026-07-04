@@ -11,6 +11,9 @@ describe("buildAgentReviewUserMessage", () => {
       ["staged", "git diff --staged"],
       ["unstaged", "unstaged code changes"],
       ["last-commit", "git diff HEAD~1..HEAD"],
+      // First-parent diff, never `git show` — a merge commit's `git show`
+      // combined-diff presentation differs from the on-screen patch.
+      ["commit:abc1234def5678", "git diff abc1234def5678^ abc1234def5678"],
       ["branch", "git diff origin/main..HEAD"],
       ["merge-base", "git merge-base origin/main HEAD"],
       ["all", "All files are shown as additions"],

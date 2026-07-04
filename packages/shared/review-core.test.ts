@@ -7,9 +7,12 @@ import {
   getDefaultBranch,
   getFileContentsForDiff,
   getGitContext,
+  getGitDiffFingerprint,
   gitAddFile,
   gitResetFile,
+  isSameCwdCommitSwitch,
   listRecentCommits,
+  parseCommitDiffType,
   parseWorktreeDiffType,
   runGitDiff,
   splitPorcelainRename,
@@ -390,4 +393,137 @@ describe("review-core", () => {
       expect(parsed).toEqual({ path: "/tmp/my-worktree", subType: sub });
     }
   });
+
+  test("parseWorktreeDiffType recognises commit:<sha> sub-types", () => {
+    expect(parseWorktreeDiffType("worktree:/tmp/my-worktree:commit:abc1234")).toEqual({
+      path: "/tmp/my-worktree",
+      subType: "commit:abc1234",
+    });
+    // A non-hex suffix is not a commit sub-type — falls back to the path.
+    expect(parseWorktreeDiffType("worktree:/tmp/my-worktree:commit:not-hex")).toEqual({
+      path: "/tmp/my-worktree:commit:not-hex",
+      subType: "uncommitted",
+    });
+  });
 });
+
+describe("isSameCwdCommitSwitch", () => {
+  test("true for commit switches within the same cwd, plain and worktree", () => {
+    expect(isSameCwdCommitSwitch("since-base", "commit:abc1234")).toBe(true);
+    expect(isSameCwdCommitSwitch("commit:abc1234", "commit:def5678")).toBe(true);
+    expect(
+      isSameCwdCommitSwitch("worktree:/tmp/wt:uncommitted", "worktree:/tmp/wt:commit:abc1234"),
+    ).toBe(true);
+  });
+  test("false when the target isn't a commit diff or the cwd changes", () => {
+    expect(isSameCwdCommitSwitch("commit:abc1234", "since-base")).toBe(false);
+    expect(isSameCwdCommitSwitch("uncommitted", "worktree:/tmp/wt:commit:abc1234")).toBe(false);
+    expect(
+      isSameCwdCommitSwitch("worktree:/tmp/a:commit:abc1234", "worktree:/tmp/b:commit:abc1234"),
+    ).toBe(false);
+  });
+});
+
+describe("parseCommitDiffType", () => {
+  test("accepts full and abbreviated hex shas", () => {
+    expect(parseCommitDiffType("commit:abc1234")).toEqual({ sha: "abc1234" });
+    expect(parseCommitDiffType(`commit:${"a".repeat(40)}`)).toEqual({ sha: "a".repeat(40) });
+  });
+  test("rejects revspec operators, flags, and non-commit types", () => {
+    expect(parseCommitDiffType("commit:HEAD~1")).toBeNull();
+    expect(parseCommitDiffType("commit:abc1234^{tree}")).toBeNull();
+    expect(parseCommitDiffType("commit:--output=/tmp/x")).toBeNull();
+    expect(parseCommitDiffType("commit:main..feature")).toBeNull();
+    expect(parseCommitDiffType("commit:")).toBeNull();
+    expect(parseCommitDiffType("uncommitted")).toBeNull();
+  });
+});
+
+describe("commit diff mode", () => {
+  test("commit:<sha> diffs one commit against its first parent", async () => {
+    const repoDir = initRepo();
+    const runtime = makeRuntime(repoDir);
+
+    writeFileSync(join(repoDir, "tracked.txt"), "second\n", "utf-8");
+    git(repoDir, ["add", "tracked.txt"]);
+    git(repoDir, ["commit", "-m", "second commit"]);
+    const secondSha = git(repoDir, ["rev-parse", "HEAD"]);
+
+    // A later commit + dirty working tree must NOT leak into the commit's diff.
+    writeFileSync(join(repoDir, "third.txt"), "third\n", "utf-8");
+    git(repoDir, ["add", "third.txt"]);
+    git(repoDir, ["commit", "-m", "third commit"]);
+    writeFileSync(join(repoDir, "tracked.txt"), "dirty\n", "utf-8");
+
+    const result = await runGitDiff(runtime, `commit:${secondSha}` as DiffType, "main");
+
+    expect(result.error).toBeUndefined();
+    expect(result.label).toMatch(/^Commit [0-9a-f]+ — second commit$/);
+    expect(result.patch).toContain("diff --git a/tracked.txt b/tracked.txt");
+    expect(result.patch).toContain("+second");
+    expect(result.patch).not.toContain("third.txt");
+    expect(result.patch).not.toContain("dirty");
+  });
+
+  test("a root commit diffs against the empty tree", async () => {
+    const repoDir = initRepo();
+    const runtime = makeRuntime(repoDir);
+    const rootSha = git(repoDir, ["rev-parse", "HEAD"]);
+
+    const result = await runGitDiff(runtime, `commit:${rootSha}` as DiffType, "main");
+
+    expect(result.error).toBeUndefined();
+    expect(result.patch).toContain("diff --git a/tracked.txt b/tracked.txt");
+    expect(result.patch).toContain("new file mode");
+    expect(result.patch).toContain("+before");
+  });
+
+  test("an invalid commit ref returns an error, not a git invocation", async () => {
+    const repoDir = initRepo();
+    const runtime = makeRuntime(repoDir);
+
+    const result = await runGitDiff(runtime, "commit:HEAD~1" as DiffType, "main");
+
+    expect(result.patch).toBe("");
+    expect(result.error).toBe("Invalid commit ref");
+  });
+
+  test("file contents come from the commit and its parent, not the working tree", async () => {
+    const repoDir = initRepo();
+    const runtime = makeRuntime(repoDir);
+
+    writeFileSync(join(repoDir, "tracked.txt"), "second\n", "utf-8");
+    git(repoDir, ["add", "tracked.txt"]);
+    git(repoDir, ["commit", "-m", "second commit"]);
+    const secondSha = git(repoDir, ["rev-parse", "HEAD"]);
+    writeFileSync(join(repoDir, "tracked.txt"), "dirty\n", "utf-8");
+
+    const contents = await getFileContentsForDiff(
+      runtime,
+      `commit:${secondSha}` as DiffType,
+      "main",
+      "tracked.txt",
+    );
+
+    expect(contents.oldContent).toBe("before\n");
+    expect(contents.newContent).toBe("second\n");
+  });
+
+  test("fingerprint is anchored to the sha — new commits do not flip it", async () => {
+    const repoDir = initRepo();
+    const runtime = makeRuntime(repoDir);
+    const rootSha = git(repoDir, ["rev-parse", "HEAD"]);
+
+    const before = await getGitDiffFingerprint(runtime, `commit:${rootSha}` as DiffType, "main");
+    expect(before).toBe(`git:commit:${rootSha}:present`);
+
+    writeFileSync(join(repoDir, "later.txt"), "later\n", "utf-8");
+    git(repoDir, ["add", "later.txt"]);
+    git(repoDir, ["commit", "-m", "later commit"]);
+    writeFileSync(join(repoDir, "tracked.txt"), "dirty\n", "utf-8");
+
+    const after = await getGitDiffFingerprint(runtime, `commit:${rootSha}` as DiffType, "main");
+    expect(after).toBe(before);
+  });
+});
+

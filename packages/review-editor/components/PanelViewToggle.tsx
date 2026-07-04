@@ -1,33 +1,40 @@
 import React from 'react';
 
+export type ReviewPanelView = 'sections' | 'commits' | 'tree';
+
 /**
- * Sections ⇄ Tree switcher for the left review panel. Rendered in the SAME
- * header position in both views so the control never moves under the user.
+ * View switcher for the left review panel — Git status ⇄ Commits ⇄ Tree.
+ * Rendered in the SAME header position in every view so the control never
+ * moves under the user. Segments a session can't offer (e.g. Git status on a
+ * repo with no resolvable base, Commits outside a plain git session) are
+ * omitted rather than disabled; Tree is always available.
  */
 export const PanelViewToggle: React.FC<{
-  view: 'sections' | 'tree';
-  onSelect: (view: 'sections' | 'tree') => void;
-}> = ({ view, onSelect }) => (
-  <div className="flex items-center bg-muted/50 rounded p-0.5 flex-shrink-0" role="group" aria-label="Panel view">
+  view: ReviewPanelView;
+  onSelect: (view: ReviewPanelView) => void;
+  /** Offer the Git status segment (default true). */
+  showSections?: boolean;
+  /** Offer the Commits segment (default false — git-local sessions opt in). */
+  showCommits?: boolean;
+}> = ({ view, onSelect, showSections = true, showCommits = false }) => {
+  const segment = (key: ReviewPanelView, label: string, title: string) => (
     <button
-      onClick={() => onSelect('sections')}
-      className={`px-1.5 py-0.5 rounded-sm text-[10px] leading-none whitespace-nowrap transition-colors ${
-        view === 'sections' ? 'bg-background text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'
+      onClick={() => onSelect(key)}
+      className={`px-1 py-0.5 rounded-sm text-xs leading-none whitespace-nowrap transition-colors ${
+        view === key ? 'bg-background text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'
       }`}
-      title="Git status view (Committed / Changes / Untracked)"
-      aria-pressed={view === 'sections'}
+      title={title}
+      aria-pressed={view === key}
     >
-      Git status
+      {label}
     </button>
-    <button
-      onClick={() => onSelect('tree')}
-      className={`px-1.5 py-0.5 rounded-sm text-[10px] leading-none whitespace-nowrap transition-colors ${
-        view === 'tree' ? 'bg-background text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'
-      }`}
-      title="Tree view"
-      aria-pressed={view === 'tree'}
-    >
-      Tree
-    </button>
-  </div>
-);
+  );
+
+  return (
+    <div className="flex items-center bg-muted/50 rounded p-0.5 flex-shrink-0" role="group" aria-label="Panel view">
+      {showSections && segment('sections', 'Git status', 'Git status view (Committed / Changes / Untracked)')}
+      {segment('tree', 'Tree', 'Tree view')}
+      {showCommits && segment('commits', 'Commits', 'Commit history — click a commit to review its diff')}
+    </div>
+  );
+};

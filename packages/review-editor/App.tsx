@@ -80,8 +80,10 @@ import {
 } from './dock/reviewPanelTypes';
 import type { DiffFile, AnnotationScrollTarget } from './types';
 import { annotationMatchesPrScope, proseAnnotationMatchesPr } from './utils/annotationScope';
-import type { DiffOption, WorktreeInfo, GitContext, SinceBaseSections } from '@plannotator/shared/types';
+import type { DiffOption, WorktreeInfo, GitContext, SinceBaseSections, CommitDiffInfo } from '@plannotator/shared/types';
 import { SectionsPanel } from './components/SectionsPanel';
+import { CommitsPanel } from './components/CommitsPanel';
+import { useCommitsView } from './hooks/useCommitsView';
 import { ReviewSetupDialog } from './components/ReviewSetupDialog';
 import { needsReviewSetup, markReviewSetupSeen } from './utils/reviewSetup';
 import type { PRMetadata } from '@plannotator/shared/pr-types';
@@ -246,6 +248,9 @@ const ReviewApp: React.FC = () => {
   const [committedBase, setCommittedBase] = useState<string | null>(null);
   // Since-base sections sidecar (committed / changes / untracked grouping).
   const [sections, setSections] = useState<SinceBaseSections | null>(null);
+  // Commit metadata sidecar while a commit:<sha> diff is active — drives the
+  // description card + collapsed seeding on the all-files surface.
+  const [commitInfo, setCommitInfo] = useState<CommitDiffInfo | null>(null);
   // The local origin/<default> tracking ref is behind the actual remote —
   // the "Baseline is behind GitHub · Fetch" banner.
   const [baseBehindRemote, setBaseBehindRemote] = useState(false);
@@ -254,13 +259,17 @@ const ReviewApp: React.FC = () => {
   // "your snapshot moved" is independent of whether the VCS changed.
   const [snapshotId, setSnapshotId] = useState<string | undefined>(undefined);
   const [isFetchingBase, setIsFetchingBase] = useState(false);
-  // Sections vs classic tree in the left panel — backed by the configStore
-  // (also the Settings + first-run-dialog default). The header toggle writes
-  // it too, so the last choice becomes the default. Writes go through the
-  // shared coupled setter (sections ⟺ since-base — see config/reviewView).
-  const panelView = useConfigValue('reviewPanelView');
-  const selectPanelView = useCallback((view: 'sections' | 'tree') => {
-    setReviewPanelView(view);
+  // Which left panel is showing. The persisted value (Settings / first-run
+  // dialog, written through the coupled setters in config/reviewView)
+  // decides what a review OPENS on; the header toggle is a pure session
+  // control layered over it — it NEVER writes config. Changing the default
+  // is an explicit Settings/setup-dialog act, not a side effect of looking
+  // at another view mid-review.
+  const persistedPanelView = useConfigValue('reviewPanelView');
+  const [sessionPanelView, setSessionPanelView] = useState<'sections' | 'commits' | 'tree' | null>(null);
+  const panelView: 'sections' | 'commits' | 'tree' = sessionPanelView ?? persistedPanelView;
+  const selectPanelView = useCallback((view: 'sections' | 'commits' | 'tree') => {
+    setSessionPanelView(view);
   }, []);
   // First-run review-setup chooser (panel view + tree default diff).
   const [showReviewSetup, setShowReviewSetup] = useState(false);
@@ -286,6 +295,14 @@ const ReviewApp: React.FC = () => {
 
   const { prMetadata, prStackInfo, prStackTree, prDiffScope, prDiffScopeOptions, prPatchIncomplete, prPatchUpgradeAvailable, updatePRSession } = usePRSession();
   const { withPRContext } = useAnnotationFactory(prMetadata, prStackInfo ? prDiffScope : undefined);
+
+  // The Commits view (linear history rail) exists for plain local git
+  // sessions only — PR/workspace/jj/p4 keep their existing panels. Unlike
+  // sections it has NO coupled diff: the review opens on the user's normal
+  // default until a commit is clicked, and the clicked sha is never persisted.
+  // Declared this early because the global keyboard handler consults it.
+  const commitsCapable = !prMetadata && reviewMode !== 'workspace' && gitContext?.vcsType === 'git';
+  const showCommitsPanel = commitsCapable && panelView === 'commits';
 
   const prStackCallbacksRef = useRef<import('./hooks/usePRStack').PRStackCallbacks | null>(null);
   const {
@@ -899,8 +916,10 @@ const ReviewApp: React.FC = () => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Cmd/Ctrl+F to focus file search when diff files are available.
+      // Not intercepted in the Commits view: its rail has no search input, so
+      // capturing the key would silently no-op — let the browser find handle it.
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f' && !isTypingTarget(e.target)) {
-        if (hasSearchableFiles) {
+        if (hasSearchableFiles && !showCommitsPanel) {
           e.preventDefault();
           setIsFileTreeOpen(true);
           openSearch();
@@ -947,7 +966,7 @@ const ReviewApp: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showExportModal, showDestinationMenu, isSearchOpen, searchQuery, searchMatches, isSearchPending, openSearch, stepSearchMatch, clearSearch, closeSearch, hasSearchableFiles, reviewSidebar.isOpen, reviewSidebar.open, reviewSidebar.close, isFileTreeOpen]);
+  }, [showExportModal, showDestinationMenu, isSearchOpen, searchQuery, searchMatches, isSearchPending, openSearch, stepSearchMatch, clearSearch, closeSearch, hasSearchableFiles, showCommitsPanel, reviewSidebar.isOpen, reviewSidebar.open, reviewSidebar.close, isFileTreeOpen]);
 
 
   // Load diff content - try API first, fall back to demo
@@ -983,6 +1002,7 @@ const ReviewApp: React.FC = () => {
         isWSL?: boolean;
         semanticDiff?: SemanticDiffAdvert;
         sections?: SinceBaseSections;
+        commitInfo?: CommitDiffInfo;
         baseBehindRemote?: boolean;
         snapshotId?: string;
         serverConfig?: { displayName?: string; gitUser?: string };
@@ -1041,6 +1061,7 @@ const ReviewApp: React.FC = () => {
         if (data.isWSL) setIsWSL(true);
         setSemanticDiffAvailable(data.semanticDiff?.available === true);
         setSections(data.sections ?? null);
+        setCommitInfo(data.commitInfo ?? null);
         setBaseBehindRemote(data.baseBehindRemote === true);
         // First-run: offer the review-view chooser for a plain local git
         // session (not workspace/PR/jj/p4), once. On this first showing we
@@ -1278,6 +1299,12 @@ const ReviewApp: React.FC = () => {
   const { activeWorktreePath, activeDiffBase } = useMemo(() => {
     if (diffType.startsWith('worktree:')) {
       const rest = diffType.slice('worktree:'.length);
+      // `worktree:<path>:commit:<sha>` — the sub-type contains a colon, so it
+      // needs its own split (mirrors parseWorktreeDiffType server-side).
+      const commitIdx = rest.lastIndexOf(':commit:');
+      if (commitIdx !== -1 && /^commit:[0-9a-f]{4,64}$/i.test(rest.slice(commitIdx + 1))) {
+        return { activeWorktreePath: rest.slice(0, commitIdx), activeDiffBase: rest.slice(commitIdx + 1) };
+      }
       const lastColon = rest.lastIndexOf(':');
       if (lastColon !== -1) {
         const sub = rest.slice(lastColon + 1);
@@ -1298,6 +1325,10 @@ const ReviewApp: React.FC = () => {
   // toggling back to Sections switches the diff back to since-base.
   const sectionsCapable = !prMetadata && reviewMode !== 'workspace'
     && !!gitContext?.diffOptions?.some(option => option.id === 'since-base');
+  const activeCommitSha = activeDiffBase.startsWith('commit:')
+    ? activeDiffBase.slice('commit:'.length)
+    : null;
+
   // The all-files surface mirrors whichever left panel is showing: sections
   // order when the sections view is active, tree order otherwise.
   const allFilesOrder: 'tree' | 'list' = sectionsAvailable && panelView === 'sections' ? 'list' : 'tree';
@@ -1466,6 +1497,7 @@ const ReviewApp: React.FC = () => {
         error?: string;
         semanticDiff?: SemanticDiffAdvert;
         sections?: SinceBaseSections;
+        commitInfo?: CommitDiffInfo;
         baseBehindRemote?: boolean;
         superseded?: boolean;
       };
@@ -1478,6 +1510,7 @@ const ReviewApp: React.FC = () => {
       const nextFiles = orderFilesBySections(parseDiffToFiles(data.rawPatch), data.sections);
       applySemanticDiffAdvert(data.semanticDiff);
       setSections(data.sections ?? null);
+      setCommitInfo(data.commitInfo ?? null);
       setBaseBehindRemote(data.baseBehindRemote === true);
 
       if (options?.preserveFile) {
@@ -1604,15 +1637,70 @@ const ReviewApp: React.FC = () => {
     await fetchDiffSwitch(fullDiffType, baseOverride);
   }, [diffType, activeWorktreePath, fetchDiffSwitch, gitContext]);
 
-  // Toggling to Sections means "show me the since-base review" — if an
-  // advanced mode is active, switch the diff back along with the view.
-  // selectPanelView goes through the coupled setter, which also persists
-  // defaultDiffType=since-base; this handler only brings the live session
-  // diff along.
+  // Toggling to Sections means "show me the since-base review" — if another
+  // mode is active, switch the LIVE diff back along with the view. No config
+  // writes: the toggle is session-only, so there is no persisted view/diff
+  // pair to keep consistent here (Settings and the setup dialog, which do
+  // persist, enforce the sections ⟺ since-base coupling via the shared
+  // setters in config/reviewView).
   const handleSwitchToSections = useCallback(() => {
     selectPanelView('sections');
     if (activeDiffBase !== 'since-base') void handleDiffSwitch('since-base');
   }, [selectPanelView, activeDiffBase, handleDiffSwitch]);
+
+  // Unified toggle handler for all three panel views. Only Sections carries a
+  // diff coupling (it can render nothing but since-base); Commits and Tree
+  // switch the view alone and leave the active diff as-is — Tree can render
+  // any diff, including a clicked commit's.
+  const handlePanelViewSelect = useCallback((view: 'sections' | 'commits' | 'tree') => {
+    if (view === 'commits') {
+      // The Commits rail has no search input, so an open search would become
+      // hidden-but-live: the query keeps matching, marks keep rendering, and
+      // Enter keeps stepping matches with no way to see or edit any of it.
+      // Entering the view ends the search session cleanly.
+      if (searchQuery) clearSearch();
+      if (isSearchOpen) closeSearch();
+    }
+    if (view === 'sections') {
+      handleSwitchToSections();
+      return;
+    }
+    selectPanelView(view);
+  }, [handleSwitchToSections, selectPanelView, searchQuery, isSearchOpen, clearSearch, closeSearch]);
+
+  // Open a commit's own diff (vs its first parent) in the center dock. The
+  // switch resets the dock to the all-files surface via the existing
+  // needsInitialDiffPanel flow; re-clicking the active commit just re-focuses
+  // that panel (e.g. after the user closed the tab).
+  const handleSelectCommit = useCallback((sha: string) => {
+    // Compose the worktree prefix ONCE and use it for both the re-click check
+    // and the switch itself (going through handleDiffSwitch would compose it
+    // a second time in a second place — fragile duplication for no benefit;
+    // its evolog base handling never applies to commit diffs).
+    const fullDiffType = activeWorktreePath
+      ? `worktree:${activeWorktreePath}:commit:${sha}`
+      : `commit:${sha}`;
+    if (fullDiffType === diffType) {
+      openAllFilesPanel();
+      return;
+    }
+    void fetchDiffSwitch(fullDiffType);
+  }, [activeWorktreePath, diffType, fetchDiffSwitch, openAllFilesPanel]);
+
+  // The Commits-view session machine (log + poll + HEAD auto-select + center
+  // veil) lives in the hook so its invariants stay in one file; App supplies
+  // the pieces it owns — visibility, the active commit, switch state, and the
+  // open-a-commit path (the SAME one user clicks take).
+  const commitsView = useCommitsView({
+    enabled: showCommitsPanel && !!origin,
+    // Worktree and base changes re-anchor the history/divider; commit clicks
+    // deliberately don't (paging state survives them).
+    contextKey: `${activeWorktreePath ?? ''}|${committedBase ?? ''}`,
+    activeCommitSha,
+    isLoadingDiff,
+    diffError,
+    onOpenCommit: handleSelectCommit,
+  });
 
   // Self-heal a conflicted persisted pair: reviewPanelView=sections with a
   // non-since-base defaultDiffType. Every UI writer enforces the coupling
@@ -1622,12 +1710,16 @@ const ReviewApp: React.FC = () => {
   // on every load: the server opens on the stale diff in the classic tree
   // while the cookie still says Git status. Trust the view choice, repair the
   // diff default (cookie + config.json), and bring the live session along.
+  // Keyed to persistedPanelView, NEVER the live panelView: the header toggle
+  // is session-only and must not be able to trigger a settings write, even
+  // indirectly through this repair. Only a pair that Settings / the setup
+  // dialog / an old config file actually PERSISTED conflicted gets healed.
   const healedPanelPairOnLoad = useRef(false);
   useEffect(() => {
     if (healedPanelPairOnLoad.current || isLoading || !diffData) return;
     // First-run resets + applies the pair itself (on dialog dismiss).
     if (!sectionsCapable || reviewSetupIsFirstRun.current) return;
-    if (panelView !== 'sections') return;
+    if (persistedPanelView !== 'sections') return;
     healedPanelPairOnLoad.current = true;
     if (configStore.get('defaultDiffType') !== 'since-base') {
       // Re-assert the pair through the coupled setter (repairs cookie +
@@ -1635,19 +1727,33 @@ const ReviewApp: React.FC = () => {
       setReviewPanelView('sections');
       if (activeDiffBase !== 'since-base') void handleDiffSwitch('since-base');
     }
-  }, [isLoading, diffData, sectionsCapable, panelView, activeDiffBase, handleDiffSwitch]);
+  }, [isLoading, diffData, sectionsCapable, persistedPanelView, activeDiffBase, handleDiffSwitch]);
 
   // Switch worktree context (or back to main repo). Preserves the current
   // diff mode across the switch — if the reviewer was looking at "PR Diff"
   // in the main repo, they should keep looking at "PR Diff" in the target
   // worktree rather than being silently snapped back to "Uncommitted".
+  //
+  // EXCEPT commit:<sha> diffs: every other mode recomputes meaningfully
+  // against the target worktree, but a commit diff is context-bound content —
+  // worktrees share one object database, so "preserving" it just re-renders
+  // the OLD context's commit byte-for-byte. Fall back to the session's normal
+  // default (same option-availability rule resolveInitialDiffType applies).
   const handleWorktreeSwitch = useCallback(async (worktreePath: string | null) => {
     if (worktreePath === activeWorktreePath) return;
+    let carriedBase = activeDiffBase;
+    if (activeDiffBase.startsWith('commit:')) {
+      const preferred = configStore.get('defaultDiffType');
+      const options = gitContext?.diffOptions ?? [];
+      carriedBase = options.some((o) => o.id === preferred)
+        ? preferred
+        : (options[0]?.id ?? 'uncommitted');
+    }
     const fullDiffType = worktreePath
-      ? `worktree:${worktreePath}:${activeDiffBase}`
-      : activeDiffBase;
+      ? `worktree:${worktreePath}:${carriedBase}`
+      : carriedBase;
     await fetchDiffSwitch(fullDiffType);
-  }, [activeWorktreePath, activeDiffBase, fetchDiffSwitch]);
+  }, [activeWorktreePath, activeDiffBase, gitContext, fetchDiffSwitch]);
 
   // Re-fetch diff when hideWhitespace toggles so the server applies git diff -w.
   // Preserves the active file since only whitespace hunks change.
@@ -1730,7 +1836,9 @@ const ReviewApp: React.FC = () => {
     // Same params, fresh snapshot. preserveFile keeps the reviewer on the
     // file they were reading.
     void fetchDiffSwitch(diffType, selectedBase, { preserveFile: true });
-  }, [prMetadata, prDiffScope, prPatchIncomplete, handlePRDiffScopeSelect, handleLoadFullDiff, fetchDiffSwitch, diffType, selectedBase]);
+    // New commits are part of what went stale — bring the rail along.
+    if (showCommitsPanel) commitsView.refresh();
+  }, [prMetadata, prDiffScope, prPatchIncomplete, handlePRDiffScopeSelect, handleLoadFullDiff, fetchDiffSwitch, diffType, selectedBase, showCommitsPanel, commitsView.refresh]);
 
   // Select annotation - switches file if needed and scrolls to it.
   // isAllFilesActive is read through the ref (declared with the state): this
@@ -1978,6 +2086,7 @@ const ReviewApp: React.FC = () => {
     onToggleAllFilesCollapsed,
     registerAllFilesCollapseToggle,
     onAllFilesCollapsedChange: setAllFilesAllCollapsed,
+    commitInfo,
     isSemanticDiffActive,
     semanticDiffAvailable,
     onSemanticDiffUnavailable: handleSemanticDiffUnavailable,
@@ -2007,7 +2116,7 @@ const ReviewApp: React.FC = () => {
     handleAskAI, handleAskAIForFile, handleViewAIResponse, handleClickAIMarker,
     aiHistoryForSelection, getAIHistoryForFile, agentJobs.jobs, prMetadata, prContext,
     isPRContextLoading, prContextError, fetchPRContext, platformUser, openDiffFile,
-    handleOpenTour, isAllFilesActive, allFilesOrder, allFilesAllCollapsed, onToggleAllFilesCollapsed, registerAllFilesCollapseToggle, isSemanticDiffActive, semanticDiffAvailable,
+    handleOpenTour, isAllFilesActive, allFilesOrder, allFilesAllCollapsed, onToggleAllFilesCollapsed, registerAllFilesCollapseToggle, commitInfo, isSemanticDiffActive, semanticDiffAvailable,
     handleSemanticDiffUnavailable, handleSemanticDiffLoadError, handleSemanticDiffLoadSuccess, handleAddAnnotationForFile,
     handleCodeNavRequest, codeNav.result, codeNav.isLoading, codeNav.activeSymbol,
   ]);
@@ -2808,7 +2917,8 @@ const ReviewApp: React.FC = () => {
                 onSelectBase={handleBaseSelect}
                 compareTarget={gitContext?.compareTarget}
                 recentCommits={gitContext?.recentCommits}
-                onSelectPanelView={selectPanelView}
+                onSelectPanelView={handlePanelViewSelect}
+                showCommitsOption={commitsCapable}
                 onSelectAllFiles={openAllFilesPanel}
                 isAllFilesActive={isAllFilesActive}
                 onSelectSemanticDiff={() => openSemanticDiffPanel()}
@@ -2834,7 +2944,27 @@ const ReviewApp: React.FC = () => {
               <ResizeHandle {...fileTreeResize.handleProps} className="z-10" side="left" onCollapse={() => setIsFileTreeOpen(false)} />
             </div>
           )}
-          {shouldShowFileTree && isFileTreeOpen && !(sectionsAvailable && panelView === 'sections') && (
+          {shouldShowFileTree && isFileTreeOpen && showCommitsPanel && (
+            <div className="contents group/sidebar">
+              <CommitsPanel
+                width={fileTreeResize.width}
+                commits={commitsView.commits}
+                base={commitsView.base}
+                hasMore={commitsView.hasMore}
+                isLoading={commitsView.isLoading}
+                isLoadingMore={commitsView.isLoadingMore}
+                error={commitsView.error}
+                activeCommitSha={activeCommitSha}
+                onSelectCommit={handleSelectCommit}
+                onShowMore={commitsView.showMore}
+                onRetry={commitsView.refresh}
+                onSelectPanelView={handlePanelViewSelect}
+                showSectionsOption={sectionsCapable}
+              />
+              <ResizeHandle {...fileTreeResize.handleProps} className="z-10" side="left" onCollapse={() => setIsFileTreeOpen(false)} />
+            </div>
+          )}
+          {shouldShowFileTree && isFileTreeOpen && !(sectionsAvailable && panelView === 'sections') && !showCommitsPanel && (
             <div className="contents group/sidebar">
               <FileTree
                 files={files}
@@ -2893,6 +3023,7 @@ const ReviewApp: React.FC = () => {
                 onStepSearchMatch={hasSearchableFiles ? stepSearchMatch : undefined}
                 repoRoot={prMetadata ? null : (activeWorktreePath ?? agentCwd ?? gitContext?.cwd ?? null)}
                 onSwitchToSections={sectionsCapable ? handleSwitchToSections : undefined}
+                onSwitchToCommits={commitsCapable ? () => handlePanelViewSelect('commits') : undefined}
                 sinceBaseSections={activeDiffBase === 'since-base' ? sections : null}
                 onStageFile={canStageFiles ? stageFile : undefined}
                 stagingFile={stagingFile}
@@ -2903,6 +3034,23 @@ const ReviewApp: React.FC = () => {
 
           {/* Center dock area */}
           <div className="flex-1 min-w-0 overflow-hidden relative">
+            {/* Commit navigation veil: while a commit switch is in flight (or
+                the view was just entered and HEAD auto-select hasn't landed),
+                cover the stale previous diff instead of letting it sit there
+                and then jump — the rail click reads as immediate. All terminal
+                states (switch error, log error, empty history) drop the veil —
+                see useCommitsView's veilActive. */}
+            {commitsView.veilActive && (
+              <div className="absolute inset-0 z-20 bg-background/95 flex items-center justify-center">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Loading commit…
+                </div>
+              </div>
+            )}
             <ConfirmDialog
               isOpen={!!draftBanner}
               onClose={dismissDraft}
@@ -2952,6 +3100,7 @@ const ReviewApp: React.FC = () => {
                         <h3 className="text-sm font-medium text-foreground">No changes</h3>
                         <p className="text-xs text-muted-foreground mt-1">
                           {activeDiffBase === 'since-base' && `No changes since ${selectedBase || gitContext?.defaultBranch || 'main'}${activeWorktreePath ? ' in this worktree' : ''} — committed, uncommitted, or untracked.`}
+                          {activeDiffBase.startsWith('commit:') && 'This commit has no changes.'}
                           {activeDiffBase === 'uncommitted' && `No uncommitted changes${activeWorktreePath ? ' in this worktree' : ' to review'}.`}
                           {activeDiffBase === 'staged' && "No staged changes. Stage some files with git add."}
                           {activeDiffBase === 'unstaged' && "No unstaged changes. All changes are staged."}

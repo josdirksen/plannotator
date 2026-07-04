@@ -1,6 +1,7 @@
 import {
   JJ_TRUNK_REVSET,
   jjLineBaseRevset,
+  parseCommitDiffType,
   parseWorktreeDiffType,
   type DiffType,
 } from "./vcs";
@@ -188,6 +189,19 @@ export function getLocalDiffInstruction(
   defaultBranch?: string,
 ): LocalDiffInstruction | null {
   const effectiveDiffType = normalizeLocalDiffType(diffType);
+
+  // commit:<sha> — a single historical commit, not the working tree.
+  const commitRef = parseCommitDiffType(effectiveDiffType);
+  if (commitRef) {
+    return {
+      target: `the changes introduced by commit ${commitRef.sha.slice(0, 7)}`,
+      // First-parent diff, NOT `git show`: the on-screen patch is
+      // `<sha>^ <sha>`, and for a merge commit `git show`'s combined-diff
+      // presentation renders a different (often empty) changeset — the agent
+      // must inspect exactly what the reviewer is looking at.
+      inspect: `This is a historical commit, not the working tree. Run \`git diff ${commitRef.sha}^ ${commitRef.sha}\` — the commit against its first parent — to inspect exactly the changeset under review (do not use \`git show\`; its merge-commit presentation differs). For a root commit with no parent, use \`git show ${commitRef.sha}\` instead.`,
+    };
+  }
 
   switch (effectiveDiffType) {
     case "since-base": {

@@ -10,6 +10,7 @@
     "./feedback-templates": "./feedback-templates.ts",
     "./jj-core": "./jj-core.ts",
     "./review-core": "./review-core.ts",
+    "./commit-history": "./commit-history.ts",
     "./review-workspace": "./review-workspace.ts",
     "./review-workspace-node": "./review-workspace-node.ts",
     "./review-args": "./review-args.ts",
@@ -57,7 +58,8 @@
     "./browser-paths": "./browser-paths.ts",
     "./workspace-status": "./workspace-status.ts",
     "./open-in-apps": "./open-in-apps.ts",
-    "./review-profiles": "./review-profiles.ts"
+    "./review-profiles": "./review-profiles.ts",
+    "./commit-avatars": "./commit-avatars.ts"
   },
   "dependencies": {
     "@joplin/turndown-plugin-gfm": "^1.0.64",

@@ -218,6 +218,8 @@ const GitTab: React.FC<{ sinceBaseUnavailable?: boolean }> = ({ sinceBaseUnavail
             </div>
           )}
         </div>
+        {/* No Commits option here: the Commits view is session-only (entered
+            via the panel toggle) and is never the opening view. */}
         <SegmentedControl
           options={[
             { value: 'sections' as const, label: 'Git status' },

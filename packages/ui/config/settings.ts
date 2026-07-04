@@ -53,10 +53,15 @@ export const SETTINGS = {
 
   // --- Diff display options (namespaced under diffOptions in config.json) ---
 
-  // Which left-panel view a code review opens in. 'sections' = the new
-  // git-status view (Committed/Changes/Untracked); 'tree' = the classic file
-  // tree. Cookie-only. The header Sections|Tree toggle writes this too, so the
-  // last choice becomes the default (like gridEnabled for plans).
+  // Which left-panel view a code review OPENS in. 'sections' = the git-status
+  // view (Committed/Changes/Untracked); 'tree' = the classic file tree.
+  // Cookie-only. Written ONLY by Settings and the first-run setup dialog —
+  // the in-review header toggle is session-scoped and never writes this
+  // (looking at another view mid-review must not silently change the default).
+  //
+  // Deliberately NOT a value here: 'commits'. The Commits view is session-only
+  // and never the opening view — a review always opens on files. A
+  // previously-persisted 'commits' cookie is treated as unset.
   reviewPanelView: {
     defaultValue: 'sections' as 'sections' | 'tree',
     fromCookie: () => {

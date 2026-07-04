@@ -24,6 +24,7 @@ export type DiffType =
   | "branch"
   | "merge-base"
   | "all"
+  | `commit:${string}`
   | `worktree:${string}`
   | "p4-default"
   | `p4-changelist:${string}`;
@@ -276,7 +277,25 @@ export async function detectRemoteDefaultBranch(
 const RECENT_COMMIT_LIMIT_DEFAULT = 20;
 // US (\x1F) separator avoids collisions with commit subjects, author names, and
 // dates while staying compatible with `git log --pretty=format`.
-const COMMIT_FIELD_SEP = "\x1f";
+export const COMMIT_FIELD_SEP = "\x1f";
+
+/**
+ * Split a COMMIT_FIELD_SEP-formatted git output into exactly
+ * `head + 1 + tail` fields. A literal US byte inside the one free-text field
+ * (subject or body) over-splits the raw string; the fixed-shape head and tail
+ * fields let us rejoin the middle losslessly. Returns null when the input has
+ * fewer fields than the format guarantees. Shared by every %x1f parser
+ * (here and commit-history.ts) so the over-split edge case lives in one place.
+ */
+export function splitCommitFormatFields(value: string, head: number, tail: number): string[] | null {
+  const parts = value.split(COMMIT_FIELD_SEP);
+  if (parts.length < head + tail + 1) return null;
+  return [
+    ...parts.slice(0, head),
+    parts.slice(head, parts.length - tail).join(COMMIT_FIELD_SEP),
+    ...parts.slice(parts.length - tail),
+  ];
+}
 
 /**
  * Walk HEAD's ancestry and return the most-recent commits for the
@@ -297,16 +316,9 @@ export async function listRecentCommits(
   const commits: RecentCommit[] = [];
   for (const line of result.stdout.split("\n")) {
     if (!line) continue;
-    const parts = line.split(COMMIT_FIELD_SEP);
-    if (parts.length < 5) continue;
-    // If a subject contains a literal US byte the split over-divides. sha/
-    // shortSha are fixed-shape at the start and relativeDate/author at the
-    // end, so rejoin everything between back into the subject.
-    const sha = parts[0];
-    const shortSha = parts[1];
-    const author = parts[parts.length - 1];
-    const relativeDate = parts[parts.length - 2];
-    const subject = parts.slice(2, parts.length - 2).join(COMMIT_FIELD_SEP);
+    const fields = splitCommitFormatFields(line, 2, 2);
+    if (!fields) continue;
+    const [sha, shortSha, subject, relativeDate, author] = fields;
     commits.push({ sha, shortSha, subject, relativeDate, author });
   }
   return commits;
@@ -640,6 +652,18 @@ function displayRef(ref: string): string {
   return /^[0-9a-f]{7,}$/i.test(ref) ? ref.slice(0, 7) : ref;
 }
 
+/** Resolve the empty-tree object id (hash-object honors repo hash algorithm;
+ * the SHA-1 constant is the fallback for the degenerate no-repo case). */
+async function getEmptyTreeSha(
+  runtime: ReviewGitRuntime,
+  cwd?: string,
+): Promise<string> {
+  const result = await runtime.runGit(["hash-object", "-t", "tree", "/dev/null"], { cwd });
+  return result.exitCode === 0
+    ? result.stdout.trim()
+    : "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+}
+
 function assertGitSuccess(
   result: GitCommandResult,
   args: string[],
@@ -666,12 +690,58 @@ const WORKTREE_SUB_TYPES = new Set([
   "all",
 ]);
 
+/** Bare hex object name (full or abbreviated) — the only sha shape accepted
+ * from clients before it reaches a git argv position. */
+export const BARE_HEX_SHA_RE = /^[0-9a-f]{4,64}$/i;
+
+/**
+ * Parse a `commit:<sha>` diff type — a single historical commit reviewed
+ * against its first parent. The sha must be plain hex (full or abbreviated):
+ * it flows from a client request into git argv positions, so anything that
+ * isn't a bare object name is rejected here rather than trusted downstream
+ * (`--end-of-options` already prevents flag smuggling; this keeps revspec
+ * operators like `..`/`^{}` out too, so the diff is always one commit).
+ */
+export function parseCommitDiffType(diffType: string): { sha: string } | null {
+  if (!diffType.startsWith("commit:")) return null;
+  const sha = diffType.slice("commit:".length);
+  return BARE_HEX_SHA_RE.test(sha) ? { sha } : null;
+}
+
+/**
+ * True when switching to `nextDiffType` is a commit:<sha> diff within the
+ * same cwd as `previousDiffType` (plain or worktree-prefixed). The commit-rail
+ * hot path: such a switch cannot change branches, worktrees, or recent
+ * commits, so the /api/diff/switch handlers skip their gitContext recompute.
+ * Only the NEW type must be a commit diff — the context is invalidated by
+ * where you land, not where you came from.
+ */
+export function isSameCwdCommitSwitch(
+  previousDiffType: string,
+  nextDiffType: string,
+): boolean {
+  const next = parseWorktreeDiffType(nextDiffType);
+  if (!parseCommitDiffType(next?.subType ?? nextDiffType)) return false;
+  return (next?.path ?? null) === (parseWorktreeDiffType(previousDiffType)?.path ?? null);
+}
+
 export function parseWorktreeDiffType(
   diffType: string,
 ): { path: string; subType: string } | null {
   if (!diffType.startsWith("worktree:")) return null;
 
   const rest = diffType.slice("worktree:".length);
+  // `worktree:<path>:commit:<sha>` — the sub-type itself contains a colon, so
+  // it can't be recognized by the single lastIndexOf(':') split below. Split
+  // on the LAST ':commit:' occurrence (a path that itself ends in ':commit'
+  // followed by a hex segment would be misread — accepted pathological edge).
+  const commitIdx = rest.lastIndexOf(":commit:");
+  if (commitIdx !== -1) {
+    const maybeCommit = rest.slice(commitIdx + 1);
+    if (parseCommitDiffType(maybeCommit)) {
+      return { path: rest.slice(0, commitIdx), subType: maybeCommit };
+    }
+  }
   const lastColon = rest.lastIndexOf(":");
   if (lastColon !== -1) {
     const maybeSub = rest.slice(lastColon + 1);
@@ -711,7 +781,36 @@ export async function runGitDiff(
   const wFlag = options?.hideWhitespace ? ["-w"] : [];
 
   try {
-    switch (effectiveDiffType) {
+    // `commit:<sha>` — one historical commit vs its first parent (git-show
+    // style). Handled before the switch: the sha makes it a family of types,
+    // not a literal case label.
+    const commitRef = parseCommitDiffType(effectiveDiffType);
+    if (commitRef) {
+      const { sha } = commitRef;
+      const infoArgs = ["log", "-1", `--pretty=format:%h${COMMIT_FIELD_SEP}%s`, "--end-of-options", sha];
+      const info = assertGitSuccess(await runtime.runGit(infoArgs, { cwd }), infoArgs);
+      const sepIdx = info.stdout.indexOf(COMMIT_FIELD_SEP);
+      const shortSha = sepIdx === -1 ? sha.slice(0, 7) : info.stdout.slice(0, sepIdx);
+      const subject = sepIdx === -1 ? "" : info.stdout.slice(sepIdx + 1).split("\n")[0];
+      // Root commit has no parent — diff against the empty tree instead.
+      const hasParent =
+        (await runtime.runGit(["rev-parse", "--verify", "--quiet", `${sha}^`], { cwd }))
+          .exitCode === 0;
+      const baseRef = hasParent ? `${sha}^` : await getEmptyTreeSha(runtime, cwd);
+      const commitDiffArgs = [
+        "diff",
+        "--no-ext-diff",
+        ...wFlag,
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
+        "--end-of-options",
+        `${baseRef}..${sha}`,
+      ];
+      patch = assertGitSuccess(await runtime.runGit(commitDiffArgs, { cwd }), commitDiffArgs).stdout;
+      label = subject ? `Commit ${shortSha} — ${subject}` : `Commit ${shortSha}`;
+    } else if (effectiveDiffType.startsWith("commit:")) {
+      return { patch: "", label: `Error: ${diffType}`, error: "Invalid commit ref" };
+    } else switch (effectiveDiffType) {
       case "since-base": {
         // The composite "GitHub view": merge-base(base, HEAD) vs the working
         // tree (note: no right-hand ref on the diff), plus untracked files.
@@ -881,10 +980,7 @@ export async function runGitDiff(
 
       case "all": {
         // Diff from the empty tree to HEAD — shows every tracked file as an addition.
-        const emptyTreeResult = await runtime.runGit(["hash-object", "-t", "tree", "/dev/null"], { cwd });
-        const emptyTree = emptyTreeResult.exitCode === 0
-          ? emptyTreeResult.stdout.trim()
-          : "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+        const emptyTree = await getEmptyTreeSha(runtime, cwd);
         const allDiffArgs = [
           "diff",
           "--no-ext-diff",
@@ -1007,6 +1103,21 @@ export async function getGitDiffFingerprint(
     // `git add`/commit operations (the agent working while the user reviews).
     const runReadOnlyGit = (args: string[]) =>
       runtime.runGit(["--no-optional-locks", ...args], { cwd });
+
+    // commit:<sha> — the diff is anchored to an immutable object, so the
+    // fingerprint is the sha plus whether it still resolves. Deliberately NOT
+    // headSha-coupled: new commits landing mid-review don't change this diff,
+    // so they must not raise the staleness banner. If the commit vanishes from
+    // the repo (rebase + gc), present→gone flips the fingerprint and the
+    // banner fires — refreshing then surfaces the git error honestly.
+    if (effectiveDiffType.startsWith("commit:")) {
+      const commitRef = parseCommitDiffType(effectiveDiffType);
+      if (!commitRef) return null;
+      const resolves =
+        (await runReadOnlyGit(["rev-parse", "--verify", "--quiet", `${commitRef.sha}^{commit}`]))
+          .exitCode === 0;
+      return `git:commit:${commitRef.sha}:${resolves ? "present" : "gone"}`;
+    }
 
     const head = await runReadOnlyGit(["rev-parse", "HEAD"]);
     const headSha = head.exitCode === 0 ? head.stdout.trim() : "no-head";
@@ -1149,6 +1260,16 @@ export async function getFileContentsForDiff(
     const baseDir = await resolveRepoToplevel(runtime, cwd);
     const fullPath = baseDir ? resolvePath(baseDir, path) : path;
     return runtime.readTextFile(fullPath);
+  }
+
+  // commit:<sha> — old side is the first parent (null on a root commit, which
+  // correctly renders every file as an addition), new side the commit itself.
+  const commitRef = parseCommitDiffType(effectiveDiffType);
+  if (commitRef) {
+    return {
+      oldContent: await gitShow(`${commitRef.sha}^`, oldFilePath),
+      newContent: await gitShow(commitRef.sha, filePath),
+    };
   }
 
   switch (effectiveDiffType) {

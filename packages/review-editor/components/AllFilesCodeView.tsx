@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { getSingularPatch, processFile } from '@pierre/diffs';
 import type {
   CodeViewItem,
@@ -215,6 +216,14 @@ interface AllFilesCodeViewProps {
   // mirror the collapsed flag so the header button can drive/reflect it.
   registerCollapseAllToggle?: (toggle: (() => void) | null) => void;
   onAllCollapsedChange?: (collapsed: boolean) => void;
+  /** Seed every file collapsed (commit diffs open as a folded overview under
+   * the commit-description header). The collapse-all toggle still works. */
+  defaultCollapsed?: boolean;
+  /** Content rendered ABOVE the first file, inside the scroller — it scrolls
+   * away with the diff (not pinned). Implemented as layout.paddingTop +
+   * a portal into CodeView's scroll container, since CodeView owns both the
+   * scroller and the virtualized items. */
+  leadingContent?: React.ReactNode;
   // Only handle [/]/z/v/a/c/x keyboard nav when this surface is the active panel.
   isActive?: boolean;
   // AI props (optional — surfaced into the toolbar). File-aware variants: this
@@ -295,6 +304,7 @@ function buildItemIdentity(
   prUrl: string | undefined,
   prDiffScope: string | undefined,
   patchHashes: string[],
+  seedCollapsed: boolean,
 ): ItemIdentity {
   const items: CodeViewItem<DiffAnnotationMetadata>[] = [];
   const filePathToItemId = new Map<string, string>();
@@ -344,7 +354,14 @@ function buildItemIdentity(
     // Seed annotations at build time so the first render (and any remount via
     // fileSetKey) already paints existing annotations without an extra update.
     const fileAnnotations = projectFileAnnotations(annotations, file.path, prUrl, prDiffScope);
-    items.push({ id, type: 'diff', fileDiff, version: 0, annotations: fileAnnotations });
+    items.push({
+      id,
+      type: 'diff',
+      fileDiff,
+      version: 0,
+      annotations: fileAnnotations,
+      ...(seedCollapsed && { collapsed: true }),
+    });
     // First occurrence of a path wins the canonical lookup so the file tree
     // (keyed by path) navigates to the primary item for that path.
     if (!filePathToItemId.has(file.path)) {
@@ -419,6 +436,8 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
   fileOrder,
   registerCollapseAllToggle,
   onAllCollapsedChange,
+  defaultCollapsed,
+  leadingContent,
   isActive = true,
   aiAvailable = false,
   onAskAIForFile,
@@ -439,6 +458,32 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
   useWorkerPoolThemeSync(pierreTheme.syntaxTheme);
   const viewerRef = useRef<CodeViewHandle<DiffAnnotationMetadata> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // State mirror of the scroll container so the leading-content portal can
+  // mount once CodeView has rendered it (a plain ref can't trigger that).
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+  const attachScrollContainer = useCallback((el: HTMLDivElement | null) => {
+    scrollRef.current = el;
+    setScrollEl(el);
+  }, []);
+  // Measured height of the leading content (commit description card) — becomes
+  // CodeView's layout.paddingTop so the virtualized items start below it and
+  // the card scrolls away with the content like normal document flow.
+  const [leadingHeight, setLeadingHeight] = useState(0);
+  const leadingElRef = useRef<HTMLDivElement | null>(null);
+  const attachLeadingEl = useCallback((el: HTMLDivElement | null) => {
+    leadingElRef.current = el;
+    if (el) setLeadingHeight(el.offsetHeight);
+  }, []);
+  useEffect(() => {
+    const el = leadingElRef.current;
+    if (!el) {
+      setLeadingHeight(0);
+      return;
+    }
+    const observer = new ResizeObserver(() => setLeadingHeight(el.offsetHeight));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [scrollEl, leadingContent]);
   const toolbarHostRef = useRef<ToolbarHostHandle>(null);
 
   // NOTE: no center split dragger on this surface (parity with the legacy
@@ -520,9 +565,9 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
   // files-identity change.
   const patchHashes = useMemo(() => files.map((f) => hashString(f.patch)), [files]);
   const identity = useMemo<ItemIdentity>(
-    () => buildItemIdentity(files, visualOrder, annotationsRef.current, prUrl, prDiffScope, patchHashes),
+    () => buildItemIdentity(files, visualOrder, annotationsRef.current, prUrl, prDiffScope, patchHashes, defaultCollapsed === true),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [files, visualOrder, prUrl, prDiffScope, patchHashes],
+    [files, visualOrder, prUrl, prDiffScope, patchHashes, defaultCollapsed],
   );
   const { filePathToItemId, filePathToItemIds, itemIdToFilePath, itemIdToFile } = identity;
 
@@ -536,8 +581,10 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
     // annotations ref and can't otherwise detect the filter change.
     // fileOrder is part of the key: CodeView seeds initialItems once per
     // instance, so an order change must remount to re-seed in the new order.
-    () => `${fileOrder ?? 'tree'}:${prUrl ?? ''}:${prDiffScope ?? ''}:${files.length}:${files.map((f, i) => `${f.path}#${patchHashes[i]}`).join('|')}`,
-    [files, patchHashes, prUrl, prDiffScope, fileOrder],
+    // defaultCollapsed is part of the key: CodeView seeds item collapsed state
+    // once per instance, so a seed change must remount to take effect.
+    () => `${fileOrder ?? 'tree'}:${defaultCollapsed ? 'c' : 'e'}:${prUrl ?? ''}:${prDiffScope ?? ''}:${files.length}:${files.map((f, i) => `${f.path}#${patchHashes[i]}`).join('|')}`,
+    [files, patchHashes, prUrl, prDiffScope, fileOrder, defaultCollapsed],
   );
 
   // Visual-order list of file paths (for [/] stepping). Derived from items so it
@@ -777,11 +824,24 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
 
   // --- Collapse via CodeView item state (Diffshub pattern + anchor fix) ------
 
-  const [allCollapsed, setAllCollapsed] = useState(false);
+  const [allCollapsed, setAllCollapsed] = useState(defaultCollapsed === true);
 
   // Reset the global collapse toggle when the file set changes — items re-seed
-  // expanded on CodeView remount.
-  useEffect(() => setAllCollapsed(false), [identity.items]);
+  // with the current default on CodeView remount.
+  useEffect(() => setAllCollapsed(defaultCollapsed === true), [identity.items, defaultCollapsed]);
+
+  // Re-derive the collapse-all mirror from live item state after any
+  // per-file toggle. Matters most for commit diffs (seeded all-collapsed):
+  // without this, expanding one file left the dock button on "Expand all",
+  // and clicking it re-collapsed the file the user just opened.
+  const syncAllCollapsedMirror = useStableCallback(() => {
+    const handle = viewerRef.current;
+    if (handle == null) return;
+    const anyExpanded = identity.items.some(
+      ({ id }) => handle.getItem(id)?.collapsed !== true,
+    );
+    setAllCollapsed(!anyExpanded);
+  });
 
   const toggleItemCollapsed = useStableCallback((itemId: string) => {
     const handle = viewerRef.current;
@@ -796,6 +856,7 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
     item.collapsed = item.collapsed !== true;
     item.version = (item.version ?? 0) + 1;
     if (!handle.updateItem(item)) return;
+    syncAllCollapsedMirror();
 
     if (itemTop != null && itemTop < viewer.getScrollTop()) {
       viewer.scrollTo({ type: 'item', id: itemId, align: 'start' });
@@ -811,6 +872,7 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
     item.collapsed = true;
     item.version = (item.version ?? 0) + 1;
     handle.updateItem(item);
+    syncAllCollapsedMirror();
   });
 
   const isItemCollapsed = useCallback((itemId: string): boolean => {
@@ -1915,7 +1977,9 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
       stickyHeaders: true,
       // Flush files together (no inter-file gap) — file boundaries already read
       // via the sticky header. Keep Pierre's default 8px list edge padding.
-      layout: { gap: 0, paddingTop: 8, paddingBottom: 8 },
+      // leadingHeight reserves space for the leading-content portal (commit
+      // description card) so items start below it and it scrolls with them.
+      layout: { gap: 0, paddingTop: 8 + leadingHeight, paddingBottom: 8 },
       itemMetrics: {
         diffHeaderHeight: PANEL_HEADER_HEIGHT,
         hunkSeparatorHeight: HUNK_SEPARATOR_HEIGHT,
@@ -1977,6 +2041,7 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
       disableBackground,
       expandUnchanged,
       customLineHeight,
+      leadingHeight,
       handleLineSelectionEnd,
       handleGutterUtilityClick,
       onCodeNavRequest,
@@ -2002,14 +2067,14 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
         // OLD diff on screen (the panel instance is reused, not recreated).
         key={fileSetKey}
         ref={viewerRef}
-        containerRef={scrollRef}
+        containerRef={attachScrollContainer}
         // Containment mirrors Pierre's own production wrapper (diffshub
         // CodeViewWrapper): without it, every forced layout during scrolling
         // recomputes the whole document instead of the clipped subtree.
         // overflow-anchor:none disables the BROWSER's scroll anchoring, which
         // otherwise fights CodeView's own anchor resolution whenever item
         // heights change (our augmentation applies).
-        className="h-full overflow-y-auto overflow-x-clip overscroll-contain [contain:strict] [overflow-anchor:none] [will-change:scroll-position] [&_diffs-container]:overflow-clip [&_diffs-container]:[contain:layout_paint_style]"
+        className="relative h-full overflow-y-auto overflow-x-clip overscroll-contain [contain:strict] [overflow-anchor:none] [will-change:scroll-position] [&_diffs-container]:overflow-clip [&_diffs-container]:[contain:layout_paint_style]"
         initialItems={identity.items}
         options={options}
         selectedLines={selectedLines}
@@ -2018,6 +2083,18 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
         renderCustomHeader={renderCustomHeader}
         renderAnnotation={renderAnnotation}
       />
+
+      {/* Leading content (commit description card) lives INSIDE the scroll
+          container at content-top: absolutely positioned children of a scroller
+          are part of its scrollable overflow, so the card scrolls away with
+          the diff. layout.paddingTop (measured height) keeps items below it. */}
+      {leadingContent && scrollEl &&
+        createPortal(
+          <div ref={attachLeadingEl} className="absolute top-0 left-0 right-0">
+            {leadingContent}
+          </div>,
+          scrollEl,
+        )}
 
       <ToolbarHost
         ref={toolbarHostRef}

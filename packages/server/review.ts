@@ -15,6 +15,8 @@ import { type DiffType, type GitContext, runVcsDiff, getVcsFileContentsForDiff, 
 import { basename } from "node:path";
 import { existsSync } from "node:fs";
 import {
+  isSameCwdCommitSwitch,
+  parseCommitDiffType,
   parseWorktreeDiffType,
   resolveBaseBranch,
   getSinceBaseSections,
@@ -22,6 +24,11 @@ import {
   type RemoteDefaultInfo,
   type SinceBaseSections,
 } from "@plannotator/shared/review-core";
+import {
+  getCommitDiffInfo,
+  listCommitHistory,
+  type CommitDiffInfo,
+} from "@plannotator/shared/commit-history";
 import { resolvePoolCwd } from "@plannotator/shared/worktree-pool";
 import {
   createDefaultSemanticDiffRuntime,
@@ -45,6 +52,7 @@ import {
   type PRDiffScope,
 } from "@plannotator/shared/pr-stack";
 import { type AgentJobInfo, REVIEW_OUTPUT_FAILED, markJobReviewFailed } from "@plannotator/shared/agent-jobs";
+import { createCommitAvatarResolver } from "@plannotator/shared/commit-avatars";
 import { getRepoInfo } from "./repo";
 import { handleImage, handleUpload, handleAgents, handleServerReady, handleDraftSave, handleDraftLoad, handleDraftDelete, handleFavicon, readDraftGenerationFromBody, readDraftGenerationFromUrl, type OpencodeClient } from "./shared-handlers";
 import { contentHash, deleteDraft } from "./draft";
@@ -76,7 +84,7 @@ import {
   extractMarkerNonce,
 } from "./marker-review";
 import { loadConfig, saveConfig, detectGitUser, getServerConfig } from "./config";
-import { type PRMetadata, type PRRef, type PRReviewFileComment, type PRStackTree, type PRListItem, fetchPR, fetchPRFileContent, fetchPRContext, submitPRReview, fetchPRViewedFiles, markPRFilesViewed, fetchPRStack, fetchPRList, getPRUser, parsePRUrl, prRefFromMetadata, isSameProject, getDisplayRepo, getMRLabel, getMRNumberLabel } from "./pr";
+import { type PRMetadata, type PRRef, type PRReviewFileComment, type PRStackTree, type PRListItem, fetchPR, fetchPRFileContent, fetchPRContext, submitPRReview, fetchPRViewedFiles, markPRFilesViewed, fetchPRStack, fetchPRList, getPRUser, parsePRUrl, prRefFromMetadata, isSameProject, getDisplayRepo, getMRLabel, getMRNumberLabel, prCommandRuntime } from "./pr";
 import {
   PR_CONTEXT_HEARTBEAT_COMMENT,
   PR_CONTEXT_HEARTBEAT_INTERVAL_MS,
@@ -525,6 +533,10 @@ export async function startReviewServer(
     );
   }
 
+  // Commit-author avatar resolution for /api/commits — session-scoped so the
+  // forge lookups (gh/glab) and their failures are paid at most once.
+  const commitAvatars = createCommitAvatarResolver(prCommandRuntime);
+
   // --- Since-base sections sidecar ------------------------------------------
   // Groups the composite since-base patch's files by lifecycle state
   // (committed / changes / untracked) for the three-stack panel. Only
@@ -544,6 +556,25 @@ export async function startReviewServer(
     if (!isSinceBaseActive(diffType)) return undefined;
     const cwd = resolveVcsCwd(diffType as DiffType, gitContext?.cwd);
     return (await getSinceBaseSections(gitRuntime, base, cwd)) ?? undefined;
+  };
+
+  // --- Commit metadata sidecar -----------------------------------------------
+  // When a commit:<sha> diff is active, the full commit message (rendered as
+  // markdown client-side) heads the all-files view. Same mode-conditional
+  // shape as the sections sidecar; avatar enrichment reuses the session cache.
+  // diffType parameterized for the same pin-before-await discipline as
+  // buildSectionsSidecar.
+  const buildCommitInfoSidecar = async (diffType: string = currentDiffType as string): Promise<CommitDiffInfo | undefined> => {
+    if (isPRMode || workspace || !gitContext) return undefined;
+    const effective = parseWorktreeDiffType(diffType)?.subType ?? diffType;
+    const sha = parseCommitDiffType(effective as string)?.sha;
+    if (!sha) return undefined;
+    const cwd = resolveVcsCwd(diffType as DiffType, gitContext.cwd);
+    const info = await getCommitDiffInfo(gitRuntime, sha, cwd);
+    if (!info) return undefined;
+    const avatars = await commitAvatars.resolve(cwd, [info.authorEmail]);
+    const avatarUrl = avatars.get(info.authorEmail);
+    return avatarUrl ? { ...info, avatarUrl } : info;
   };
 
   // Agent jobs — background process manager (late-binds serverUrl via getter)
@@ -1135,6 +1166,7 @@ export async function startReviewServer(
             const servedPRDiffScope = currentPRDiffScope;
             const servedSnapshotId = currentSnapshotId();
             const sections = await buildSectionsSidecar(servedBase, servedDiffType as string);
+            const commitInfo = await buildCommitInfoSidecar(servedDiffType as string);
             return Response.json({
               rawPatch: servedPatch,
               aiReviewContext: buildCurrentAiReviewContext(servedPatch, servedBase, servedDiffType as DiffType),
@@ -1175,6 +1207,7 @@ export async function startReviewServer(
               ...(isPRMode && layerPatchIncomplete && { prPatchIncomplete: true, prPatchUpgradeAvailable: layerUpgradeAvailable }),
               ...(isPRMode && initialViewedFiles.length > 0 && { viewedFiles: initialViewedFiles }),
               ...(sections && { sections }),
+              ...(commitInfo && { commitInfo }),
               ...(baseBehindRemote && { baseBehindRemote: true }),
               ...(servedError && { error: servedError }),
               semanticDiff: await getSemanticDiffAdvert(),
@@ -1283,6 +1316,42 @@ export async function startReviewServer(
             return Response.json(await getSemanticDiff(url));
           }
 
+          // API: Linear commit history for the Commits panel. Git-local
+          // sessions only — PR/workspace/jj/p4 don't offer the view (same
+          // gate the client's commitsCapable applies). Computed against the
+          // same cwd as the active diff so worktree sessions list the
+          // worktree's history, and against the active base so the divider
+          // matches the review baseline.
+          if (url.pathname === "/api/commits" && req.method === "GET") {
+            if (!gitContext || isPRMode || workspace || (sessionVcsType && sessionVcsType !== "git")) {
+              return Response.json(
+                { error: "Commit history is only available for local git reviews" },
+                { status: 400 },
+              );
+            }
+            const limitParam = Number.parseInt(url.searchParams.get("limit") ?? "", 10);
+            const before = url.searchParams.get("before") ?? undefined;
+            const commitsCwd = resolveVcsCwd(currentDiffType as DiffType, gitContext.cwd);
+            const page = await listCommitHistory(gitRuntime, currentBase, commitsCwd, {
+              ...(Number.isFinite(limitParam) && { limit: limitParam }),
+              ...(before !== undefined && { before }),
+            });
+            if (!page) {
+              return Response.json({ error: "Could not read commit history" }, { status: 500 });
+            }
+            // Best-effort author avatars from the origin forge (memoized per
+            // session; misses just render the initials fallback client-side).
+            const avatars = await commitAvatars.resolve(
+              commitsCwd,
+              page.commits.map((c) => c.authorEmail),
+            );
+            for (const c of page.commits) {
+              const avatarUrl = avatars.get(c.authorEmail);
+              if (avatarUrl) c.avatarUrl = avatarUrl;
+            }
+            return Response.json(page);
+          }
+
           // API: Switch diff type (requires local file access)
           if (url.pathname === "/api/diff/switch" && req.method === "POST") {
             // Capture the ordering token BEFORE any await. Body delivery can
@@ -1372,6 +1441,7 @@ export async function startReviewServer(
               }
 
               // Update state (commit hideWhitespace only now that we've won).
+              const previousDiffType = currentDiffType;
               currentHideWhitespace = effectiveHideWhitespace;
               currentPatch = result.patch;
               currentGitRef = result.label;
@@ -1387,8 +1457,13 @@ export async function startReviewServer(
               // reflects the worktree we're now reviewing — not the main
               // repo's startup state. Best-effort: on failure the client
               // keeps its existing context.
+              //
+              // Skipped for same-cwd commit:<sha> switches — the commit-rail
+              // hot path (three git enumerations dominated click latency; a
+              // historical commit's diff can't change any of it). The client
+              // keeps its existing context when the field is absent.
               let updatedContext: GitContext | undefined;
-              if (gitContext) {
+              if (gitContext && !isSameCwdCommitSwitch(previousDiffType as string, newDiffType as string)) {
                 try {
                   const effectiveCwd = resolveVcsCwd(newDiffType as DiffType, gitContext.cwd);
                   updatedContext = await getVcsContext(effectiveCwd, sessionVcsType);
@@ -1405,6 +1480,7 @@ export async function startReviewServer(
               // switching AWAY from one. Local rev-parse only; cheap.
               await recomputeBaseBehindRemote().catch(() => {});
               const sections = await buildSectionsSidecar();
+              const commitInfo = await buildCommitInfoSidecar();
               const switchSemanticDiff = await getSemanticDiffAdvert();
               // Final guard: if a newer switch took over during the trailing
               // awaits, don't emit — the client would misapply our stale body
@@ -1427,6 +1503,7 @@ export async function startReviewServer(
                 base: currentBase,
                 hideWhitespace: currentHideWhitespace,
                 ...(sections && { sections }),
+                ...(commitInfo && { commitInfo }),
                 ...(baseBehindRemote && { baseBehindRemote: true }),
                 ...(updatedContext && { gitContext: updatedContext }),
                 ...(currentError && { error: currentError }),

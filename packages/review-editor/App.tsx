@@ -1688,9 +1688,14 @@ const ReviewApp: React.FC = () => {
 
   const handleRefreshStaleDiff = useCallback(() => {
     if (prMetadata) {
-      // Only the full-stack scope can go stale locally — the layer diff is
-      // computed platform-side and its fingerprint never flips.
-      if (prDiffScope === 'full-stack') handlePRDiffScopeSelect('full-stack');
+      // Either scope can be stale now: full-stack via its local VCS
+      // fingerprint, and ANY scope via a snapshot mismatch (another tab
+      // switched scope or PR). Re-selecting the CURRENT scope re-fetches the
+      // server's snapshot for this tab (the endpoint has no same-scope
+      // early-return). Known residual: after a cross-tab PR SWITCH this
+      // updates the patch but not prMetadata (the scope endpoint doesn't
+      // carry it) — accepted for the rare two-tab case.
+      void handlePRDiffScopeSelect(prDiffScope);
       return;
     }
     // Same params, fresh snapshot. preserveFile keeps the reviewer on the

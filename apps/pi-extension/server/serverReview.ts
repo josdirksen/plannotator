@@ -1389,10 +1389,13 @@ export async function startReviewServer(options: {
 					currentGitRef = originalPRGitRef;
 					currentError = originalPRError;
 					currentPRDiffScope = "layer";
-					// The upgrade changed the patch this session serves; drafts must
-					// key off it so a pr-switch round-trip (which rehashes from the
-					// cache) resolves to the same key.
-					if (!layerPatchIncomplete) draftKey = contentHash(currentPatch);
+					// INVARIANT: every commit point re-keys — draftKey doubles as
+					// the snapshotId clients echo on freshness probes AND the
+					// draft-storage key, so it must always identify currentPatch.
+					// (This was previously conditional on !layerPatchIncomplete,
+					// which only stayed consistent because the full-stack branch
+					// never re-keyed at all.)
+					draftKey = contentHash(currentPatch);
 					captureDiffFingerprint();
 					json(res, {
 						rawPatch: currentPatch,
@@ -1426,6 +1429,11 @@ export async function startReviewServer(options: {
 				currentGitRef = result.label;
 				currentError = undefined;
 				currentPRDiffScope = "full-stack";
+				// INVARIANT: every commit point re-keys (see the layer branch).
+				// Skipping this advertised the LAYER snapshot id for the
+				// full-stack patch — stale layer tabs never got the banner and
+				// full-stack drafts collided with layer drafts.
+				draftKey = contentHash(currentPatch);
 				captureDiffFingerprint();
 				json(res, {
 					rawPatch: currentPatch,

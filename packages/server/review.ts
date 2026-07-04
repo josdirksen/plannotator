@@ -15,6 +15,7 @@ import { type DiffType, type GitContext, runVcsDiff, getVcsFileContentsForDiff, 
 import { basename } from "node:path";
 import { existsSync } from "node:fs";
 import {
+  isSameCwdCommitSwitch,
   parseCommitDiffType,
   parseWorktreeDiffType,
   resolveBaseBranch,
@@ -1456,17 +1457,11 @@ export async function startReviewServer(
               // keeps its existing context.
               //
               // Skipped for same-cwd commit:<sha> switches — the commit-rail
-              // hot path. A historical commit's diff can't change branches,
-              // worktrees, or recent commits, and this recompute (three git
-              // enumerations) dominated click latency. The client keeps its
-              // existing context when the field is absent.
-              const newParsed = parseWorktreeDiffType(newDiffType as string);
-              const isSameCwdCommitSwitch =
-                !!parseCommitDiffType(newParsed?.subType ?? (newDiffType as string)) &&
-                (newParsed?.path ?? null) ===
-                  (parseWorktreeDiffType(previousDiffType as string)?.path ?? null);
+              // hot path (three git enumerations dominated click latency; a
+              // historical commit's diff can't change any of it). The client
+              // keeps its existing context when the field is absent.
               let updatedContext: GitContext | undefined;
-              if (gitContext && !isSameCwdCommitSwitch) {
+              if (gitContext && !isSameCwdCommitSwitch(previousDiffType as string, newDiffType as string)) {
                 try {
                   const effectiveCwd = resolveVcsCwd(newDiffType as DiffType, gitContext.cwd);
                   updatedContext = await getVcsContext(effectiveCwd, sessionVcsType);

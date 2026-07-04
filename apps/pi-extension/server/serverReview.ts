@@ -38,6 +38,7 @@ import {
 	getCommitDiffInfo,
 	getFileContentsForDiff as getFileContentsForDiffCore,
 	getSinceBaseSections,
+	isSameCwdCommitSwitch,
 	listCommitHistory,
 	parseCommitDiffType,
 	parseWorktreeDiffType,
@@ -1359,16 +1360,10 @@ export async function startReviewServer(options: {
 				// sidebar reflects the worktree we're now reviewing.
 				// Best-effort: on failure the client keeps its existing context.
 				// Skipped for same-cwd commit:<sha> switches (the commit-rail hot
-				// path — mirrors Bun review.ts): a historical commit's diff can't
-				// change branches/worktrees/recent commits, and the recompute
-				// dominated click latency.
-				const newParsed = parseWorktreeDiffType(newType as string);
-				const isSameCwdCommitSwitch =
-					!!parseCommitDiffType(newParsed?.subType ?? (newType as string)) &&
-					(newParsed?.path ?? null) ===
-						(parseWorktreeDiffType(previousDiffType as string)?.path ?? null);
+				// path — mirrors Bun review.ts): the recompute dominated click
+				// latency and a historical commit's diff can't change any of it.
 				let updatedContext: GitContext | undefined;
-				if (options.gitContext && !isSameCwdCommitSwitch) {
+				if (options.gitContext && !isSameCwdCommitSwitch(previousDiffType as string, newType as string)) {
 					try {
 						const effectiveCwd = resolveVcsCwd(newType as DiffType, options.gitContext.cwd);
 						updatedContext = await getVcsContext(effectiveCwd, sessionVcsType);

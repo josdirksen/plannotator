@@ -11,6 +11,7 @@ import {
   getGitDiffFingerprint,
   gitAddFile,
   gitResetFile,
+  isSameCwdCommitSwitch,
   listCommitHistory,
   listRecentCommits,
   parseCommitDiffType,
@@ -405,6 +406,23 @@ describe("review-core", () => {
       path: "/tmp/my-worktree:commit:not-hex",
       subType: "uncommitted",
     });
+  });
+});
+
+describe("isSameCwdCommitSwitch", () => {
+  test("true for commit switches within the same cwd, plain and worktree", () => {
+    expect(isSameCwdCommitSwitch("since-base", "commit:abc1234")).toBe(true);
+    expect(isSameCwdCommitSwitch("commit:abc1234", "commit:def5678")).toBe(true);
+    expect(
+      isSameCwdCommitSwitch("worktree:/tmp/wt:uncommitted", "worktree:/tmp/wt:commit:abc1234"),
+    ).toBe(true);
+  });
+  test("false when the target isn't a commit diff or the cwd changes", () => {
+    expect(isSameCwdCommitSwitch("commit:abc1234", "since-base")).toBe(false);
+    expect(isSameCwdCommitSwitch("uncommitted", "worktree:/tmp/wt:commit:abc1234")).toBe(false);
+    expect(
+      isSameCwdCommitSwitch("worktree:/tmp/a:commit:abc1234", "worktree:/tmp/b:commit:abc1234"),
+    ).toBe(false);
   });
 });
 

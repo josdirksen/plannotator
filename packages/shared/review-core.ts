@@ -908,6 +908,23 @@ export function parseCommitDiffType(diffType: string): { sha: string } | null {
   return BARE_HEX_SHA_RE.test(sha) ? { sha } : null;
 }
 
+/**
+ * True when switching to `nextDiffType` is a commit:<sha> diff within the
+ * same cwd as `previousDiffType` (plain or worktree-prefixed). The commit-rail
+ * hot path: such a switch cannot change branches, worktrees, or recent
+ * commits, so the /api/diff/switch handlers skip their gitContext recompute.
+ * Only the NEW type must be a commit diff — the context is invalidated by
+ * where you land, not where you came from.
+ */
+export function isSameCwdCommitSwitch(
+  previousDiffType: string,
+  nextDiffType: string,
+): boolean {
+  const next = parseWorktreeDiffType(nextDiffType);
+  if (!parseCommitDiffType(next?.subType ?? nextDiffType)) return false;
+  return (next?.path ?? null) === (parseWorktreeDiffType(previousDiffType)?.path ?? null);
+}
+
 export function parseWorktreeDiffType(
   diffType: string,
 ): { path: string; subType: string } | null {

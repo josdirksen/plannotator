@@ -1309,15 +1309,21 @@ const ReviewApp: React.FC = () => {
   );
   // Files already staged when the sidecar snapshot was taken — the hook folds
   // these into the effective staged set so pre-staged files toggle correctly.
+  // Filtered to RENDERED paths: porcelain marks BOTH sides of a staged rename
+  // staged, but an above-threshold rename renders as one file (the new path)
+  // — counting the hidden old path inflates "N added" and leaves a phantom
+  // entry the user can never unstage. Below-threshold renames render
+  // delete+add as two rows and both sides correctly pass this filter.
   const sidecarStaged = useMemo(() => {
     const staged = new Set<string>();
     if (sections) {
+      const rendered = new Set(files.map((file) => file.path));
       for (const [path, entry] of Object.entries(sections.files)) {
-        if (entry.staged) staged.add(path);
+        if (entry.staged && rendered.has(path)) staged.add(path);
       }
     }
     return staged;
-  }, [sections]);
+  }, [sections, files]);
   const { stagedFiles, stagingFile, canStageFiles: canStageRaw, stageFile, resetStagedFiles, stageError } = useGitAdd({
     activeDiffBase,
     onFileViewed: handleFileViewedFromStage,
@@ -1671,14 +1677,28 @@ const ReviewApp: React.FC = () => {
 
   // "Baseline is behind GitHub · Fetch" — fetch the remote default branch,
   // then recompute the current diff in place (preserving the active file).
+  // Live diff selection for async completions that must detect "the user
+  // moved on" (see handleFetchBase). Updated every render.
+  const liveSelectionRef = useRef({ diffType, selectedBase });
+  liveSelectionRef.current = { diffType, selectedBase };
+
   const handleFetchBase = useCallback(async () => {
+    // Captured at click time; compared against the live ref when the fetch
+    // completes. The replay exists to refresh the SAME view with the fetched
+    // baseline — if the user switched diff type or base while the (possibly
+    // slow) fetch ran, replaying the captured values would win the switch
+    // epoch and silently yank them back to the old view.
+    const captured = { diffType, selectedBase };
     setIsFetchingBase(true);
     try {
       const res = await fetch('/api/fetch-base', { method: 'POST' });
       if (!res.ok) return;
       const data = await res.json() as { ok?: boolean; baseBehindRemote?: boolean };
       setBaseBehindRemote(data.baseBehindRemote === true);
-      await fetchDiffSwitch(diffType, selectedBase ?? undefined, { preserveFile: true });
+      const now = liveSelectionRef.current;
+      if (now.diffType === captured.diffType && now.selectedBase === captured.selectedBase) {
+        await fetchDiffSwitch(captured.diffType, captured.selectedBase ?? undefined, { preserveFile: true });
+      }
     } catch {
       // Best-effort: the banner stays and the user can retry.
     } finally {

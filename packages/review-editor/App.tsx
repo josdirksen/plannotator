@@ -83,7 +83,7 @@ import { annotationMatchesPrScope, proseAnnotationMatchesPr } from './utils/anno
 import type { DiffOption, WorktreeInfo, GitContext, SinceBaseSections, CommitDiffInfo } from '@plannotator/shared/types';
 import { SectionsPanel } from './components/SectionsPanel';
 import { CommitsPanel } from './components/CommitsPanel';
-import { useCommitLog } from './hooks/useCommitLog';
+import { useCommitsView } from './hooks/useCommitsView';
 import { ReviewSetupDialog } from './components/ReviewSetupDialog';
 import { needsReviewSetup, markReviewSetupSeen } from './utils/reviewSetup';
 import type { PRMetadata } from '@plannotator/shared/pr-types';
@@ -1325,12 +1325,6 @@ const ReviewApp: React.FC = () => {
   // toggling back to Sections switches the diff back to since-base.
   const sectionsCapable = !prMetadata && reviewMode !== 'workspace'
     && !!gitContext?.diffOptions?.some(option => option.id === 'since-base');
-  const commitLog = useCommitLog({
-    enabled: showCommitsPanel && !!origin,
-    // Worktree and base changes re-anchor the history/divider; commit clicks
-    // deliberately don't (paging state survives them).
-    contextKey: `${activeWorktreePath ?? ''}|${committedBase ?? ''}`,
-  });
   const activeCommitSha = activeDiffBase.startsWith('commit:')
     ? activeDiffBase.slice('commit:'.length)
     : null;
@@ -1693,42 +1687,20 @@ const ReviewApp: React.FC = () => {
     void fetchDiffSwitch(fullDiffType);
   }, [activeWorktreePath, diffType, fetchDiffSwitch, openAllFilesPanel]);
 
-  // Entering the Commits view auto-opens the HEAD commit's diff so the center
-  // immediately matches the rail — leaving the previous mode's all-files up
-  // was disorienting. Fires once per entry (guarded by a ref): a user click,
-  // an already-active commit diff, or a failed switch must not re-trigger it.
-  // Runs after the log loads when entry and fetch race.
-  const commitsAutoSelectDone = useRef(false);
-  useEffect(() => {
-    if (!showCommitsPanel) {
-      commitsAutoSelectDone.current = false;
-      return;
-    }
-    if (commitsAutoSelectDone.current) return;
-    if (activeCommitSha) {
-      commitsAutoSelectDone.current = true;
-      return;
-    }
-    // Never auto-select while any diff switch is in flight — whatever is
-    // loading already owns the center. Belt-and-suspenders (the effect fires
-    // before a human can click), but it makes the invariant explicit; the
-    // effect re-runs when the switch settles.
-    if (isLoadingDiff) return;
-    const head = commitLog.commits.find((c) => c.isHead) ?? commitLog.commits[0];
-    if (!head) return;
-    commitsAutoSelectDone.current = true;
-    handleSelectCommit(head.sha);
-  }, [showCommitsPanel, activeCommitSha, commitLog.commits, handleSelectCommit, isLoadingDiff]);
-
-  // Commit-navigation veil predicate. Covers the center dock while commit
-  // navigation is settling: a switch in flight, the log still loading, or the
-  // loaded-list frame before auto-select lands. Every terminal state drops it:
-  // a switch error (diffError → normal error state), a log error (rail shows
-  // Retry), and a genuinely empty history (zero commits, nothing to select).
-  const commitsVeilActive =
-    showCommitsPanel && !diffError && !commitLog.error &&
-    (isLoadingDiff ||
-      (!activeCommitSha && (commitLog.isLoading || commitLog.commits.length > 0)));
+  // The Commits-view session machine (log + poll + HEAD auto-select + center
+  // veil) lives in the hook so its invariants stay in one file; App supplies
+  // the pieces it owns — visibility, the active commit, switch state, and the
+  // open-a-commit path (the SAME one user clicks take).
+  const commitsView = useCommitsView({
+    enabled: showCommitsPanel && !!origin,
+    // Worktree and base changes re-anchor the history/divider; commit clicks
+    // deliberately don't (paging state survives them).
+    contextKey: `${activeWorktreePath ?? ''}|${committedBase ?? ''}`,
+    activeCommitSha,
+    isLoadingDiff,
+    diffError,
+    onOpenCommit: handleSelectCommit,
+  });
 
   // Self-heal a conflicted persisted pair: reviewPanelView=sections with a
   // non-since-base defaultDiffType. Every UI writer enforces the coupling
@@ -1865,8 +1837,8 @@ const ReviewApp: React.FC = () => {
     // file they were reading.
     void fetchDiffSwitch(diffType, selectedBase, { preserveFile: true });
     // New commits are part of what went stale — bring the rail along.
-    if (showCommitsPanel) commitLog.refresh();
-  }, [prMetadata, prDiffScope, prPatchIncomplete, handlePRDiffScopeSelect, handleLoadFullDiff, fetchDiffSwitch, diffType, selectedBase, showCommitsPanel, commitLog.refresh]);
+    if (showCommitsPanel) commitsView.refresh();
+  }, [prMetadata, prDiffScope, prPatchIncomplete, handlePRDiffScopeSelect, handleLoadFullDiff, fetchDiffSwitch, diffType, selectedBase, showCommitsPanel, commitsView.refresh]);
 
   // Select annotation - switches file if needed and scrolls to it.
   // isAllFilesActive is read through the ref (declared with the state): this
@@ -2976,16 +2948,16 @@ const ReviewApp: React.FC = () => {
             <div className="contents group/sidebar">
               <CommitsPanel
                 width={fileTreeResize.width}
-                commits={commitLog.commits}
-                base={commitLog.base}
-                hasMore={commitLog.hasMore}
-                isLoading={commitLog.isLoading}
-                isLoadingMore={commitLog.isLoadingMore}
-                error={commitLog.error}
+                commits={commitsView.commits}
+                base={commitsView.base}
+                hasMore={commitsView.hasMore}
+                isLoading={commitsView.isLoading}
+                isLoadingMore={commitsView.isLoadingMore}
+                error={commitsView.error}
                 activeCommitSha={activeCommitSha}
                 onSelectCommit={handleSelectCommit}
-                onShowMore={commitLog.showMore}
-                onRetry={commitLog.refresh}
+                onShowMore={commitsView.showMore}
+                onRetry={commitsView.refresh}
                 onSelectPanelView={handlePanelViewSelect}
                 showSectionsOption={sectionsCapable}
               />
@@ -3067,8 +3039,8 @@ const ReviewApp: React.FC = () => {
                 cover the stale previous diff instead of letting it sit there
                 and then jump — the rail click reads as immediate. All terminal
                 states (switch error, log error, empty history) drop the veil —
-                see the commitsVeilActive predicate. */}
-            {commitsVeilActive && (
+                see useCommitsView's veilActive. */}
+            {commitsView.veilActive && (
               <div className="absolute inset-0 z-20 bg-background/95 flex items-center justify-center">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">

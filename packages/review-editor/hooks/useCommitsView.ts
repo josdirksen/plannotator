@@ -9,16 +9,25 @@ const PAGE_SIZE = 50;
 // leaving and re-entering the view.
 const POLL_INTERVAL_MS = 10_000;
 
-interface UseCommitLogOptions {
+interface UseCommitsViewOptions {
   /** Fetch only while the Commits view is visible in an API-mode session. */
   enabled: boolean;
   /** History identity — refetch from page one when it changes (worktree
    * switch, base switch). A commit CLICK must not be part of this key: paging
    * state has to survive selecting commits from a deep page. */
   contextKey: string;
+  /** Full sha of the commit whose diff is on screen (null in other modes). */
+  activeCommitSha: string | null;
+  /** Any diff switch in flight — auto-select defers to it; the veil covers. */
+  isLoadingDiff: boolean;
+  /** A diff switch failed — the veil drops so the error state is visible. */
+  diffError: string | null;
+  /** Open a commit's diff — App's handleSelectCommit, the same path user
+   * clicks take, so auto- and user-selection can never diverge. */
+  onOpenCommit: (sha: string) => void;
 }
 
-interface UseCommitLogReturn {
+interface UseCommitsViewReturn {
   commits: CommitListEntry[];
   /** Base ref the divider represents (server echo), null before first load. */
   base: string | null;
@@ -30,14 +39,32 @@ interface UseCommitLogReturn {
   /** Reload from page one (e.g. after a staleness refresh picked up new
    * commits). Keeps the current list on screen while reloading. */
   refresh: () => void;
+  /** Cover the center dock while commit navigation settles: a switch in
+   * flight, the log loading, or the loaded-list frame before auto-select
+   * lands. Every terminal state drops it — switch error (diffError → the
+   * normal error state), log error (rail shows Retry), and a genuinely empty
+   * history (zero commits, nothing to select). */
+  veilActive: boolean;
 }
 
 /**
- * Pages `GET /api/commits` for the Commits panel. Generation-guarded: a
- * response from a superseded fetch (context changed, refresh fired) is
- * dropped so it can't overwrite newer state.
+ * The Commits-view session machine: pages `GET /api/commits`, keeps the rail
+ * fresh (quiet poll), auto-opens HEAD once per entry, and derives the
+ * center-dock veil. It all lives HERE so the invariants between the list
+ * cache, the poll, the auto-select, and the veil stay locally checkable —
+ * they were previously split across App.tsx, and every sync bug found in
+ * review lived at that seam. Generation-guarded: a response from a
+ * superseded fetch (context changed, refresh fired, poll adopted) is dropped
+ * so it can't overwrite newer state.
  */
-export function useCommitLog({ enabled, contextKey }: UseCommitLogOptions): UseCommitLogReturn {
+export function useCommitsView({
+  enabled,
+  contextKey,
+  activeCommitSha,
+  isLoadingDiff,
+  diffError,
+  onOpenCommit,
+}: UseCommitsViewOptions): UseCommitsViewReturn {
   const [commits, setCommits] = useState<CommitListEntry[]>([]);
   const [base, setBase] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -170,5 +197,33 @@ export function useCommitLog({ enabled, contextKey }: UseCommitLogOptions): UseC
     void fetchPage();
   }, [fetchPage]);
 
-  return { commits, base, hasMore, isLoading, isLoadingMore, error, showMore, refresh };
+  // Auto-open the HEAD commit once per entry so the center immediately
+  // matches the rail. Fires once (ref-guarded): a user click, an already-
+  // active commit diff, or a failed switch must not re-trigger it. Never
+  // fires while any diff switch is in flight — whatever is loading already
+  // owns the center; the effect re-runs when the switch settles. When entry
+  // races the first log fetch, it fires as soon as the log lands.
+  const autoSelectDone = useRef(false);
+  useEffect(() => {
+    if (!enabled) {
+      autoSelectDone.current = false;
+      return;
+    }
+    if (autoSelectDone.current) return;
+    if (activeCommitSha) {
+      autoSelectDone.current = true;
+      return;
+    }
+    if (isLoadingDiff) return;
+    const head = commits.find((c) => c.isHead) ?? commits[0];
+    if (!head) return;
+    autoSelectDone.current = true;
+    onOpenCommit(head.sha);
+  }, [enabled, activeCommitSha, isLoadingDiff, commits, onOpenCommit]);
+
+  const veilActive =
+    enabled && !diffError && !error &&
+    (isLoadingDiff || (!activeCommitSha && (isLoading || commits.length > 0)));
+
+  return { commits, base, hasMore, isLoading, isLoadingMore, error, showMore, refresh, veilActive };
 }

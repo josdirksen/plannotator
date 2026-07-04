@@ -1695,13 +1695,22 @@ const ReviewApp: React.FC = () => {
       // early-return). Known residual: after a cross-tab PR SWITCH this
       // updates the patch but not prMetadata (the scope endpoint doesn't
       // carry it) — accepted for the rare two-tab case.
-      void handlePRDiffScopeSelect(prDiffScope);
+      //
+      // Incomplete layer patch: the server's layer branch runs the local
+      // recompute, which can park for MINUTES behind checkout warmup — use
+      // the non-blocking upgrade path (progress notice) instead of
+      // handlePRDiffScopeSelect's full-screen switch overlay.
+      if (prDiffScope === 'layer' && prPatchIncomplete) {
+        void handleLoadFullDiff();
+      } else {
+        void handlePRDiffScopeSelect(prDiffScope);
+      }
       return;
     }
     // Same params, fresh snapshot. preserveFile keeps the reviewer on the
     // file they were reading.
     void fetchDiffSwitch(diffType, selectedBase, { preserveFile: true });
-  }, [prMetadata, prDiffScope, handlePRDiffScopeSelect, fetchDiffSwitch, diffType, selectedBase]);
+  }, [prMetadata, prDiffScope, prPatchIncomplete, handlePRDiffScopeSelect, handleLoadFullDiff, fetchDiffSwitch, diffType, selectedBase]);
 
   // Select annotation - switches file if needed and scrolls to it.
   // isAllFilesActive is read through the ref (declared with the state): this

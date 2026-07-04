@@ -43,7 +43,17 @@ export type AgentLaunchParams = {
  *  are stamped with that PR's url; local-diff jobs carry none. Used to scope
  *  guide/tour auto-opens, the guide takeover, and "Open guide" affordances so
  *  an artifact from PR A never opens (or offers to open) while reviewing PR B.
- *  `currentPrUrl` undefined ⇒ local-diff mode. */
+ *  `currentPrUrl` undefined ⇒ local-diff mode.
+ *
+ *  DELIBERATELY matches by prUrl only — NOT diffScope/diffContext, even
+ *  though jobs carry them. Annotations scope by diffScope because they pin
+ *  exact line positions in a specific patch; guides/tours reference FILES
+ *  and degrade per-file ("no longer in the current diff") when the diff
+ *  shifts underneath them. Layer→full-stack is a superset (the artifact
+ *  fully resolves — hiding it would be hostile); full-stack→layer and local
+ *  base/mode switches degrade honestly. Scope-strict matching here would
+ *  vaporize a useful guide because the reviewer toggled since-base →
+ *  uncommitted. Do not "tighten" this without a UX decision. */
 export function jobMatchesReviewContext(
   job: Pick<AgentJobInfo, 'prUrl'>,
   currentPrUrl: string | undefined,

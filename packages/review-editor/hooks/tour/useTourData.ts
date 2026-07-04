@@ -32,6 +32,13 @@ export function useTourData(jobId: string): UseTourDataReturn {
   // an extra replay.
   const skipNextSaveRef = useRef(true);
 
+  // Bumped by retry() to re-run the fetch effect below rather than calling
+  // fetchTour directly — a direct call returns a fresh cleanup closure that
+  // the caller (a button's onClick) has nowhere to store, so the request it
+  // superseded would never get its `cancelled` flag set and could still
+  // clobber state after a later retry resolves first. Mirrors useGuideData.
+  const [refreshNonce, setRefreshNonce] = useState(0);
+
   const fetchTour = useCallback((): (() => void) | void => {
     if (!jobId) return;
     setLoading(true);
@@ -78,7 +85,11 @@ export function useTourData(jobId: string): UseTourDataReturn {
 
   useEffect(() => {
     return fetchTour();
-  }, [fetchTour]);
+    // refreshNonce has no bearing on WHAT is fetched (fetchTour already
+    // captures jobId) — it exists purely to force this effect to re-run on
+    // retry(), so the cancellation guard is owned by the same effect
+    // instance for every fetch, manual retries included.
+  }, [fetchTour, refreshNonce]);
 
   const saveChecklist = useCallback(
     (next: boolean[]) => {
@@ -139,5 +150,7 @@ export function useTourData(jobId: string): UseTourDataReturn {
     };
   }, [jobId]);
 
-  return { tour, loading, error, checked, toggleChecked, retry: fetchTour };
+  const retry = useCallback(() => setRefreshNonce((n) => n + 1), []);
+
+  return { tour, loading, error, checked, toggleChecked, retry };
 }

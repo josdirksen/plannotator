@@ -728,7 +728,13 @@ function sanitizeGuideSection(raw: unknown): GuideSection | null {
         .map((d) => ({ file: d.file }))
     : [];
   if (title.trim().length === 0 && overview.trim().length === 0 && diffs.length === 0) return null;
-  return { title, overview, diffs };
+  // Every surviving section gets a non-empty title: a diffs-only section
+  // (blank title AND overview) used to render as a blank chapter with a
+  // "Guide Generated" job around it — no parse failure, so no recovery flow.
+  // Keeping the section (titled) beats dropping it: its files were PLACED by
+  // the model, so they're not in unplacedFiles and dropping would silently
+  // orphan them from the guide's coverage story.
+  return { title: title.trim() ? title : "Untitled section", overview, diffs };
 }
 
 /** Sanitizes a raw sections array (see `sanitizeGuideSection`). Shared by the

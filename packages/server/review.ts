@@ -825,7 +825,51 @@ export async function startReviewServer(
         // whatever patch/diff/base the reviewer has switched to by the time
         // the job finishes — a mid-generation diff/base switch would
         // otherwise invalidate every ref in an otherwise-valid guide.
-        const changedFiles = listPatchFiles(launchPatch);
+        let changedFiles = listPatchFiles(launchPatch);
+        // Very large PRs: the platform API withholds per-file patches
+        // (layerPatchIncomplete) — but the PR-mode prompt tells the agent to
+        // read the FULL local diff (git diff origin/<base>...HEAD in the
+        // checkout). The changed-files block and the validation snapshot must
+        // describe that SAME diff: derived from the partial API patch they
+        // under-list files to the model and then validation drops its valid
+        // refs (or fails the guide closed when no section survives).
+        // Recompute names+counts locally when the checkout is ready; on any
+        // failure fall back to the partial list — no worse than before.
+        if (layerPatchIncomplete && launchMetadata?.baseBranch) {
+          const localCwd = resolvePRLocalCwd(launchMetadata);
+          if (localCwd) {
+            try {
+              const res = await gitRuntime.runGit(
+                ["diff", "--numstat", `origin/${launchMetadata.baseBranch}...HEAD`],
+                { cwd: localCwd },
+              );
+              if (res.exitCode === 0) {
+                const recomputed = res.stdout
+                  .split("\n")
+                  .filter((line) => line.trim())
+                  .map((line) => {
+                    const [a, d, ...rest] = line.split("\t");
+                    const raw = rest.join("\t");
+                    if (!raw) return null;
+                    // numstat rename forms: "src/{old => new}/f" or "old => new"
+                    // — refs use post-image paths, matching what the agent sees.
+                    const brace = raw.match(/^(.*)\{.* => (.*)\}(.*)$/);
+                    const path = brace
+                      ? `${brace[1]}${brace[2]}${brace[3]}`.replace(/\/\//g, "/")
+                      : raw.includes(" => ")
+                        ? raw.split(" => ").pop()!
+                        : raw;
+                    // Binary files report "-\t-\tpath" — count as 0/0.
+                    return { path, additions: Number(a) || 0, deletions: Number(d) || 0 };
+                  })
+                  .filter((f): f is { path: string; additions: number; deletions: number } => f !== null);
+                if (recomputed.length > 0) changedFiles = recomputed;
+              }
+            } catch {
+              // keep the partial-patch list
+            }
+          }
+        }
 
         const repairOf = typeof config?.repairOf === "string" ? config.repairOf : undefined;
         let repair: { payload: string } | undefined;

@@ -519,17 +519,20 @@ export async function startReviewServer(
   // Groups the composite since-base patch's files by lifecycle state
   // (committed / changes / untracked) for the three-stack panel. Only
   // computed when the since-base mode (or its worktree variant) is active.
-  const isSinceBaseActive = (): boolean => {
+  const isSinceBaseActive = (diffType: string = currentDiffType as string): boolean => {
     if (isPRMode || workspace || !gitContext) return false;
-    const effective = parseWorktreeDiffType(currentDiffType as string)?.subType ?? currentDiffType;
+    const effective = parseWorktreeDiffType(diffType)?.subType ?? diffType;
     return effective === "since-base";
   };
-  // Takes the base explicitly so callers can pin it to a snapshot taken
-  // before an await — reading currentBase inside would race the startup
-  // base upgrade.
-  const buildSectionsSidecar = async (base: string = currentBase): Promise<SinceBaseSections | undefined> => {
-    if (!isSinceBaseActive()) return undefined;
-    const cwd = resolveVcsCwd(currentDiffType as DiffType, gitContext?.cwd);
+  // Base AND diff type are parameterized so callers can pin them to a
+  // snapshot taken before an await — reading the globals inside would race
+  // the startup base upgrade and concurrent diff-type switches.
+  const buildSectionsSidecar = async (
+    base: string = currentBase,
+    diffType: string = currentDiffType as string,
+  ): Promise<SinceBaseSections | undefined> => {
+    if (!isSinceBaseActive(diffType)) return undefined;
+    const cwd = resolveVcsCwd(diffType as DiffType, gitContext?.cwd);
     return (await getSinceBaseSections(gitRuntime, base, cwd)) ?? undefined;
   };
 
@@ -578,9 +581,20 @@ export async function startReviewServer(
   // an await can build the AI context from that same snapshot — reading the
   // live globals here would let the startup base upgrade hand Ask AI a
   // context for a different changeset than the rendered patch.
+  // Snapshot identity clients echo on freshness probes: the content hash
+  // PLUS the view mode. Mode is included so a cross-tab mode switch with a
+  // byte-identical patch (layer vs full-stack on a single-PR stack) still
+  // flags old tabs; the BASE is deliberately excluded so a same-commit base
+  // canonicalization (main -> origin/main) stays banner-silent. draftKey
+  // itself stays a pure content hash — drafts survive content-identical
+  // mode round-trips.
+  const currentSnapshotId = (): string =>
+    `${draftKey}:${currentDiffType}${isPRMode ? `:${currentPRDiffScope}` : ""}`;
+
   const buildCurrentAiReviewContext = (
     patch: string = currentPatch,
     base: string = currentBase,
+    diffType: DiffType = currentDiffType as DiffType,
   ): string => {
     const workspacePrompt = getWorkspacePromptContext();
     if (workspacePrompt) {
@@ -595,7 +609,7 @@ export async function startReviewServer(
         : !!options.agentCwd);
     return buildAgentReviewUserMessage(
       patch,
-      currentDiffType as DiffType,
+      diffType,
       { defaultBranch: base, hasLocalAccess, prDiffScope: currentPRDiffScope },
       prMetadata,
       true,
@@ -1106,21 +1120,24 @@ export async function startReviewServer(
             const servedBase = currentBase;
             const servedGitRef = currentGitRef;
             const servedError = currentError;
-            const servedSnapshotId = draftKey;
-            const sections = await buildSectionsSidecar(servedBase);
+            const servedDiffType = currentDiffType;
+            const servedHideWhitespace = currentHideWhitespace;
+            const servedPRDiffScope = currentPRDiffScope;
+            const servedSnapshotId = currentSnapshotId();
+            const sections = await buildSectionsSidecar(servedBase, servedDiffType as string);
             return Response.json({
               rawPatch: servedPatch,
-              aiReviewContext: buildCurrentAiReviewContext(servedPatch, servedBase),
+              aiReviewContext: buildCurrentAiReviewContext(servedPatch, servedBase, servedDiffType as DiffType),
               gitRef: servedGitRef,
               snapshotId: servedSnapshotId,
               origin,
               mode: isWorkspaceMode ? "workspace" : undefined,
-              diffType: hasLocalAccess || isWorkspaceMode ? currentDiffType : undefined,
+              diffType: hasLocalAccess || isWorkspaceMode ? servedDiffType : undefined,
               // Echo the active base so a page refresh or reconnect rehydrates
               // the picker to what the server is actually using — not the
               // detected default.
               base: hasLocalAccess ? servedBase : undefined,
-              hideWhitespace: currentHideWhitespace,
+              hideWhitespace: servedHideWhitespace,
               ...(workspace && { diffOptions: workspace.diffOptions }),
               gitContext: hasLocalAccess ? gitContext : undefined,
               sharingEnabled,
@@ -1142,7 +1159,7 @@ export async function startReviewServer(
                 platformUser,
                 prStackInfo,
                 prStackTree,
-                prDiffScope: currentPRDiffScope,
+                prDiffScope: servedPRDiffScope,
                 prDiffScopeOptions,
               }),
               ...(isPRMode && layerPatchIncomplete && { prPatchIncomplete: true, prPatchUpgradeAvailable: layerUpgradeAvailable }),
@@ -1192,10 +1209,11 @@ export async function startReviewServer(
             // without lying to any of them. The "snapshot:" fingerprint keys
             // the client's dismissal to the server snapshot that made it stale.
             const clientSnapshot = url.searchParams.get("snapshot");
-            if (clientSnapshot && clientSnapshot !== draftKey) {
+            const serverSnapshot = currentSnapshotId();
+            if (clientSnapshot && clientSnapshot !== serverSnapshot) {
               return Response.json({
                 fresh: false,
-                fingerprint: `snapshot:${draftKey}`,
+                fingerprint: `snapshot:${serverSnapshot}`,
                 ...behind,
                 ...prCwdAdvert,
               });
@@ -1308,7 +1326,7 @@ export async function startReviewServer(
                   // between the epoch check and this response.
                   aiReviewContext: buildCurrentAiReviewContext(snapshot.rawPatch),
                   gitRef: currentGitRef,
-                  snapshotId: draftKey,
+                  snapshotId: currentSnapshotId(),
                   diffType: currentDiffType,
                   diffOptions: workspace.diffOptions,
                   hideWhitespace: currentHideWhitespace,
@@ -1390,7 +1408,7 @@ export async function startReviewServer(
                 // between the epoch check and this response.
                 aiReviewContext: buildCurrentAiReviewContext(result.patch, base),
                 gitRef: currentGitRef,
-                snapshotId: draftKey,
+                snapshotId: currentSnapshotId(),
                 diffType: currentDiffType,
                 // Echo the base the server actually used. resolveBaseBranch
                 // trusts the caller verbatim; this echo lets the client
@@ -1433,7 +1451,7 @@ export async function startReviewServer(
                   rawPatch: currentPatch,
                   aiReviewContext: buildCurrentAiReviewContext(),
                   gitRef: currentGitRef,
-                  snapshotId: draftKey,
+                  snapshotId: currentSnapshotId(),
                   prDiffScope: currentPRDiffScope,
                   ...(layerPatchIncomplete && { prPatchIncomplete: true, prPatchUpgradeAvailable: layerUpgradeAvailable }),
                   ...(currentError && { error: currentError }),
@@ -1488,7 +1506,7 @@ export async function startReviewServer(
                   rawPatch: currentPatch,
                   aiReviewContext: buildCurrentAiReviewContext(),
                   gitRef: currentGitRef,
-                  snapshotId: draftKey,
+                  snapshotId: currentSnapshotId(),
                   prDiffScope: currentPRDiffScope,
                   ...(layerPatchIncomplete && { prPatchIncomplete: true, prPatchUpgradeAvailable: layerUpgradeAvailable }),
                   ...((currentError ?? upgradeError) && { error: currentError ?? upgradeError }),
@@ -1534,7 +1552,7 @@ export async function startReviewServer(
                 rawPatch: currentPatch,
                 aiReviewContext: buildCurrentAiReviewContext(),
                 gitRef: currentGitRef,
-                snapshotId: draftKey,
+                snapshotId: currentSnapshotId(),
                 prDiffScope: currentPRDiffScope,
                 semanticDiff: await getSemanticDiffAdvert(),
               });
@@ -1661,7 +1679,7 @@ export async function startReviewServer(
                 rawPatch: currentPatch,
                 aiReviewContext: buildCurrentAiReviewContext(),
                 gitRef: currentGitRef,
-                snapshotId: draftKey,
+                snapshotId: currentSnapshotId(),
                 prMetadata: pr.metadata,
                 // The new PR's checkout (null while warming) so Open-in re-roots
                 // immediately on switch instead of waiting for the 5s probe.

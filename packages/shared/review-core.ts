@@ -427,10 +427,11 @@ export async function getGitContext(
       )
     ).exitCode === 0;
     if (baseResolves) {
-      // Dynamic label so it matches the live gitRef header ("Since origin/main"
-      // / "Since master") rather than a hardcoded "Since main" that contradicts
-      // it on non-main repos. The product/first-run copy keeps "Since main".
-      diffOptions.push({ id: "since-base", label: `Since ${displayRef(defaultBranch)}` });
+      // Dynamic label so it matches the live gitRef header ("All changes
+      // since origin/main" / "... since master") rather than a hardcoded
+      // base name that contradicts it on non-main repos. The product/
+      // first-run copy uses the short form "All changes".
+      diffOptions.push({ id: "since-base", label: `All changes since ${displayRef(defaultBranch)}` });
     }
   }
 
@@ -730,7 +731,7 @@ export async function runGitDiff(
         }
         const untracked = await getUntrackedFileDiffs(runtime, "a/", "b/", cwd, options);
         patch = removeTrackedDeletions(trackedPatch, new Set(untracked.paths)) + untracked.diff;
-        label = `Since ${displayRef(defaultBranch)}`;
+        label = `All changes since ${displayRef(defaultBranch)}`;
         break;
       }
 

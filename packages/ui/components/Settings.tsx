@@ -133,8 +133,10 @@ export const LINE_BG_INTENSITY_OPTIONS: { value: DiffLineBgIntensity; label: str
   { value: 'strong', label: 'Strong' },
 ];
 const DEFAULT_DIFF_TYPE_OPTIONS = [
-  { value: 'since-base' as const, label: 'Since Main (Recommended)', description: "Everything since your branch split from main — committed, uncommitted, and untracked" },
-  { value: 'uncommitted' as const, label: 'All Changes', description: "Everything you've changed since your last commit" },
+  // "All Changes" belongs to since-base (the flagship composite); uncommitted
+  // reverts to its plain name so the two stay distinguishable side by side.
+  { value: 'since-base' as const, label: 'All Changes (Recommended)', description: "Everything since your branch split from main — committed, uncommitted, and untracked" },
+  { value: 'uncommitted' as const, label: 'Uncommitted', description: "Everything you've changed since your last commit" },
   { value: 'unstaged' as const, label: 'Unstaged', description: "Only changes you haven't staged yet" },
   { value: 'staged' as const, label: 'Staged', description: "Only changes you've staged for commit" },
   { value: 'merge-base' as const, label: 'Committed changes (PR view)', description: "Everything you've committed on this branch" },

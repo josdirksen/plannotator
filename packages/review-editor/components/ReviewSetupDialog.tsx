@@ -32,8 +32,10 @@ const WAITLIST_URL = 'https://plannotator.ai/workspaces';
 type DiffChoice = 'since-base' | 'uncommitted' | 'unstaged' | 'staged' | 'merge-base' | 'all';
 
 const DIFF_OPTIONS: { value: DiffChoice; label: string; tag?: string; desc: string }[] = [
-  { value: 'since-base', label: 'Since main', tag: 'New', desc: 'Everything since your branch left main — committed, uncommitted, and untracked.' },
-  { value: 'uncommitted', label: 'All changes', desc: "Everything you've changed since your last commit." },
+  // "All changes" belongs to since-base (the flagship composite); uncommitted
+  // keeps its plain name so the two stay distinguishable side by side.
+  { value: 'since-base', label: 'All changes', tag: 'New', desc: 'Everything since your branch left main — committed, uncommitted, and untracked.' },
+  { value: 'uncommitted', label: 'Uncommitted', desc: "Everything you've changed since your last commit." },
   { value: 'unstaged', label: 'Unstaged', desc: "Only changes you haven't staged yet." },
   { value: 'staged', label: 'Staged', desc: "Only changes you've staged for commit." },
   { value: 'merge-base', label: 'Committed changes (PR view)', desc: 'Commits on this branch vs the base — the literal PR view.' },
@@ -81,8 +83,8 @@ export const ReviewSetupDialog: React.FC<ReviewSetupDialogProps> = ({ isOpen, on
               <p className="text-sm text-muted-foreground max-w-3xl">
                 A simpler review, closer to what you'd see on GitHub. We recommend the{' '}
                 <span className="text-foreground font-medium">Git status</span> view defaulting to{' '}
-                <span className="text-foreground font-medium">Since main</span> — every local change
-                against <span className="font-mono">origin/main</span>. It isn't a literal PR (only
+                <span className="text-foreground font-medium">All changes</span> — every local change
+                since <span className="font-mono">origin/main</span>. It isn't a literal PR (only
                 committed work lands in one — pick <span className="text-foreground font-medium">Committed changes</span>{' '}
                 for that), but it gives you the whole local picture. Switch anytime, or change these later in Settings.
               </p>

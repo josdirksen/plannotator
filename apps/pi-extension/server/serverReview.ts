@@ -854,6 +854,10 @@ export async function startReviewServer(options: {
 				const launchPatch = currentPatch;
 				const launchDiffType = currentDiffType;
 				const launchPrMeta = prMeta;
+				// Snapshotted WITH the patch it describes — see the Bun server's
+				// launchLayerPatchIncomplete comment (mirrors review.ts).
+				const launchLayerPatchIncomplete = layerPatchIncomplete;
+				const launchPRDiffScope = currentPRDiffScope;
 
 				// The changed-file list is derived from the same launch-time patch
 				// snapshot as the rest of this branch — it's what the model plans
@@ -874,7 +878,9 @@ export async function startReviewServer(options: {
 				// Recompute names+counts locally when the checkout is ready; on any
 				// failure fall back to the partial list — no worse than before.
 				// Mirrors packages/server/review.ts's guide branch.
-				if (layerPatchIncomplete && launchPrMeta?.baseBranch) {
+				// Layer scope only — full-stack launchPatch is already a local full
+				// recompute; the layer diff would drop earlier stack layers' files.
+				if (launchLayerPatchIncomplete && launchPRDiffScope !== "full-stack" && launchPrMeta?.baseBranch) {
 					const localCwd = resolvePRLocalCwd();
 					if (localCwd) {
 						try {

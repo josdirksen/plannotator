@@ -744,6 +744,13 @@ export async function startReviewServer(
       const launchDiffType = currentDiffType;
       const launchBase = currentBase;
       const launchScope = currentPRDiffScope;
+      // Snapshotted WITH the patch it describes: layerPatchIncomplete is live
+      // mutable state (a concurrent layer upgrade or pr-switch can flip it),
+      // and the guide branch's recompute below must decide against the SAME
+      // moment launchPatch was captured — positional same-sync-segment
+      // coherence held today, but a future await inserted between here and
+      // that read would silently break it.
+      const launchLayerPatchIncomplete = layerPatchIncomplete;
 
       const requestedProfileId =
         typeof config?.reviewProfileId === "string" ? config.reviewProfileId : undefined;
@@ -835,7 +842,12 @@ export async function startReviewServer(
         // refs (or fails the guide closed when no section survives).
         // Recompute names+counts locally when the checkout is ready; on any
         // failure fall back to the partial list — no worse than before.
-        if (layerPatchIncomplete && launchMetadata?.baseBranch) {
+        // Layer scope only: in full-stack scope launchPatch is already a LOCAL
+        // full recompute (default branch...HEAD in the checkout — full-stack
+        // is only offered when the checkout exists), so it's complete AND the
+        // layer diff below would be the WRONG file set (it omits earlier
+        // stack layers' files, dropping their refs at validation).
+        if (launchLayerPatchIncomplete && launchScope !== "full-stack" && launchMetadata?.baseBranch) {
           const localCwd = resolvePRLocalCwd(launchMetadata);
           if (localCwd) {
             try {

@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import type { CodeGuideData } from '@plannotator/shared/guide';
 import { renderInlineMarkdown } from '../../utils/renderInlineMarkdown';
+import { useReviewState } from '../../dock/ReviewStateContext';
 import { GuideSectionCard } from './GuideSectionCard';
 import { GuideDiffSection } from './GuideDiffSection';
 
@@ -24,6 +25,28 @@ interface GuideViewProps {
 export const GuideView: React.FC<GuideViewProps> = ({ guide, reviewed, onToggleReviewed, engineLabel, focusedFile, onFocusFile }) => {
   const total = guide.sections.length;
   const reviewedCount = reviewed.filter(Boolean).length;
+  const state = useReviewState();
+  const unplacedElements = useRef(new Map<string, HTMLDivElement | null>());
+
+  // Reveal channel for the "Everything else" bucket — the section-card effect
+  // only covers PLACED files, so a sidebar jump (annotation click / AI line
+  // citation) targeting an unplaced file would focus nothing and appear dead.
+  // No collapse handling needed here: the bucket is always rendered.
+  const revealTarget =
+    state.guideRevealFile && guide.unplacedFiles?.includes(state.guideRevealFile.path)
+      ? state.guideRevealFile
+      : null;
+  useEffect(() => {
+    if (!revealTarget) return;
+    onFocusFile(revealTarget.path);
+    const raf = requestAnimationFrame(() => {
+      unplacedElements.current.get(revealTarget.path)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => cancelAnimationFrame(raf);
+    // Token identifies the reveal event (increments on every set) — path and
+    // handler churn must not re-fire it. Mirrors GuideSectionCard's effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealTarget?.token]);
 
   return (
     // Full width — the guide owns the whole center area, like the wireframe.
@@ -64,12 +87,13 @@ export const GuideView: React.FC<GuideViewProps> = ({ guide, reviewed, onToggleR
             </div>
             <div className="space-y-4 bg-muted/[0.07] px-4 py-4">
               {guide.unplacedFiles.map((file) => (
-                <GuideDiffSection
-                  key={file}
-                  diffRef={{ file }}
-                  isFocused={focusedFile === file}
-                  onFocus={() => onFocusFile(file)}
-                />
+                <div key={file} ref={(el) => { unplacedElements.current.set(file, el); }}>
+                  <GuideDiffSection
+                    diffRef={{ file }}
+                    isFocused={focusedFile === file}
+                    onFocus={() => onFocusFile(file)}
+                  />
+                </div>
               ))}
             </div>
           </div>

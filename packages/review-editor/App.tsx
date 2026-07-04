@@ -236,9 +236,11 @@ const ReviewApp: React.FC = () => {
   // dock. Cleared on guide close below so reopening doesn't replay the reveal.
   const [guideRevealFile, setGuideRevealFile] = useState<{ path: string; token: number } | null>(null);
   useEffect(() => {
-    // Also cleared on guide-switch (activeGuideJobId): a stale reveal from
-    // guide A matching a same-named file in guide B's sections would replay
-    // an expand+scroll on B's freshly-mounted (keyed) cards.
+    // BACKSTOP only — this effect runs AFTER a switched guide's keyed cards
+    // have mounted (child effects before parent effects), so every
+    // setActiveGuideJobId site also clears synchronously in its own batch
+    // (see handleOpenGuide). This covers guide close and any future set
+    // site that forgets the synchronous clear.
     setGuideRevealFile(null);
   }, [guideOpen, activeGuideJobId]);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
@@ -823,6 +825,11 @@ const ReviewApp: React.FC = () => {
   // Open guide as a takeover (manual reopen from a completed job's card, distinct
   // from the auto-open-on-completion effect below).
   const handleOpenGuide = useCallback((jobId: string) => {
+    // Cleared in the SAME batch as the id switch: the clear-on-change effect
+    // below runs after the new guide's keyed cards have already mounted (child
+    // effects fire before parent effects), so a stale reveal would replay
+    // against a same-named file in the new guide for one commit.
+    setGuideRevealFile(null);
     setActiveGuideJobId(jobId);
     setGuideOpen(true);
   }, []);
@@ -918,6 +925,7 @@ const ReviewApp: React.FC = () => {
         continue;
       }
       guideAutoOpenRef.current.add(job.id);
+      setGuideRevealFile(null); // same-batch clear — see handleOpenGuide
       setActiveGuideJobId(job.id);
       setGuideOpen(true);
     }
@@ -928,6 +936,7 @@ const ReviewApp: React.FC = () => {
   // a live agent run, same spirit as the dev-only demo tour toggle below.
   useEffect(() => {
     if (import.meta.env.DEV && guideOpen && !origin && !activeGuideJobId) {
+      setGuideRevealFile(null); // same-batch clear — see handleOpenGuide
       setActiveGuideJobId(DEMO_GUIDE_ID);
     }
   }, [guideOpen, origin, activeGuideJobId]);

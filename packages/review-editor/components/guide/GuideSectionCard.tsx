@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import type { GuideSection } from '@plannotator/shared/guide';
 import { renderMarkdownProse } from '../../utils/renderMarkdownProse';
@@ -97,6 +97,31 @@ export const GuideSectionCard: React.FC<GuideSectionCardProps> = ({
   const diffElements = useRef(new Map<string, HTMLDivElement | null>());
   const position = `${String(index + 1).padStart(2, '0')} / ${String(total).padStart(2, '0')}`;
   const isCollapsed = collapsedOverride ?? reviewed;
+
+  // Reveal channel (state.guideRevealFile): a sidebar jump — annotation click
+  // or AI line citation — targeted a file placed in THIS section while the
+  // guide is open. Expand if collapsed (a reviewed section has no mounted
+  // viewer, so the jump would otherwise silently no-op), focus the file so
+  // the selection/AI history bind to it, then scroll its diff into view.
+  // rAF: the expansion's mount commits first; the element exists by the next
+  // frame. Keyed on the token so the same file can be revealed repeatedly;
+  // only the (unique — first-placement-wins) containing card matches.
+  const revealTarget =
+    state.guideRevealFile && section.diffs.some((d) => d.file === state.guideRevealFile?.path)
+      ? state.guideRevealFile
+      : null;
+  useEffect(() => {
+    if (!revealTarget) return;
+    setCollapsedOverride(false);
+    onFocusFile(revealTarget.path);
+    const raf = requestAnimationFrame(() => {
+      diffElements.current.get(revealTarget.path)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => cancelAnimationFrame(raf);
+    // Token identifies the reveal event (it increments on every set), so it's
+    // the only dependency that matters; path/handler churn must not re-fire it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealTarget?.token]);
 
   const handleToggleReviewed = () => {
     setCollapsedOverride(null);

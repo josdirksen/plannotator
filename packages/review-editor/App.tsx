@@ -231,6 +231,16 @@ const ReviewApp: React.FC = () => {
   const [guideOpen, setGuideOpen] = useState(false);
   // Latest completed `guide` job id (or DEMO_GUIDE_ID in standalone/demo mode).
   const [activeGuideJobId, setActiveGuideJobId] = useState<string | null>(null);
+  // Guide-mode reveal channel (see ReviewStateContext.guideRevealFile): sidebar
+  // jumps while the guide is open route here instead of mutating the hidden
+  // dock. Cleared on guide close below so reopening doesn't replay the reveal.
+  const [guideRevealFile, setGuideRevealFile] = useState<{ path: string; token: number } | null>(null);
+  useEffect(() => {
+    // Also cleared on guide-switch (activeGuideJobId): a stale reveal from
+    // guide A matching a same-named file in guide B's sections would replay
+    // an expand+scroll on B's freshly-mounted (keyed) cards.
+    setGuideRevealFile(null);
+  }, [guideOpen, activeGuideJobId]);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [copyRawDiffStatus, setCopyRawDiffStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [viewedFiles, setViewedFiles] = useState<Set<string>>(new Set());
@@ -683,14 +693,24 @@ const ReviewApp: React.FC = () => {
   }, []);
 
   const handleScrollToAILines = useCallback((filePath: string, lineStart: number, lineEnd: number, side: 'old' | 'new') => {
-    openDiffFile(filePath);
+    // While the guide takeover is open, the dock is only CSS-hidden — the
+    // openDiffFile call would silently switch the hidden dock's file (an
+    // unexpected diff on leaving the guide) and reveal nothing on screen.
+    // Route the jump through the guide's reveal channel instead: the section
+    // containing the file expands/focuses/scrolls, and the selection below
+    // lands in that viewer.
+    if (guideOpen) {
+      setGuideRevealFile(prev => ({ path: filePath, token: (prev?.token ?? 0) + 1 }));
+    } else {
+      openDiffFile(filePath);
+    }
     // Set a selection to highlight the lines
     setPendingSelection({
       start: lineStart,
       end: lineEnd,
       side: side === 'new' ? 'additions' : 'deletions',
     });
-  }, [openDiffFile]);
+  }, [openDiffFile, guideOpen]);
 
 
   // AI messages overlapping the current selection in a GIVEN file (toolbar
@@ -2041,10 +2061,15 @@ const ReviewApp: React.FC = () => {
     }
     // While the guide takeover is open, the dock's active file is meaningless
     // (guide renders its own per-section diffs) — skip the dock file-switch
-    // mutation so leaving the guide doesn't land on an unexpected file. Still
-    // set selection/scroll-target state below: the expanded guide viewer for
-    // this file picks it up. Known gap: a collapsed section won't show it.
-    if (!guideOpen && !isAllFilesActiveRef.current) {
+    // mutation so leaving the guide doesn't land on an unexpected file, and
+    // route through the reveal channel instead so the section containing the
+    // file expands (a collapsed reviewed section has no mounted viewer —
+    // without the reveal, the jump silently no-ops) and focuses before the
+    // selection/scroll-target below land in it.
+    if (guideOpen) {
+      const targetPath = annotation.filePath;
+      setGuideRevealFile(prev => ({ path: targetPath, token: (prev?.token ?? 0) + 1 }));
+    } else if (!isAllFilesActiveRef.current) {
       const fileIndex = files.findIndex(f => f.path === annotation.filePath);
       if (fileIndex !== -1) handleFileSwitch(fileIndex);
     }
@@ -2148,6 +2173,7 @@ const ReviewApp: React.FC = () => {
     canStageFiles,
     canStagePath: isPathStageable,
     currentWorktreePath: activeWorktreePath,
+    guideRevealFile,
     stageError,
     searchQuery: isSearchPending ? '' : debouncedSearchQuery,
     isSearchPending,
@@ -2206,7 +2232,7 @@ const ReviewApp: React.FC = () => {
     handleAddAnnotation, handleAddFileComment, handleAddFileCommentForFile, handleEditAnnotation,
     handleSelectAnnotation, handleNavigateToAnnotation, handleDeleteAnnotation, viewedFiles,
     handleToggleViewed, stagedFiles, stagingFile, stageFile,
-    canStageFiles, isPathStageable, activeWorktreePath, stageError, isSearchPending, debouncedSearchQuery,
+    canStageFiles, isPathStageable, activeWorktreePath, guideRevealFile, stageError, isSearchPending, debouncedSearchQuery,
     activeFileSearchMatches, activeSearchMatchId, activeSearchMatch, searchMatches,
     aiAvailable, aiMessages, aiIsCreatingSession, aiIsStreaming,
     handleAskAI, handleAskAIForFile, handleViewAIResponse, handleClickAIMarker,

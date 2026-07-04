@@ -477,6 +477,11 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 		entry.info.status = "done";
 		entry.info.error = undefined;
 		entry.info.summary = summary;
+		// The FAILED run's exit code would otherwise survive the manual repair —
+		// the job detail UI keys its "Exit N" chip off it, so a successfully
+		// repaired guide kept flagging Exit 1. The job's OUTCOME is now success;
+		// the original process's exit lives on in the captured logs.
+		entry.info.exitCode = 0;
 		broadcast({ type: "job:completed", job: { ...entry.info } });
 		return true;
 	}

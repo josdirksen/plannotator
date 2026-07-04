@@ -169,6 +169,13 @@ interface AgentsTabProps {
    *  true so callers that don't pass it (e.g. the plan editor, which has no
    *  concept of "files") see unchanged behavior. */
   guideLaunchable?: boolean;
+  /** Whether a given guide job's artifact can be opened from HERE — i.e. it
+   *  belongs to the review context currently on screen. The job list spans
+   *  every context visited this session, but opening only sets
+   *  activeGuideJobId/guideOpen (it does NOT switch PRs), so a cross-context
+   *  "Open guide" would land on the wrong guide or the empty state. Default
+   *  undefined ⇒ always openable (non-review callers have no contexts). */
+  canOpenGuideJob?: (job: AgentJobInfo) => boolean;
 }
 
 // --- Duration display ---
@@ -518,6 +525,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
   onOpenJobDetail,
   onOpenGuide,
   guideLaunchable = true,
+  canOpenGuideJob,
 }) => {
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [pendingLaunch, setPendingLaunch] = useState<{ label: string; provider?: string; startedAt: number } | null>(null);
@@ -1172,7 +1180,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
               expanded={expandedJobId === job.id}
               onToggle={() => setExpandedJobId(expandedJobId === job.id ? null : job.id)}
               onViewDetails={onOpenJobDetail ? () => onOpenJobDetail(job.id) : undefined}
-              onOpenGuide={onOpenGuide ? () => onOpenGuide(job.id) : undefined}
+              onOpenGuide={onOpenGuide && (canOpenGuideJob?.(job) ?? true) ? () => onOpenGuide(job.id) : undefined}
             />
           ))
         )}

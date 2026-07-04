@@ -75,6 +75,9 @@ interface ReviewSidebarProps {
    *  file availability, mirroring the header's hasSearchableFiles gate on
    *  the "Guide" badge/shortcut (see App.tsx). */
   guideLaunchable?: boolean;
+  /** Pass-through to AgentsTab — gates each guide job card's "Open guide"
+   *  action on whether that job belongs to the current review context. */
+  canOpenGuideJob?: (job: import('@plannotator/ui/types').AgentJobInfo) => boolean;
 }
 
 const SuggestionPreview: React.FC<{ code: string; originalCode?: string; language?: string }> = ({ code, originalCode, language }) => {
@@ -170,6 +173,7 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
   onOpenJobDetail,
   onOpenGuide,
   guideLaunchable,
+  canOpenGuideJob,
 }) => {
   const totalCount = annotations.length + (editorAnnotations?.length ?? 0) + (descriptionAnnotations?.length ?? 0) + (commentAnnotations?.length ?? 0);
   const [copied, setCopied] = useState(false);
@@ -551,6 +555,7 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
               onOpenJobDetail={onOpenJobDetail}
               onOpenGuide={onOpenGuide}
               guideLaunchable={guideLaunchable}
+              canOpenGuideJob={canOpenGuideJob}
             />
           )}
 

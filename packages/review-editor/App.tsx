@@ -37,7 +37,7 @@ import { extractLinesFromPatch } from './utils/patchParser';
 import { isTypingTarget, useReviewSearch, type ReviewSearchMatch } from './hooks/useReviewSearch';
 import { useEditorAnnotations } from '@plannotator/ui/hooks/useEditorAnnotations';
 import { useExternalAnnotations } from '@plannotator/ui/hooks/useExternalAnnotations';
-import { useAgentJobs } from '@plannotator/ui/hooks/useAgentJobs';
+import { useAgentJobs, jobMatchesReviewContext } from '@plannotator/ui/hooks/useAgentJobs';
 import { exportEditorAnnotations } from '@plannotator/ui/utils/parser';
 import { buildReviewAgentInstructions } from '@plannotator/ui/utils/reviewAgentInstructions';
 import { ResizeHandle } from '@plannotator/ui/components/ResizeHandle';
@@ -827,7 +827,7 @@ const ReviewApp: React.FC = () => {
   // rip the reviewer away from what they're currently looking at into an
   // unrelated PR/diff's artifact.
   const jobMatchesCurrentContext = useCallback(
-    (job: AgentJobInfo) => (prMetadata ? job.prUrl === prMetadata.url : !job.prUrl),
+    (job: AgentJobInfo) => jobMatchesReviewContext(job, prMetadata?.url),
     [prMetadata],
   );
 
@@ -3297,6 +3297,7 @@ const ReviewApp: React.FC = () => {
                 onOpenJobDetail={handleOpenJobDetail}
                 onOpenGuide={handleOpenGuide}
                 guideLaunchable={hasSearchableFiles}
+                canOpenGuideJob={jobMatchesCurrentContext}
               />
             </div>
           )}

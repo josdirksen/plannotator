@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { AgentJobInfo, AgentCapabilities } from '@plannotator/ui/types';
+import { jobMatchesReviewContext } from '@plannotator/ui/hooks/useAgentJobs';
 import type { AgentLaunchParams } from '@plannotator/ui/hooks/useAgentJobs';
 import type { ReviewEngine } from '@plannotator/ui/hooks/useAgentSettings';
 import { REVIEW_ENGINE_LABEL } from '@plannotator/ui/components/AgentsTab';
@@ -62,7 +63,7 @@ export const GuideScreen: React.FC<GuideScreenProps> = ({
   //   - Local-diff mode (`state.prMetadata` unset): only a job with no
   //     `prUrl` (also launched in local-diff mode) matches.
   const matchesContext = (job: AgentJobInfo): boolean =>
-    state.prMetadata ? job.prUrl === state.prMetadata.url : !job.prUrl;
+    jobMatchesReviewContext(job, state.prMetadata?.url);
   // jobs is append-ordered (see upsertJob in useAgentJobs) — the takeover
   // follows the NEWEST launched guide, so a plain `.find` (first match) would
   // stick with a stale running job if a second guide got launched while an
@@ -111,7 +112,16 @@ export const GuideScreen: React.FC<GuideScreenProps> = ({
   const activeJob = jobs.find((j) => j.id === activeGuideJobId);
   const activeGuideMatchesContext = !activeJob || matchesContext(activeJob);
 
-  if (activeGuideJobId && activeGuideMatchesContext) {
+  // What to actually display: the active guide when it belongs to this
+  // context, otherwise FALL BACK to this context's own newest completed
+  // guide. Without the fallback, switching from PR A (guide open) to PR B
+  // (which has its own finished guide) landed on the empty state — B's guide
+  // existed but nothing selected it, since activeGuideJobId still pointed at A.
+  const newestDoneGuideJob = [...guideJobs].reverse().find((j) => j.status === 'done') ?? null;
+  const displayGuideJobId =
+    activeGuideJobId && activeGuideMatchesContext ? activeGuideJobId : newestDoneGuideJob?.id ?? null;
+
+  if (displayGuideJobId) {
     // A guide can already be showing (activeGuideJobId) while a LATER launch
     // (e.g. "Regenerate guide") fails — that failure must not be silently
     // lost just because a previous guide still renders fine. Only treat it as
@@ -119,11 +129,11 @@ export const GuideScreen: React.FC<GuideScreenProps> = ({
     // append-ordered `jobs` array; a failed job that happens to be OLDER than
     // the active one (e.g. a repair attempt for a guide from before this one)
     // must never outrank what's already on screen.
-    const activeIndex = jobs.findIndex((j) => j.id === activeGuideJobId);
+    const activeIndex = jobs.findIndex((j) => j.id === displayGuideJobId);
     const latestIndex = latestGuideJob ? jobs.findIndex((j) => j.id === latestGuideJob.id) : -1;
     const newerFailedJob =
       latestGuideJob &&
-      latestGuideJob.id !== activeGuideJobId &&
+      latestGuideJob.id !== displayGuideJobId &&
       (latestGuideJob.status === 'failed' || latestGuideJob.status === 'killed') &&
       latestIndex > activeIndex
         ? latestGuideJob
@@ -134,8 +144,8 @@ export const GuideScreen: React.FC<GuideScreenProps> = ({
     // rather than carrying over stale state from the previous one.
     return (
       <ActiveGuide
-        key={activeGuideJobId}
-        jobId={activeGuideJobId}
+        key={displayGuideJobId}
+        jobId={displayGuideJobId}
         jobs={jobs}
         failedJob={newerFailedJob}
         capabilities={capabilities}

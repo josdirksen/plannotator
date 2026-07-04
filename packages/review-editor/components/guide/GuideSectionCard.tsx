@@ -207,9 +207,14 @@ export const GuideSectionCard: React.FC<GuideSectionCardProps> = ({
                     additions={file?.additions}
                     deletions={file?.deletions}
                     missing={!file}
-                    onClick={() =>
-                      diffElements.current.get(ref.file)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                    }
+                    onClick={() => {
+                      // Retarget the guide's focus arbiter too: scrolling under
+                      // a stationary pointer fires no pointerenter, so without
+                      // this the annotation toolbar / pending selection / AI
+                      // history stay bound to the previously-focused diff.
+                      if (file) onFocusFile(ref.file);
+                      diffElements.current.get(ref.file)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
                   />
                 );
               })}

@@ -39,6 +39,18 @@ export type AgentLaunchParams = {
   repairOf?: string;
 };
 
+/** Does a job belong to the given review context? Jobs launched against a PR
+ *  are stamped with that PR's url; local-diff jobs carry none. Used to scope
+ *  guide/tour auto-opens, the guide takeover, and "Open guide" affordances so
+ *  an artifact from PR A never opens (or offers to open) while reviewing PR B.
+ *  `currentPrUrl` undefined ⇒ local-diff mode. */
+export function jobMatchesReviewContext(
+  job: Pick<AgentJobInfo, 'prUrl'>,
+  currentPrUrl: string | undefined,
+): boolean {
+  return currentPrUrl ? job.prUrl === currentPrUrl : !job.prUrl;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }

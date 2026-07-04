@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { SEVERITY_STYLES, type AgentJobInfo, type CodeAnnotation } from '@plannotator/ui/types';
 import { isTerminalStatus } from '@plannotator/shared/agent-jobs';
+import { jobMatchesReviewContext } from '@plannotator/ui/hooks/useAgentJobs';
 import { useReviewState } from '../ReviewStateContext';
 import { useJobLogs } from '../JobLogsContext';
 import { CopyButton } from '../../components/CopyButton';
@@ -350,6 +351,9 @@ function GuideStatusCard({ job, terminal, jobId }: {
 }) {
   const state = useReviewState();
   const { summary } = job;
+  // Opening only sets activeGuideJobId/guideOpen — it does NOT switch PRs —
+  // so a guide from another review context can't meaningfully open from here.
+  const inContext = jobMatchesReviewContext(job, state.prMetadata?.url);
 
   if (summary) {
     return (
@@ -359,15 +363,23 @@ function GuideStatusCard({ job, terminal, jobId }: {
             <span className="text-xs font-semibold text-success">{summary.correctness} · {summary.explanation}</span>
           </div>
         </div>
-        <button
-          onClick={() => state.openGuide?.(jobId)}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors text-xs font-medium active:scale-[0.98]"
-        >
-          Open guide
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d="M3 7h8M8 3.5L11 7l-3 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
+        {inContext ? (
+          <button
+            onClick={() => state.openGuide?.(jobId)}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors text-xs font-medium active:scale-[0.98]"
+          >
+            Open guide
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M3 7h8M8 3.5L11 7l-3 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        ) : (
+          <p className="text-[11px] leading-snug text-muted-foreground/60">
+            {job.prUrl
+              ? 'This guide belongs to a different PR — switch to it to open the guide.'
+              : 'This guide belongs to the local diff — leave PR mode to open it.'}
+          </p>
+        )}
       </div>
     );
   }

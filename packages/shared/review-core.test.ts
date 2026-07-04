@@ -314,6 +314,22 @@ describe("review-core", () => {
     });
   });
 
+  test("getDefaultBranch finds origin/main on feature-only clones (no origin/HEAD, no local main)", async () => {
+    // CI checkouts / `clone --branch feature` / extra worktrees: only the
+    // feature branch exists locally, main lives solely as the fetched
+    // remote-tracking ref. The old chain (origin/HEAD -> local main ->
+    // blind "master") skipped right past it, "master" didn't resolve, and
+    // since-base was suppressed for the whole session.
+    const repoDir = initRepo();
+    const sha = git(repoDir, ["rev-parse", "HEAD"]);
+    git(repoDir, ["checkout", "-b", "feature"]);
+    git(repoDir, ["branch", "-D", "main"]);
+    git(repoDir, ["update-ref", "refs/remotes/origin/main", sha]);
+
+    const runtime = makeRuntime(repoDir);
+    expect(await getDefaultBranch(runtime)).toBe("origin/main");
+  });
+
   test("listRecentCommits returns HEAD ancestry with shortSha and subject", async () => {
     const repoDir = initRepo();
     writeFileSync(join(repoDir, "tracked.txt"), "second\n", "utf-8");

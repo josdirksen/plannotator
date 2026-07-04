@@ -194,11 +194,29 @@ export async function getDefaultBranch(
     }
   }
 
+  // origin/HEAD is often unset (feature-only clones, CI checkouts, extra
+  // worktrees, `clone --branch X`). Those setups routinely have NO local
+  // main/master either — but the remote-tracking ref is fetched and diffable.
+  // Check it before the local names (matching the prefer-upstream intent
+  // above) and before the blind "master" guess, or since-base gets suppressed
+  // for the whole session on a repo that could serve it fine.
+  const originMain = await runtime.runGit(
+    ["show-ref", "--verify", "--quiet", "refs/remotes/origin/main"],
+    { cwd },
+  );
+  if (originMain.exitCode === 0) return "origin/main";
+
   const mainBranch = await runtime.runGit(
     ["show-ref", "--verify", "refs/heads/main"],
     { cwd },
   );
   if (mainBranch.exitCode === 0) return "main";
+
+  const originMaster = await runtime.runGit(
+    ["show-ref", "--verify", "--quiet", "refs/remotes/origin/master"],
+    { cwd },
+  );
+  if (originMaster.exitCode === 0) return "origin/master";
 
   return "master";
 }

@@ -45,9 +45,20 @@ export type AgentLaunchParams = {
  *  an artifact from PR A never opens (or offers to open) while reviewing PR B.
  *  `currentPrUrl` undefined ⇒ local-diff mode.
  *
- *  DELIBERATELY matches by prUrl only — NOT diffScope/diffContext, even
- *  though jobs carry them. Annotations scope by diffScope because they pin
- *  exact line positions in a specific patch; guides/tours reference FILES
+ *  prUrl + worktreePath define WHERE the review is (the context — matched
+ *  strictly below); mode/base/scope define WHAT VIEW of that context is on
+ *  screen. In PR mode only prUrl is compared (a PR checkout has no separate
+ *  worktree axis). In local-diff mode, `currentWorktreePath` distinguishes a
+ *  review retargeted at a git worktree (`worktree:<path>:<subType>` diff
+ *  types — see parseWorktreeDiffType) from the main tree, so a guide/tour
+ *  launched against worktree A never opens while reviewing worktree B. Jobs
+ *  launched before this field existed, and jobs from providers that never set
+ *  `diffContext`, coalesce to the main tree (`null`) — deliberate, so old jobs
+ *  keep matching the common case instead of going permanently unmatchable.
+ *
+ *  DELIBERATELY matches by prUrl/worktreePath only — NOT diffScope/mode/base,
+ *  even though jobs carry them. Annotations scope by diffScope because they
+ *  pin exact line positions in a specific patch; guides/tours reference FILES
  *  and degrade per-file ("no longer in the current diff") when the diff
  *  shifts underneath them. Layer→full-stack is a superset (the artifact
  *  fully resolves — hiding it would be hostile); full-stack→layer and local
@@ -55,10 +66,13 @@ export type AgentLaunchParams = {
  *  vaporize a useful guide because the reviewer toggled since-base →
  *  uncommitted. Do not "tighten" this without a UX decision. */
 export function jobMatchesReviewContext(
-  job: Pick<AgentJobInfo, 'prUrl'>,
+  job: Pick<AgentJobInfo, 'prUrl' | 'diffContext'>,
   currentPrUrl: string | undefined,
+  currentWorktreePath?: string | null,
 ): boolean {
-  return currentPrUrl ? job.prUrl === currentPrUrl : !job.prUrl;
+  if (currentPrUrl) return job.prUrl === currentPrUrl;
+  if (job.prUrl) return false;
+  return (job.diffContext?.worktreePath ?? null) === (currentWorktreePath ?? null);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

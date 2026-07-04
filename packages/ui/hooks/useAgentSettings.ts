@@ -54,6 +54,17 @@ export const DEFAULT_PI_MODEL = '';
 // Pi's unified reasoning knob (`--thinking`); 'medium' matches Pi's own default.
 export const DEFAULT_PI_THINKING = 'medium';
 
+// Guide-scoped marker-engine defaults — same isolation rationale as
+// DEFAULT_GUIDE_CLAUDE_EFFORT above (a guide's Cursor/OpenCode/Pi model must
+// not silently change the next Cursor/OpenCode/Pi code review, and vice
+// versa). These literal values happen to match the shared defaults above —
+// they are NOT derived/seeded from them, just each engine's own natural
+// default picked independently for the guide surface.
+export const DEFAULT_GUIDE_CURSOR_MODEL = 'auto';
+export const DEFAULT_GUIDE_OPENCODE_MODEL = '';
+export const DEFAULT_GUIDE_PI_MODEL = '';
+export const DEFAULT_GUIDE_PI_THINKING = 'medium';
+
 interface ClaudeSection {
   model: string;
   perModel: Record<string, { effort: string }>;
@@ -108,6 +119,13 @@ interface AgentSettingsState {
   tourCodex: CodexSection;
   guideClaude: ClaudeSection;
   guideCodex: CodexSection;
+  // Guide-scoped marker-engine settings — kept separate from cursor/opencode/pi
+  // above (same isolation as guideClaude/guideCodex vs claude/codex) so tuning
+  // a guide's Cursor/OpenCode/Pi model doesn't silently change the next
+  // Cursor/OpenCode/Pi code review.
+  guideCursor: CursorSection;
+  guideOpencode: OpencodeSection;
+  guidePi: PiSection;
 }
 
 const BUILTIN_DEFAULT_PROFILE = 'builtin:default';
@@ -134,6 +152,9 @@ const initialState: AgentSettingsState = {
   tourCodex: { model: DEFAULT_TOUR_CODEX_MODEL, perModel: {} },
   guideClaude: { model: DEFAULT_GUIDE_CLAUDE_MODEL, perModel: {} },
   guideCodex: { model: DEFAULT_GUIDE_CODEX_MODEL, perModel: {} },
+  guideCursor: { model: DEFAULT_GUIDE_CURSOR_MODEL },
+  guideOpencode: { model: DEFAULT_GUIDE_OPENCODE_MODEL },
+  guidePi: { model: DEFAULT_GUIDE_PI_MODEL, thinking: DEFAULT_GUIDE_PI_THINKING },
 };
 
 // One-shot migration: drop any cached "none" codex reasoning entries. The
@@ -238,6 +259,16 @@ function readCookie(): AgentSettingsState {
       guideCodex: {
         model: migrateCodexModel(parsed.guideCodex?.model, DEFAULT_GUIDE_CODEX_MODEL),
         perModel: sanitizeCodexPerModel(parsed.guideCodex?.perModel),
+      },
+      guideCursor: {
+        model: typeof parsed.guideCursor?.model === 'string' ? parsed.guideCursor.model : DEFAULT_GUIDE_CURSOR_MODEL,
+      },
+      guideOpencode: {
+        model: typeof parsed.guideOpencode?.model === 'string' ? parsed.guideOpencode.model : DEFAULT_GUIDE_OPENCODE_MODEL,
+      },
+      guidePi: {
+        model: typeof parsed.guidePi?.model === 'string' ? parsed.guidePi.model : DEFAULT_GUIDE_PI_MODEL,
+        thinking: typeof parsed.guidePi?.thinking === 'string' ? parsed.guidePi.thinking : DEFAULT_GUIDE_PI_THINKING,
       },
     };
   } catch {
@@ -426,6 +457,22 @@ export function useAgentSettings() {
     [patchCodex],
   );
 
+  const setGuideCursorModel = useCallback((model: string) => {
+    setState((s) => ({ ...s, guideCursor: { ...s.guideCursor, model } }));
+  }, []);
+
+  const setGuideOpencodeModel = useCallback((model: string) => {
+    setState((s) => ({ ...s, guideOpencode: { ...s.guideOpencode, model } }));
+  }, []);
+
+  const setGuidePiModel = useCallback((model: string) => {
+    setState((s) => ({ ...s, guidePi: { ...s.guidePi, model } }));
+  }, []);
+
+  const setGuidePiThinking = useCallback((thinking: string) => {
+    setState((s) => ({ ...s, guidePi: { ...s.guidePi, thinking } }));
+  }, []);
+
   const claudeEffort = state.claude.perModel[state.claude.model]?.effort ?? DEFAULT_CLAUDE_EFFORT;
   const codexReasoning = state.codex.perModel[state.codex.model]?.reasoning ?? DEFAULT_CODEX_REASONING;
   const codexFast = state.codex.perModel[state.codex.model]?.fast ?? DEFAULT_CODEX_FAST;
@@ -459,6 +506,10 @@ export function useAgentSettings() {
     guideClaudeEffort,
     guideCodexModel: state.guideCodex.model,
     guideCodexReasoning,
+    guideCursorModel: state.guideCursor.model,
+    guideOpencodeModel: state.guideOpencode.model,
+    guidePiModel: state.guidePi.model,
+    guidePiThinking: state.guidePi.thinking,
     setSelectedMode,
     setReviewEngine,
     setReviewProfileId,
@@ -482,5 +533,9 @@ export function useAgentSettings() {
     setGuideClaudeEffort,
     setGuideCodexModel,
     setGuideCodexReasoning,
+    setGuideCursorModel,
+    setGuideOpencodeModel,
+    setGuidePiModel,
+    setGuidePiThinking,
   };
 }

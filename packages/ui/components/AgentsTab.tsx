@@ -556,6 +556,10 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
     guideClaudeEffort,
     guideCodexModel,
     guideCodexReasoning,
+    guideCursorModel,
+    guideOpencodeModel,
+    guidePiModel,
+    guidePiThinking,
     setSelectedMode,
     setReviewEngine,
     setReviewProfileId,
@@ -579,6 +583,10 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
     setGuideClaudeEffort,
     setGuideCodexModel,
     setGuideCodexReasoning,
+    setGuideCursorModel,
+    setGuideOpencodeModel,
+    setGuidePiModel,
+    setGuidePiThinking,
   } = settings;
 
   // Review profiles (built-in default plus the user's enabled skills). Loaded
@@ -712,7 +720,10 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
   // Reconcile the saved Cursor/OpenCode model against the live catalog: a
   // persisted id can go stale after an account switch or discovery loss, and
   // posting it would fail the launch. Collapse it to the first option (auto/
-  // Default) when it's no longer offered.
+  // Default) when it's no longer offered. Each effect also reconciles the
+  // guide-scoped counterpart against the SAME catalog and availability guard
+  // — the catalog is per-engine, not per-surface, so review and guide share
+  // it here even though their model selections are kept independent.
   useEffect(() => {
     // Only once the engine is actually available — before capabilities load,
     // cursorModels is just the fallback, and reconciling here would wipe a valid
@@ -721,19 +732,28 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
     if (!cursorModels.some((m) => m.value === cursorModel)) {
       setCursorModel(cursorModels[0]?.value ?? 'auto');
     }
-  }, [cursorAvailable, cursorModels, cursorModel, setCursorModel]);
+    if (!cursorModels.some((m) => m.value === guideCursorModel)) {
+      setGuideCursorModel(cursorModels[0]?.value ?? 'auto');
+    }
+  }, [cursorAvailable, cursorModels, cursorModel, setCursorModel, guideCursorModel, setGuideCursorModel]);
   useEffect(() => {
     if (!opencodeAvailable) return;
     if (!opencodeModels.some((m) => m.value === opencodeModel)) {
       setOpencodeModel(opencodeModels[0]?.value ?? '');
     }
-  }, [opencodeAvailable, opencodeModels, opencodeModel, setOpencodeModel]);
+    if (!opencodeModels.some((m) => m.value === guideOpencodeModel)) {
+      setGuideOpencodeModel(opencodeModels[0]?.value ?? '');
+    }
+  }, [opencodeAvailable, opencodeModels, opencodeModel, setOpencodeModel, guideOpencodeModel, setGuideOpencodeModel]);
   useEffect(() => {
     if (!piAvailable) return;
     if (!piModels.some((m) => m.value === piModel)) {
       setPiModel(piModels[0]?.value ?? '');
     }
-  }, [piAvailable, piModels, piModel, setPiModel]);
+    if (!piModels.some((m) => m.value === guidePiModel)) {
+      setGuidePiModel(piModels[0]?.value ?? '');
+    }
+  }, [piAvailable, piModels, piModel, setPiModel, guidePiModel, setGuidePiModel]);
 
   // Annotation counts per job source
   const annotationCounts = useMemo(() => {
@@ -826,11 +846,13 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
   const buildGuideLaunch = (): LaunchParams => {
     if (guideEngine === 'cursor') {
       // Same omission rules as buildReviewLaunch: auto/empty ⇒ engine default.
+      // Guide-scoped model — deliberately NOT the shared cursorModel (see
+      // guideCursorModel's definition in useAgentSettings).
       return {
         provider: 'guide',
         label: 'Guided Review',
         engine: 'cursor',
-        ...(cursorModel && cursorModel.toLowerCase() !== 'auto' ? { model: cursorModel } : {}),
+        ...(guideCursorModel && guideCursorModel.toLowerCase() !== 'auto' ? { model: guideCursorModel } : {}),
       };
     }
     if (guideEngine === 'opencode') {
@@ -838,7 +860,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
         provider: 'guide',
         label: 'Guided Review',
         engine: 'opencode',
-        ...(opencodeModel ? { model: opencodeModel } : {}),
+        ...(guideOpencodeModel ? { model: guideOpencodeModel } : {}),
       };
     }
     if (guideEngine === 'pi') {
@@ -846,8 +868,8 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
         provider: 'guide',
         label: 'Guided Review',
         engine: 'pi',
-        ...(piModel ? { model: piModel } : {}),
-        thinking: piThinking,
+        ...(guidePiModel ? { model: guidePiModel } : {}),
+        thinking: guidePiThinking,
       };
     }
     return {
@@ -1121,14 +1143,16 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
                   </ConfigRow>
                 )}
 
-                {/* Marker engines: same live-catalog model picker as review mode */}
-                {guideEngine === 'cursor' && renderMarkerEngineConfig(cursorModel, cursorModels, setCursorModel)}
-                {guideEngine === 'opencode' && renderMarkerEngineConfig(opencodeModel, opencodeModels, setOpencodeModel)}
+                {/* Marker engines: same live-catalog model picker as review mode,
+                    but bound to the guide-scoped settings (see useAgentSettings) so
+                    tuning these doesn't change the next Cursor/OpenCode/Pi review. */}
+                {guideEngine === 'cursor' && renderMarkerEngineConfig(guideCursorModel, cursorModels, setGuideCursorModel)}
+                {guideEngine === 'opencode' && renderMarkerEngineConfig(guideOpencodeModel, opencodeModels, setGuideOpencodeModel)}
                 {guideEngine === 'pi' && (
                   <>
-                    {renderMarkerEngineConfig(piModel, piModels, setPiModel)}
+                    {renderMarkerEngineConfig(guidePiModel, piModels, setGuidePiModel)}
                     <ConfigRow label="Thinking" stacked>
-                      <SegmentedPicker options={PI_THINKING} value={piThinking} onChange={setPiThinking} />
+                      <SegmentedPicker options={PI_THINKING} value={guidePiThinking} onChange={setGuidePiThinking} />
                     </ConfigRow>
                   </>
                 )}

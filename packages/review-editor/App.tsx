@@ -14,6 +14,7 @@ import { GitLabIcon } from '@plannotator/ui/components/GitLabIcon';
 import { RepoIcon } from '@plannotator/ui/components/RepoIcon';
 import { PullRequestIcon } from '@plannotator/ui/components/PullRequestIcon';
 import { getPlatformLabel, getMRLabel, getMRNumberLabel, getDisplayRepo } from '@plannotator/shared/pr-types';
+import { parseWorktreeDiffType } from '@plannotator/shared/review-core';
 import type { SemanticDiffAdvert } from '@plannotator/shared/semantic-diff-types';
 import { configStore, useConfigValue, setReviewPanelView } from '@plannotator/ui/config';
 import { loadDiffFont } from '@plannotator/ui/utils/diffFonts';
@@ -820,15 +821,27 @@ const ReviewApp: React.FC = () => {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
+  // The worktree half of "where the review is" (see jobMatchesReviewContext):
+  // parsed straight from the live diffType state string, independent of the
+  // activeWorktreePath/activeDiffBase memo below (that one drives the
+  // sections/tree UI split; this one only needs the path for context
+  // matching). Null for the main tree and for PR mode (diffType there is
+  // never a worktree: string).
+  const currentWorktreePath = useMemo(() => {
+    if (!diffType.startsWith('worktree:')) return null;
+    return parseWorktreeDiffType(diffType)?.path ?? null;
+  }, [diffType]);
+
   // Context rule shared by both auto-open effects below (and mirrored by
   // GuideScreen's matchesContext): a job stamped with a PR url only belongs
-  // to that PR; a job with no PR url only belongs to local-diff mode.
+  // to that PR; a job with no PR url only belongs to local-diff mode, further
+  // scoped to the specific worktree (or main tree) it was launched against.
   // Auto-opening a job from a DIFFERENT context than what's on screen would
   // rip the reviewer away from what they're currently looking at into an
-  // unrelated PR/diff's artifact.
+  // unrelated PR/diff/worktree's artifact.
   const jobMatchesCurrentContext = useCallback(
-    (job: AgentJobInfo) => jobMatchesReviewContext(job, prMetadata?.url),
-    [prMetadata],
+    (job: AgentJobInfo) => jobMatchesReviewContext(job, prMetadata?.url, currentWorktreePath),
+    [prMetadata, currentWorktreePath],
   );
 
   // Auto-open tour dialog when a tour job completes — scoped to the current
@@ -2135,6 +2148,7 @@ const ReviewApp: React.FC = () => {
     onStage: stageFile,
     canStageFiles,
     canStagePath: isPathStageable,
+    currentWorktreePath,
     stageError,
     searchQuery: isSearchPending ? '' : debouncedSearchQuery,
     isSearchPending,
@@ -2193,7 +2207,7 @@ const ReviewApp: React.FC = () => {
     handleAddAnnotation, handleAddFileComment, handleAddFileCommentForFile, handleEditAnnotation,
     handleSelectAnnotation, handleNavigateToAnnotation, handleDeleteAnnotation, viewedFiles,
     handleToggleViewed, stagedFiles, stagingFile, stageFile,
-    canStageFiles, isPathStageable, stageError, isSearchPending, debouncedSearchQuery,
+    canStageFiles, isPathStageable, currentWorktreePath, stageError, isSearchPending, debouncedSearchQuery,
     activeFileSearchMatches, activeSearchMatchId, activeSearchMatch, searchMatches,
     aiAvailable, aiMessages, aiIsCreatingSession, aiIsStreaming,
     handleAskAI, handleAskAIForFile, handleViewAIResponse, handleClickAIMarker,

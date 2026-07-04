@@ -97,6 +97,11 @@ export interface ReviewState {
   canStageFiles: boolean;
   /** Per-file staging gate — false for committed files in since-base mode. */
   canStagePath?: (filePath: string) => boolean;
+  /** Worktree path parsed from the live diffType when it's a
+   *  `worktree:<path>:<subType>` string; null for the main tree and PR mode.
+   *  Feeds jobMatchesReviewContext's third argument so guide/tour context
+   *  matching is worktree-aware (see App.tsx's currentWorktreePath memo). */
+  currentWorktreePath?: string | null;
   stageError: string | null;
 
   // Search

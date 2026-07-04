@@ -165,19 +165,19 @@ export const GuideEmptyState: React.FC<GuideEmptyStateProps> = ({ capabilities, 
     guideClaudeEffort,
     guideCodexModel,
     guideCodexReasoning,
-    cursorModel,
-    opencodeModel,
-    piModel,
-    piThinking,
+    guideCursorModel,
+    guideOpencodeModel,
+    guidePiModel,
+    guidePiThinking,
     setGuideEngine,
     setGuideClaudeModel,
     setGuideClaudeEffort,
     setGuideCodexModel,
     setGuideCodexReasoning,
-    setCursorModel,
-    setOpencodeModel,
-    setPiModel,
-    setPiThinking,
+    setGuideCursorModel,
+    setGuideOpencodeModel,
+    setGuidePiModel,
+    setGuidePiThinking,
   } = useAgentSettings();
 
   const [launching, setLaunching] = useState(false);
@@ -290,9 +290,10 @@ export const GuideEmptyState: React.FC<GuideEmptyStateProps> = ({ capabilities, 
   const opencodeOptions = markerModels('opencode', OPENCODE_FALLBACK);
   const piOptions = markerModels('pi', PI_FALLBACK);
 
-  // AgentsTab reconciles a saved cursor/opencode/pi model back to the catalog
-  // head via effects when the live catalog no longer contains it (see
-  // AgentsTab.tsx's reconcile effects ~713-727). This launcher reads the same
+  // AgentsTab reconciles the saved guide Cursor/OpenCode/Pi model back to the
+  // catalog head via effects when the live catalog no longer contains it (see
+  // AgentsTab.tsx's reconcile effects ~712-745, which snap both the review
+  // AND guide fields against the same catalog). This launcher reads the same
   // persisted cookie values but is deliberately stateless — no effects, no
   // cookie writes — so instead of reconciling in the background, a stale
   // saved id is reconciled right here at read time: if it's not in the
@@ -303,9 +304,9 @@ export const GuideEmptyState: React.FC<GuideEmptyStateProps> = ({ capabilities, 
   const effectiveModel = (saved: string, options: Option[]): string =>
     options.some((o) => o.value === saved) ? saved : (options[0]?.value ?? saved);
 
-  const effectiveCursorModel = effectiveModel(cursorModel, cursorOptions);
-  const effectiveOpencodeModel = effectiveModel(opencodeModel, opencodeOptions);
-  const effectivePiModel = effectiveModel(piModel, piOptions);
+  const effectiveCursorModel = effectiveModel(guideCursorModel, cursorOptions);
+  const effectiveOpencodeModel = effectiveModel(guideOpencodeModel, opencodeOptions);
+  const effectivePiModel = effectiveModel(guidePiModel, piOptions);
 
   const modelPicker: { value: string; options: Option[]; onChange: (v: string) => void } =
     engine === 'claude'
@@ -313,10 +314,10 @@ export const GuideEmptyState: React.FC<GuideEmptyStateProps> = ({ capabilities, 
       : engine === 'codex'
         ? { value: guideCodexModel, options: CODEX_MODELS, onChange: setGuideCodexModel }
         : engine === 'cursor'
-          ? { value: effectiveCursorModel, options: cursorOptions, onChange: setCursorModel }
+          ? { value: effectiveCursorModel, options: cursorOptions, onChange: setGuideCursorModel }
           : engine === 'opencode'
-            ? { value: effectiveOpencodeModel, options: opencodeOptions, onChange: setOpencodeModel }
-            : { value: effectivePiModel, options: piOptions, onChange: setPiModel };
+            ? { value: effectiveOpencodeModel, options: opencodeOptions, onChange: setGuideOpencodeModel }
+            : { value: effectivePiModel, options: piOptions, onChange: setGuidePiModel };
 
   const canLaunch = guideAvailable && availableEngines.length > 0 && !launching;
 
@@ -347,7 +348,7 @@ export const GuideEmptyState: React.FC<GuideEmptyStateProps> = ({ capabilities, 
                 label: 'Guided Review',
                 engine: 'pi',
                 ...(effectivePiModel ? { model: effectivePiModel } : {}),
-                thinking: piThinking,
+                thinking: guidePiThinking,
               }
             : {
                 provider: 'guide',
@@ -456,7 +457,7 @@ export const GuideEmptyState: React.FC<GuideEmptyStateProps> = ({ capabilities, 
                 <InlinePicker label="Reasoning" value={guideCodexReasoning} options={CODEX_REASONING} onChange={setGuideCodexReasoning} />
               )}
               {engine === 'pi' && (
-                <InlinePicker label="Thinking" value={piThinking} options={PI_THINKING} onChange={setPiThinking} />
+                <InlinePicker label="Thinking" value={guidePiThinking} options={PI_THINKING} onChange={setGuidePiThinking} />
               )}
             </div>
             <p className="mt-2.5 text-[11px] leading-snug text-muted-foreground/60">

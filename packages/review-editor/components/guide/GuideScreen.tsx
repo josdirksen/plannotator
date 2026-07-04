@@ -61,9 +61,11 @@ export const GuideScreen: React.FC<GuideScreenProps> = ({
   //   - PR mode (`state.prMetadata` set): only a job launched against the
   //     SAME PR url matches.
   //   - Local-diff mode (`state.prMetadata` unset): only a job with no
-  //     `prUrl` (also launched in local-diff mode) matches.
+  //     `prUrl`, launched against the SAME worktree (or the main tree),
+  //     matches — see state.currentWorktreePath (App.tsx) and
+  //     jobMatchesReviewContext's worktreePath handling.
   const matchesContext = (job: AgentJobInfo): boolean =>
-    jobMatchesReviewContext(job, state.prMetadata?.url);
+    jobMatchesReviewContext(job, state.prMetadata?.url, state.currentWorktreePath ?? null);
   // jobs is append-ordered (see upsertJob in useAgentJobs) — the takeover
   // follows the NEWEST launched guide, so a plain `.find` (first match) would
   // stick with a stale running job if a second guide got launched while an

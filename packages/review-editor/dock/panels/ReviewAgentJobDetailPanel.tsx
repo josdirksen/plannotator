@@ -351,9 +351,10 @@ function GuideStatusCard({ job, terminal, jobId }: {
 }) {
   const state = useReviewState();
   const { summary } = job;
-  // Opening only sets activeGuideJobId/guideOpen — it does NOT switch PRs —
-  // so a guide from another review context can't meaningfully open from here.
-  const inContext = jobMatchesReviewContext(job, state.prMetadata?.url);
+  // Opening only sets activeGuideJobId/guideOpen — it does NOT switch PRs or
+  // worktrees — so a guide from another review context can't meaningfully
+  // open from here.
+  const inContext = jobMatchesReviewContext(job, state.prMetadata?.url, state.currentWorktreePath ?? null);
 
   if (summary) {
     return (

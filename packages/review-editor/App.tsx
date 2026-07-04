@@ -1044,7 +1044,7 @@ const ReviewApp: React.FC = () => {
         setBaseBehindRemote(data.baseBehindRemote === true);
         // First-run: offer the review-view chooser for a plain local git
         // session (not workspace/PR/jj/p4), once. On this first showing we
-        // RESET to the recommended default (Git status + Since main), overriding
+        // RESET to the recommended default (Git status + All changes), overriding
         // any prior diff-type/panel preference — the user's explicit choice in
         // the dialog then sticks. Applied to the live session on dismiss.
         //

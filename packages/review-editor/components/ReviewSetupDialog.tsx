@@ -10,7 +10,7 @@ import treeImg from '@plannotator/ui/assets/review-tree.png';
  * Code-review setup chooser — same shell/structure as the plan app's
  * LookAndFeelAnnouncementDialog. Left: which panel view a review opens in
  * (git-status Sections vs the classic Tree), as hover-expandable screenshots.
- * Right: the default diff type (including the composite "Since main"). Footer
+ * Right: the default diff type (including the composite "All changes"). Footer
  * carries the shared "Workspaces are coming" teaser page.
  *
  * Self-contained: reads/writes the configStore directly so it works both as a

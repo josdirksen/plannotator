@@ -11,7 +11,7 @@ import { OverlayScrollArea } from '@plannotator/ui/components/OverlayScrollArea'
 import type { DiffFile } from '../types';
 
 /**
- * The three-stack "Since main" panel — the default view of a code review.
+ * The three-stack "All changes" (since-base) panel — the default view of a code review.
  *
  * One composite diff (merge-base → working tree + untracked) grouped by
  * lifecycle state: Committed (viewport-adaptive), Changes (staged first),

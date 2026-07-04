@@ -380,6 +380,16 @@ export async function startReviewServer(options: {
 		) {
 			return remoteBranch;
 		}
+		// Second rule, independent of remoteDefaultInfo: if the SESSION is
+		// already on the upgraded tracking ref and a non-explicit request echoes
+		// its bare local name, stay on the tracking ref. remoteDefaultInfo comes
+		// from a SECOND probe that can lag the startup upgrade by seconds — in
+		// that window the rule above is blind, and a diff-type/whitespace switch
+		// echoing "main" would commit the session back onto the stale local
+		// branch (and set baseEverSwitched, permanently blocking the upgrade).
+		if (!baseExplicitlyChosen && currentBase === `origin/${resolved}`) {
+			return currentBase;
+		}
 		return resolved;
 	};
 

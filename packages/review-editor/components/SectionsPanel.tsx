@@ -224,6 +224,14 @@ export const SectionsPanel: React.FC<SectionsPanelProps> = ({
       // anticipate the server and show it under Changes now. Unstaging drops
       // it from the effective set, which falls back to the sidecar group.
       if (group === 'untracked' && staged) group = 'changes';
+      // Mirror image: a file that was ALREADY staged when the sidecar was
+      // computed (entry.staged — the snapshot flag, deliberately used here
+      // to detect "was pre-staged") and is an ADD becomes untracked again
+      // when the session unstages it. Staged modifications correctly stay
+      // in Changes; staged renames are a refresh-heals edge.
+      else if (group === 'changes' && (entry?.staged ?? false) && !staged && file.status === 'added') {
+        group = 'untracked';
+      }
       grouped[group].push({ file, index, group, staged });
     });
     // Staged work floats to the top of Changes.

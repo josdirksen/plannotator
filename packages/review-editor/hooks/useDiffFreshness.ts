@@ -58,11 +58,14 @@ export function useDiffFreshness({
   const onBaseBehindRemoteRef = useRef(onBaseBehindRemote);
   onBaseBehindRemoteRef.current = onBaseBehindRemote;
 
-  // New snapshot → clean slate.
+  // New snapshot → clean slate. snapshotId is part of snapshot identity too:
+  // a new snapshot can reuse the same patch TEXT with a different id (mode
+  // switch with byte-identical patches), and stale/dismissed state from the
+  // previous snapshot must not carry over to it.
   useEffect(() => {
     setStaleFingerprint(null);
     setDismissedFingerprint(null);
-  }, [resetKey]);
+  }, [resetKey, snapshotId]);
 
   useEffect(() => {
     if (!enabled) return;

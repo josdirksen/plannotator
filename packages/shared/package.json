@@ -10,6 +10,7 @@
     "./feedback-templates": "./feedback-templates.ts",
     "./jj-core": "./jj-core.ts",
     "./review-core": "./review-core.ts",
+    "./commit-history": "./commit-history.ts",
     "./review-workspace": "./review-workspace.ts",
     "./review-workspace-node": "./review-workspace-node.ts",
     "./review-args": "./review-args.ts",

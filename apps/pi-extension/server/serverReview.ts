@@ -35,17 +35,19 @@ import {
 	type RemoteDefaultInfo,
 	type SinceBaseSections,
 	detectRemoteDefaultInfo,
-	getCommitDiffInfo,
 	getFileContentsForDiff as getFileContentsForDiffCore,
 	getSinceBaseSections,
 	isSameCwdCommitSwitch,
-	listCommitHistory,
 	parseCommitDiffType,
 	parseWorktreeDiffType,
 	resolveBaseBranch,
 	validateFilePath,
-	type CommitDiffInfo,
 } from "../generated/review-core.js";
+import {
+	getCommitDiffInfo,
+	listCommitHistory,
+	type CommitDiffInfo,
+} from "../generated/commit-history.js";
 import {
 	checkoutPRHead,
 	getPRDiffScopeOptions,

@@ -19,14 +19,16 @@ import {
   parseCommitDiffType,
   parseWorktreeDiffType,
   resolveBaseBranch,
-  getCommitDiffInfo,
   getSinceBaseSections,
   detectRemoteDefaultInfo,
-  listCommitHistory,
-  type CommitDiffInfo,
   type RemoteDefaultInfo,
   type SinceBaseSections,
 } from "@plannotator/shared/review-core";
+import {
+  getCommitDiffInfo,
+  listCommitHistory,
+  type CommitDiffInfo,
+} from "@plannotator/shared/commit-history";
 import { resolvePoolCwd } from "@plannotator/shared/worktree-pool";
 import {
   createDefaultSemanticDiffRuntime,

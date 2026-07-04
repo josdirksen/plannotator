@@ -17,15 +17,18 @@ export type {
   JjEvoLogEntry,
   RecentCommit,
   AvailableBranches,
-  CommitDiffInfo,
-  CommitHistoryPage,
-  CommitListEntry,
   CompareTargetConfig,
   CompareTargetPickerCopy,
   RepositoryContext,
   SinceBaseSectionEntry,
   SinceBaseSections,
 } from "./review-core";
+
+export type {
+  CommitDiffInfo,
+  CommitHistoryPage,
+  CommitListEntry,
+} from "./commit-history";
 
 export type {
   WorkspaceDiffType,

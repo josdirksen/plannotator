@@ -679,6 +679,13 @@ function assertGitSuccess(
   );
 }
 
+// LOCKSTEP: packages/review-editor/App.tsx's activeWorktreePath memo
+// hand-parses worktree: diffTypes with a COPY of this list (this module
+// can't enter the browser bundle — node:path import above). Adding a
+// subtype here without updating that copy makes the client derive a
+// different worktreePath than the server stamped on guide/tour jobs,
+// silently breaking their context matching. Real fix (cleanup PR):
+// extract the pure parser to a browser-safe module.
 const WORKTREE_SUB_TYPES = new Set([
   "since-base",
   "uncommitted",

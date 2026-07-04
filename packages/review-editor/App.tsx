@@ -14,7 +14,6 @@ import { GitLabIcon } from '@plannotator/ui/components/GitLabIcon';
 import { RepoIcon } from '@plannotator/ui/components/RepoIcon';
 import { PullRequestIcon } from '@plannotator/ui/components/PullRequestIcon';
 import { getPlatformLabel, getMRLabel, getMRNumberLabel, getDisplayRepo } from '@plannotator/shared/pr-types';
-import { parseWorktreeDiffType } from '@plannotator/shared/review-core';
 import type { SemanticDiffAdvert } from '@plannotator/shared/semantic-diff-types';
 import { configStore, useConfigValue, setReviewPanelView } from '@plannotator/ui/config';
 import { loadDiffFont } from '@plannotator/ui/utils/diffFonts';
@@ -821,15 +820,32 @@ const ReviewApp: React.FC = () => {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // The worktree half of "where the review is" (see jobMatchesReviewContext):
-  // parsed straight from the live diffType state string, independent of the
-  // activeWorktreePath/activeDiffBase memo below (that one drives the
-  // sections/tree UI split; this one only needs the path for context
-  // matching). Null for the main tree and for PR mode (diffType there is
-  // never a worktree: string).
-  const currentWorktreePath = useMemo(() => {
-    if (!diffType.startsWith('worktree:')) return null;
-    return parseWorktreeDiffType(diffType)?.path ?? null;
+  // Derive worktree path and base diff type from the composite diffType
+  // string. Hand-parsed rather than via shared/review-core's
+  // parseWorktreeDiffType: that module imports node:path at top level and
+  // cannot enter the browser bundle. activeWorktreePath doubles as the
+  // worktree half of "where the review is" for jobMatchesReviewContext —
+  // using the SAME parse that drives the sections/tree UI keeps context
+  // matching aligned with what's actually on screen.
+  const { activeWorktreePath, activeDiffBase } = useMemo(() => {
+    if (diffType.startsWith('worktree:')) {
+      const rest = diffType.slice('worktree:'.length);
+      // `worktree:<path>:commit:<sha>` — the sub-type contains a colon, so it
+      // needs its own split (mirrors parseWorktreeDiffType server-side).
+      const commitIdx = rest.lastIndexOf(':commit:');
+      if (commitIdx !== -1 && /^commit:[0-9a-f]{4,64}$/i.test(rest.slice(commitIdx + 1))) {
+        return { activeWorktreePath: rest.slice(0, commitIdx), activeDiffBase: rest.slice(commitIdx + 1) };
+      }
+      const lastColon = rest.lastIndexOf(':');
+      if (lastColon !== -1) {
+        const sub = rest.slice(lastColon + 1);
+        if (['since-base', 'uncommitted', 'staged', 'unstaged', 'last-commit', 'branch', 'merge-base', 'all'].includes(sub)) {
+          return { activeWorktreePath: rest.slice(0, lastColon), activeDiffBase: sub };
+        }
+      }
+      return { activeWorktreePath: rest, activeDiffBase: 'uncommitted' };
+    }
+    return { activeWorktreePath: null, activeDiffBase: diffType };
   }, [diffType]);
 
   // Context rule shared by both auto-open effects below (and mirrored by
@@ -840,8 +856,8 @@ const ReviewApp: React.FC = () => {
   // rip the reviewer away from what they're currently looking at into an
   // unrelated PR/diff/worktree's artifact.
   const jobMatchesCurrentContext = useCallback(
-    (job: AgentJobInfo) => jobMatchesReviewContext(job, prMetadata?.url, currentWorktreePath),
-    [prMetadata, currentWorktreePath],
+    (job: AgentJobInfo) => jobMatchesReviewContext(job, prMetadata?.url, activeWorktreePath),
+    [prMetadata, activeWorktreePath],
   );
 
   // Auto-open tour dialog when a tour job completes — scoped to the current
@@ -1380,28 +1396,6 @@ const ReviewApp: React.FC = () => {
       return next;
     });
   }, [prMetadata]);
-
-  // Derive worktree path and base diff type from the composite diffType string
-  const { activeWorktreePath, activeDiffBase } = useMemo(() => {
-    if (diffType.startsWith('worktree:')) {
-      const rest = diffType.slice('worktree:'.length);
-      // `worktree:<path>:commit:<sha>` — the sub-type contains a colon, so it
-      // needs its own split (mirrors parseWorktreeDiffType server-side).
-      const commitIdx = rest.lastIndexOf(':commit:');
-      if (commitIdx !== -1 && /^commit:[0-9a-f]{4,64}$/i.test(rest.slice(commitIdx + 1))) {
-        return { activeWorktreePath: rest.slice(0, commitIdx), activeDiffBase: rest.slice(commitIdx + 1) };
-      }
-      const lastColon = rest.lastIndexOf(':');
-      if (lastColon !== -1) {
-        const sub = rest.slice(lastColon + 1);
-        if (['since-base', 'uncommitted', 'staged', 'unstaged', 'last-commit', 'branch', 'merge-base', 'all'].includes(sub)) {
-          return { activeWorktreePath: rest.slice(0, lastColon), activeDiffBase: sub };
-        }
-      }
-      return { activeWorktreePath: rest, activeDiffBase: 'uncommitted' };
-    }
-    return { activeWorktreePath: null, activeDiffBase: diffType };
-  }, [diffType]);
 
   // The three-stack sections panel exists only for the since-base composite
   // view in a plain git session (PR/workspace keep the classic tree).
@@ -2148,7 +2142,7 @@ const ReviewApp: React.FC = () => {
     onStage: stageFile,
     canStageFiles,
     canStagePath: isPathStageable,
-    currentWorktreePath,
+    currentWorktreePath: activeWorktreePath,
     stageError,
     searchQuery: isSearchPending ? '' : debouncedSearchQuery,
     isSearchPending,
@@ -2207,7 +2201,7 @@ const ReviewApp: React.FC = () => {
     handleAddAnnotation, handleAddFileComment, handleAddFileCommentForFile, handleEditAnnotation,
     handleSelectAnnotation, handleNavigateToAnnotation, handleDeleteAnnotation, viewedFiles,
     handleToggleViewed, stagedFiles, stagingFile, stageFile,
-    canStageFiles, isPathStageable, currentWorktreePath, stageError, isSearchPending, debouncedSearchQuery,
+    canStageFiles, isPathStageable, activeWorktreePath, stageError, isSearchPending, debouncedSearchQuery,
     activeFileSearchMatches, activeSearchMatchId, activeSearchMatch, searchMatches,
     aiAvailable, aiMessages, aiIsCreatingSession, aiIsStreaming,
     handleAskAI, handleAskAIForFile, handleViewAIResponse, handleClickAIMarker,

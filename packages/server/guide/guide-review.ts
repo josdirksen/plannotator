@@ -44,8 +44,9 @@ export const GUIDE_SCHEMA_JSON = JSON.stringify({
               type: "object",
               properties: {
                 file: { type: "string" },
+                summary: { type: "string" },
               },
-              required: ["file"],
+              required: ["file", "summary"],
               additionalProperties: false,
             },
           },
@@ -186,12 +187,20 @@ never shares a chapter.
   - A tiny fenced code block (2-5 lines) only when code says it better
     than a sentence, e.g. a new API shape. Never paste diff hunks; the
     diffs render next to the overview already.
-- **diffs**: one or more file references. Each has exactly one field,
-  **file**: the EXACT repo-relative path as it appears in the diff (or in
-  the Changed files list, if provided). Copy it, never invent it, never
-  abbreviate or normalize it (no leading/trailing slash changes, no case
-  changes). All explanation lives in the overview; there are no per-file
-  captions.
+- **diffs**: one or more file references. Each has two fields:
+  - **file**: the EXACT repo-relative path as it appears in the diff (or in
+    the Changed files list, if provided). Copy it, never invent it, never
+    abbreviate or normalize it (no leading/trailing slash changes, no case
+    changes).
+  - **summary**: 1-2 sentences describing the semantic change in THIS file,
+    written from the diff hunks you already have. Say what the change does
+    ("extracts the staging logic into a tri-state override map"), not where
+    it sits ("modifies lines 30-80"). Do NOT open the file, search the
+    codebase, or do any per-file investigation to write it. Do not repeat
+    the section overview: the overview carries the why and the
+    implications; the summary says what this specific file contributes.
+    For a trivial change (import bump, rename fallout), one short clause
+    is enough.
 
 ### unplacedFiles
 Always include unplacedFiles. Use an empty array when every changed file is
@@ -480,7 +489,7 @@ ${markerOpen(nonce)}
       "title": "Guide marker contract",
       "overview": "Explains what changed here, why it exists, and its key implications, in 2-6 sentences.",
       "diffs": [
-        { "file": "packages/server/guide/guide-review.ts" }
+        { "file": "packages/server/guide/guide-review.ts", "summary": "Adds the marker output contract so engines without a schema flag return the same guide JSON." }
       ]
     }
   ],
@@ -497,9 +506,12 @@ Schema:
     and its key implications. Backtick file names/symbols/config keys; bold
     the single key clause; bullets only for 3+ parallel changes; a tiny
     fenced code block only when code says it better than prose
-  - diffs: array of objects, each with exactly one field:
+  - diffs: array of objects, each with two fields:
     - file: string — the EXACT repo-relative path as it appears in the diff or
       the Changed files list; never invented, abbreviated, or re-cased
+    - summary: string — 1-2 sentences on the semantic change in this file,
+      written from the diff hunks alone (no per-file investigation); what the
+      change does, not which lines it touches; never a repeat of the overview
 - unplacedFiles: array of strings, always present — changed files that don't
   belong in any section; use an empty array when every changed file is placed
 
@@ -721,11 +733,16 @@ function sanitizeGuideSection(raw: unknown): GuideSection | null {
   const s = raw as Record<string, unknown>;
   const title = typeof s.title === "string" ? s.title : "";
   const overview = typeof s.overview === "string" ? s.overview : "";
-  // Map to `{ file }` only — stray model-emitted fields never reach the client.
+  // Map to `{ file, summary? }` only — stray model-emitted fields never reach
+  // the client. A missing/non-string/blank summary is simply omitted (the UI
+  // renders nothing for it), never a reason to drop the ref or fail the guide.
   const diffs: GuideDiffRef[] = Array.isArray(s.diffs)
     ? s.diffs
-        .filter((d): d is { file: string } => !!d && typeof d === "object" && typeof (d as Record<string, unknown>).file === "string")
-        .map((d) => ({ file: d.file }))
+        .filter((d): d is Record<string, unknown> & { file: string } => !!d && typeof d === "object" && typeof (d as Record<string, unknown>).file === "string")
+        .map((d) => {
+          const summary = typeof d.summary === "string" && d.summary.trim().length > 0 ? d.summary : undefined;
+          return summary ? { file: d.file, summary } : { file: d.file };
+        })
     : [];
   if (title.trim().length === 0 && overview.trim().length === 0 && diffs.length === 0) return null;
   // Every surviving section gets a non-empty title: a diffs-only section

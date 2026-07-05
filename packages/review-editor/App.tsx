@@ -586,12 +586,22 @@ const ReviewApp: React.FC = () => {
   const [showGuideIntro, setShowGuideIntro] = useState(needsGuideIntro);
   const [guideHintActive, setGuideHintActive] = useState(needsGuideHint);
   // FIRST in the dialog chain (guide intro → look-and-feel → review setup).
-  // The intro only renders when a Guide button exists to point at
-  // (hasSearchableFiles) — on an empty diff the render is skipped WITHOUT
-  // consuming the one-shot cookie, so the next session with files shows it.
-  // The other two dialogs' gates must use this same visibility (not the raw
+  // The intro only shows when a Guide button exists to point at
+  // (hasSearchableFiles) — on an empty diff it is skipped WITHOUT consuming
+  // the one-shot cookie, so the next session with files shows it. The other
+  // two dialogs' gates must use this same visibility (not the raw
   // showGuideIntro), or an empty diff would block them forever.
-  const guideIntroVisible = showGuideIntro && hasSearchableFiles;
+  //
+  // Eligibility is LATCHED at the first post-load render (dialogs only mount
+  // once isLoading clears, so the latch is always set before they render):
+  // hasSearchableFiles changes on mid-session diff switches, and an
+  // empty→non-empty switch must not pop the intro over work in progress or
+  // yank an open look-and-feel dialog out from under the user.
+  const guideIntroEligibleRef = useRef<boolean | null>(null);
+  if (!isLoading && guideIntroEligibleRef.current === null) {
+    guideIntroEligibleRef.current = hasSearchableFiles;
+  }
+  const guideIntroVisible = showGuideIntro && guideIntroEligibleRef.current === true;
   // Ack the hint on ANY path that opens the guide — keyboard shortcut,
   // job-completion auto-open, job cards — not just the header button's own
   // onClick; otherwise the shimmer resumes after the user closes a guide

@@ -585,12 +585,13 @@ const ReviewApp: React.FC = () => {
   // Guide click, even for users who dismissed the dialog without reading.
   const [showGuideIntro, setShowGuideIntro] = useState(needsGuideIntro);
   const [guideHintActive, setGuideHintActive] = useState(needsGuideHint);
+  // FIRST in the dialog chain (guide intro → look-and-feel → review setup).
   // The intro only renders when a Guide button exists to point at
   // (hasSearchableFiles) — on an empty diff the render is skipped WITHOUT
   // consuming the one-shot cookie, so the next session with files shows it.
-  // ReviewSetupDialog's gate must use this same visibility (not the raw
-  // showGuideIntro), or an empty diff would block the setup dialog forever.
-  const guideIntroVisible = showGuideIntro && !showLookAndFeel && hasSearchableFiles;
+  // The other two dialogs' gates must use this same visibility (not the raw
+  // showGuideIntro), or an empty diff would block them forever.
+  const guideIntroVisible = showGuideIntro && hasSearchableFiles;
   // Ack the hint on ANY path that opens the guide — keyboard shortcut,
   // job-completion auto-open, job cards — not just the header button's own
   // onClick; otherwise the shimmer resumes after the user closes a guide
@@ -3517,17 +3518,18 @@ const ReviewApp: React.FC = () => {
 
         {/* 0.20.0 look-and-feel / release announcement. Shared with the plan
             editor via a host-scoped cookie, so it shows once across both apps.
-            Takes precedence over the diff-type setup so the two never stack. */}
+            Second in the dialog chain (guide intro → look-and-feel → review
+            setup) — the three never stack. */}
         <LookAndFeelAnnouncementDialog
-          isOpen={showLookAndFeel}
+          isOpen={showLookAndFeel && !guideIntroVisible}
           gridEnabled={gridEnabled}
           onToggleGrid={(v) => configStore.set('gridEnabled', v)}
           onDismiss={dismissLookAndFeel}
         />
 
-        {/* One-time guided-review intro. Second in the dialog chain: deferred
-            behind the look-and-feel announcement, ahead of the review setup —
-            the three never stack. */}
+        {/* One-time guided-review intro. First in the dialog chain, ahead of
+            the look-and-feel announcement and the review setup — the three
+            never stack. */}
         {guideIntroVisible && (
           <GuideIntroDialog
             isOpen
@@ -3539,7 +3541,7 @@ const ReviewApp: React.FC = () => {
         )}
 
         {/* First-run review-view chooser (panel view + tree default diff).
-            Last in the dialog chain (look-and-feel → guide intro → review
+            Last in the dialog chain (guide intro → look-and-feel → review
             setup) so the three never stack. On dismiss, apply the chosen
             default to the current session. */}
         {showReviewSetup && !showLookAndFeel && !guideIntroVisible && (

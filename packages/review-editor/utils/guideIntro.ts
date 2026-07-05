@@ -9,13 +9,16 @@ import { storage } from '@plannotator/ui/utils/storage';
  */
 const INTRO_SEEN_KEY = 'plannotator-guide-intro-seen';
 const HINT_ACKED_KEY = 'plannotator-guide-hint-acked';
+// Versioned like lookAndFeelAnnouncement's CURRENT_VERSION: bumping re-shows
+// the intro after a meaningful revision. v2: full-width layout, first in chain.
+const INTRO_VERSION = '2';
 
 export function needsGuideIntro(): boolean {
-  return storage.getItem(INTRO_SEEN_KEY) !== 'true';
+  return storage.getItem(INTRO_SEEN_KEY) !== INTRO_VERSION;
 }
 
 export function markGuideIntroSeen(): void {
-  storage.setItem(INTRO_SEEN_KEY, 'true');
+  storage.setItem(INTRO_SEEN_KEY, INTRO_VERSION);
 }
 
 export function needsGuideHint(): boolean {

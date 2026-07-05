@@ -116,6 +116,17 @@ export function absolutizeGitLabAvatar(host: string, url: string): string {
 /** Bound per-request subprocess fan-out for GitLab's per-email endpoint. */
 const MAX_GITLAB_EMAIL_LOOKUPS_PER_CALL = 10;
 
+/**
+ * Hard ceiling on how long one resolve() may sit on /api/commits' critical
+ * path. The gh/glab runner has no subprocess timeout, so a hanging network
+ * (black-holed DNS, proxy that never answers) would otherwise hold the
+ * commits response — which is already computed — hostage to decoration.
+ * On expiry resolve() returns what the cache has (initials fallback); the
+ * in-flight fetch keeps running in the background and later calls pick its
+ * results out of the cache.
+ */
+const DEFAULT_FETCH_TIMEOUT_MS = 4000;
+
 export interface CommitAvatarResolver {
   /**
    * Resolve avatar URLs for the given author emails, computed against the
@@ -125,7 +136,11 @@ export interface CommitAvatarResolver {
   resolve(cwd: string | undefined, emails: readonly string[]): Promise<Map<string, string>>;
 }
 
-export function createCommitAvatarResolver(runner: CommandRunner): CommitAvatarResolver {
+export function createCommitAvatarResolver(
+  runner: CommandRunner,
+  options?: { fetchTimeoutMs?: number },
+): CommitAvatarResolver {
+  const fetchTimeoutMs = options?.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
   // email → url (resolved) or null (known-unresolvable this session).
   const emailCache = new Map<string, string | null>();
   // cwd-key → classified remote (null = no queryable forge).
@@ -214,12 +229,13 @@ export function createCommitAvatarResolver(runner: CommandRunner): CommitAvatarR
         return resolved;
       }
 
-      const remote = await classifyRemote(cwd);
       // Misses are memoized ONLY for emails an attempt actually covered —
       // the GitLab per-call cap is a rate limit, not a verdict, so emails
       // past it stay unmemoized and get their lookup on a later call.
       const attempted = new Set<string>();
-      if (remote && !brokenPlatforms.has(remote.platform)) {
+      const attempt = (async () => {
+        const remote = await classifyRemote(cwd);
+        if (!remote || brokenPlatforms.has(remote.platform)) return;
         if (remote.platform === "github") {
           // One commits-list fetch covers the whole email map — every pending
           // email counts as attempted whether or not it resolved (unresolved
@@ -234,6 +250,17 @@ export function createCommitAvatarResolver(runner: CommandRunner): CommitAvatarR
           for (const email of batch) attempted.add(email);
           await Promise.all(batch.map((email) => fetchGitLabAvatar(remote, email)));
         }
+      })();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timedOut = await Promise.race([
+        attempt.then(() => false, () => false),
+        new Promise<boolean>((res) => { timer = setTimeout(() => res(true), fetchTimeoutMs); }),
+      ]);
+      clearTimeout(timer);
+      if (timedOut) {
+        // The attempt is still running — nothing was verifiably covered, so
+        // memoize no misses. Whatever it eventually caches serves later calls.
+        attempted.clear();
       }
 
       for (const email of attempted) {

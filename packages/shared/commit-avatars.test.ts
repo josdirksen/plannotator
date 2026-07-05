@@ -169,6 +169,32 @@ describe("createCommitAvatarResolver", () => {
     expect(calls.filter((c) => c.cmd === "glab").length).toBe(12);
   });
 
+  test("a hanging CLI can't hold resolve() past the fetch timeout, and late results serve later calls", async () => {
+    let releaseGh: (r: CommandResult) => void = () => {};
+    const runner = {
+      async runCommand(cmd: string): Promise<CommandResult> {
+        if (cmd === "git") return ok("git@github.com:owner/repo.git\n");
+        // gh hangs until the test releases it — a black-holed network.
+        return new Promise<CommandResult>((res) => { releaseGh = res; });
+      },
+    };
+    const resolver = createCommitAvatarResolver(runner, { fetchTimeoutMs: 20 });
+
+    const start = Date.now();
+    const first = await resolver.resolve("/repo", ["dev@example.com"]);
+    expect(Date.now() - start).toBeLessThan(1000);
+    expect(first.size).toBe(0); // initials fallback, response not held hostage
+
+    // The background fetch completes later; its results serve the next call
+    // (timeout must NOT have memoized the email as a permanent miss).
+    releaseGh(ok(JSON.stringify([
+      { commit: { author: { email: "dev@example.com" } }, author: { avatar_url: "https://avatars.example/dev" } },
+    ])));
+    await new Promise((r) => setTimeout(r, 0));
+    const second = await resolver.resolve("/repo", ["dev@example.com"]);
+    expect(second.get("dev@example.com")).toBe("https://avatars.example/dev");
+  });
+
   test("an unqueryable forge resolves nothing without touching gh/glab", async () => {
     const { calls, runner } = makeRunner((cmd) => {
       if (cmd === "git") return ok("git@git.internal.example:owner/repo.git\n");

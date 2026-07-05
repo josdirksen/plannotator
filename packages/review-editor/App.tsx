@@ -86,6 +86,9 @@ import { CommitsPanel } from './components/CommitsPanel';
 import { useCommitsView } from './hooks/useCommitsView';
 import { ReviewSetupDialog } from './components/ReviewSetupDialog';
 import { needsReviewSetup, markReviewSetupSeen } from './utils/reviewSetup';
+import { GuideIntroDialog } from './components/GuideIntroDialog';
+import { needsGuideIntro, markGuideIntroSeen, needsGuideHint, markGuideHintSeen } from './utils/guideIntro';
+import { TextShimmer } from '@plannotator/ui/components/TextShimmer';
 import type { PRMetadata } from '@plannotator/shared/pr-types';
 import type { PRDiffScope, PRDiffScopeOption, PRStackInfo, PRStackTree } from '@plannotator/shared/pr-stack';
 import { altKey } from '@plannotator/ui/utils/platform';
@@ -577,6 +580,26 @@ const ReviewApp: React.FC = () => {
     markLookAndFeelAnnouncementSeen();
     setShowLookAndFeel(false);
   }, []);
+  // One-time guided-review intro dialog + header Guide-button hint. The hint
+  // (shimmer + dot) is independent of the dialog: it runs until the first
+  // Guide click, even for users who dismissed the dialog without reading.
+  const [showGuideIntro, setShowGuideIntro] = useState(needsGuideIntro);
+  const [guideHintActive, setGuideHintActive] = useState(needsGuideHint);
+  // The intro only renders when a Guide button exists to point at
+  // (hasSearchableFiles) — on an empty diff the render is skipped WITHOUT
+  // consuming the one-shot cookie, so the next session with files shows it.
+  // ReviewSetupDialog's gate must use this same visibility (not the raw
+  // showGuideIntro), or an empty diff would block the setup dialog forever.
+  const guideIntroVisible = showGuideIntro && !showLookAndFeel && hasSearchableFiles;
+  // Ack the hint on ANY path that opens the guide — keyboard shortcut,
+  // job-completion auto-open, job cards — not just the header button's own
+  // onClick; otherwise the shimmer resumes after the user closes a guide
+  // they already used.
+  useEffect(() => {
+    if (!guideOpen || !guideHintActive) return;
+    markGuideHintSeen();
+    setGuideHintActive(false);
+  }, [guideOpen, guideHintActive]);
   const aiChat = useAIChat({
     patch: diffData?.rawPatch ?? '',
     diffType,
@@ -2628,13 +2651,26 @@ const ReviewApp: React.FC = () => {
             {hasSearchableFiles && (
               <>
                 <button
-                  onClick={() => setGuideOpen(prev => !prev)}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                  onClick={() => {
+                    if (guideHintActive) {
+                      markGuideHintSeen();
+                      setGuideHintActive(false);
+                    }
+                    setGuideOpen(prev => !prev);
+                  }}
+                  className={`relative flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
                     guideOpen ? 'bg-primary/15 text-primary' : 'bg-muted hover:bg-muted/80'
                   }`}
                   title={guideOpen ? 'Back to the diff workspace' : 'Open guided review'}
                 >
-                  {guideOpen ? 'Go back' : 'Guide'}
+                  {guideHintActive && !guideOpen ? (
+                    <>
+                      <TextShimmer>Guide</TextShimmer>
+                      <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                    </>
+                  ) : (
+                    guideOpen ? 'Go back' : 'Guide'
+                  )}
                 </button>
                 <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
               </>
@@ -3489,10 +3525,24 @@ const ReviewApp: React.FC = () => {
           onDismiss={dismissLookAndFeel}
         />
 
+        {/* One-time guided-review intro. Second in the dialog chain: deferred
+            behind the look-and-feel announcement, ahead of the review setup —
+            the three never stack. */}
+        {guideIntroVisible && (
+          <GuideIntroDialog
+            isOpen
+            onDismiss={() => {
+              markGuideIntroSeen();
+              setShowGuideIntro(false);
+            }}
+          />
+        )}
+
         {/* First-run review-view chooser (panel view + tree default diff).
-            Deferred behind the shared look-and-feel announcement so they never
-            stack. On dismiss, apply the chosen default to the current session. */}
-        {showReviewSetup && !showLookAndFeel && (
+            Last in the dialog chain (look-and-feel → guide intro → review
+            setup) so the three never stack. On dismiss, apply the chosen
+            default to the current session. */}
+        {showReviewSetup && !showLookAndFeel && !guideIntroVisible && (
           <ReviewSetupDialog
             isOpen
             onDismiss={() => {

@@ -133,6 +133,15 @@ describe("buildMarkerCommand: copilot", () => {
     expect(command).toContain("--deny-tool=write");
     expect(command).toContain("--allow-tool=shell(git:*)");
     expect(command).toContain("--allow-tool=shell(gh:*)");
+    // High-consequence verbs are structurally denied even though git:*/gh:*/
+    // glab:* are allowed — deny rules take precedence in Copilot's model.
+    expect(command).toContain("--deny-tool=shell(git push)");
+    expect(command).toContain("--deny-tool=shell(git reset)");
+    expect(command).toContain("--deny-tool=shell(git clean)");
+    expect(command).toContain("--deny-tool=shell(git restore)");
+    expect(command).toContain("--deny-tool=shell(gh pr comment)");
+    expect(command).toContain("--deny-tool=shell(gh pr merge)");
+    expect(command).toContain("--deny-tool=shell(glab mr note)");
     expect(command).not.toContain("--allow-all-tools");
     expect(command).not.toContain("--yolo");
     expect(command[command.indexOf("--model") + 1]).toBe("claude-sonnet-5");

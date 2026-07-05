@@ -772,6 +772,34 @@ function copilotBuildArgv(prompt: string, model?: string, cwd?: string): string[
     "--no-auto-update",
     "--disable-builtin-mcps",
     "--deny-tool=write",
+    // Deny rules take precedence over every allow rule (Copilot's documented
+    // permission model), and match at first-level-subcommand granularity
+    // ("git push", "gh pr create") — probe-verified: with these in place,
+    // `git log` runs while `git push --dry-run` is denied. This keeps the
+    // broad `git:*`/`gh:*` allows below for inspection ergonomics while
+    // structurally blocking the high-consequence verbs a prompt-injected
+    // background job could abuse: remote writes (push), working-tree
+    // destruction (reset/clean/checkout/restore — local reviews run in the
+    // user's REAL working tree, so these mean uncommitted-work loss), and
+    // outward-facing forge writes (PR/MR/issue comments, creation, merges),
+    // which the review methodology already forbids at the prompt level.
+    "--deny-tool=shell(git push)",
+    "--deny-tool=shell(git reset)",
+    "--deny-tool=shell(git clean)",
+    "--deny-tool=shell(git checkout)",
+    "--deny-tool=shell(git restore)",
+    "--deny-tool=shell(gh pr comment)",
+    "--deny-tool=shell(gh pr create)",
+    "--deny-tool=shell(gh pr merge)",
+    "--deny-tool=shell(gh pr close)",
+    "--deny-tool=shell(gh pr edit)",
+    "--deny-tool=shell(gh pr review)",
+    "--deny-tool=shell(gh issue comment)",
+    "--deny-tool=shell(gh issue create)",
+    "--deny-tool=shell(glab mr note)",
+    "--deny-tool=shell(glab mr create)",
+    "--deny-tool=shell(glab mr merge)",
+    "--deny-tool=shell(glab mr close)",
     "--allow-tool=shell(git:*)",
     "--allow-tool=shell(gh:*)",
     "--allow-tool=shell(glab:*)",

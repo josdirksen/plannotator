@@ -207,3 +207,8 @@ class ConfigStore {
 
 export const configStore = new ConfigStore();
 export type { SettingValue };
+
+/** @internal Exported for tests only — lets the lazy-resolution contract be
+    verified on a fresh instance without depending on module-graph isolation
+    (the singleton may already be resolved by the time a given test file runs). */
+export { ConfigStore as ConfigStoreForTest };

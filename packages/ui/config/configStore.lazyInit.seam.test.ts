@@ -1,21 +1,23 @@
 /**
- * Lazy-resolution contract for the configStore singleton.
+ * Lazy-resolution contract for ConfigStore.
  *
- * Bun evaluates a fresh module graph per test file, so the store imported here
- * has never been touched: this file can observe first-use behavior. The
- * contract under test: importing the module resolves NOTHING — a host
- * StorageBackend installed before the first settings access receives the
- * initial resolution reads and the default-seeding writes. A configured host
- * therefore never gets plannotator-* cookies written to its origin.
+ * Tested on a FRESH instance (ConfigStoreForTest) rather than the module
+ * singleton: whether the singleton has already resolved depends on which test
+ * files ran first in the process, which made a singleton-based version of this
+ * test flaky in CI. The contract under test is the mechanism itself:
+ * construction resolves NOTHING — a host StorageBackend installed before the
+ * first settings access receives the initial resolution reads and the
+ * default-seeding writes. A configured host therefore never gets
+ * plannotator-* cookies written to its origin.
  */
-import { describe, test, expect, afterAll } from 'bun:test';
+import { describe, test, expect, afterAll, beforeEach } from 'bun:test';
 import { setStorageBackend, resetStorageBackend, type StorageBackend } from '../utils/storage';
-import { configStore } from './configStore';
+import { ConfigStoreForTest } from './configStore';
 
 describe('configStore lazy resolution', () => {
   const stored = new Map<string, string>();
-  const reads: string[] = [];
-  const writes: string[] = [];
+  let reads: string[] = [];
+  let writes: string[] = [];
   const hostBackend: StorageBackend = {
     getItem(key) {
       reads.push(key);
@@ -30,17 +32,25 @@ describe('configStore lazy resolution', () => {
     },
   };
 
+  beforeEach(() => {
+    stored.clear();
+    reads = [];
+    writes = [];
+  });
+
   afterAll(() => {
     resetStorageBackend();
   });
 
-  test('backend installed before first access gets the initial resolution and seeding writes', () => {
-    // Install the host backend BEFORE anything reads a setting. If the store
-    // had resolved eagerly at module import, none of this traffic would reach
-    // the host backend (and the seeding writes would have gone to cookies).
+  test('construction resolves nothing; first access resolves through the live backend', () => {
+    // Install the host backend, THEN construct. If the constructor resolved
+    // eagerly, the reads would happen here; the lazy contract says none do.
     setStorageBackend(hostBackend);
+    const store = new ConfigStoreForTest();
+    expect(reads.length).toBe(0);
+    expect(writes.length).toBe(0);
 
-    const identity = configStore.get('displayName');
+    const identity = store.get('displayName');
 
     expect(identity.length).toBeGreaterThan(0);
     // Resolution happened lazily, through the live (host) backend:
@@ -52,10 +62,12 @@ describe('configStore lazy resolution', () => {
   });
 
   test('resolution runs once; later reads are served from memory', () => {
-    const readsBefore = reads.length;
-    const first = configStore.get('displayName');
-    const second = configStore.get('displayName');
+    setStorageBackend(hostBackend);
+    const store = new ConfigStoreForTest();
+    const first = store.get('displayName');
+    const readsAfterLoad = reads.length;
+    const second = store.get('displayName');
     expect(second).toBe(first);
-    expect(reads.length).toBe(readsBefore);
+    expect(reads.length).toBe(readsAfterLoad);
   });
 });

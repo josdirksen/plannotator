@@ -30,7 +30,7 @@ Core modules: `agents`, `agent-jobs`, `agent-terminal`, `browser-paths`, `code-f
 - Precompiled `styles.css` (~187KB, ~31KB gzip) built from `styles-entry.css` via `vite.css.config.ts`, so a consumer doesn't have to wire Tailwind to use the theme. Font binaries are **not** bundled (the consuming app owns fonts) — including KaTeX's math fonts: the publish build deliberately excludes `katex/dist/katex.min.css` (which would inline ~1.1MB of fonts). If you render math, see "Math rendering (KaTeX)" below.
 - `wideMode.ts` moved from `packages/editor` into `ui/utils` (it was UI-layer state).
 
-Net: `129 files changed, +5234 / −2423` (vs current main). Most of the deletions are the `git mv` of core modules out of `shared`; most of the additions are seams + tests + the moved core package.
+Net: roughly 130 files changed, +5k/−2.4k vs main (regenerate with `git diff main --stat` for exact numbers — this line goes stale with every rebase). Most of the deletions are the `git mv` of core modules out of `shared`; most of the additions are seams + tests + the moved core package.
 
 ---
 
@@ -48,7 +48,7 @@ Net: `129 files changed, +5234 / −2423` (vs current main). Most of the deletio
 
 - **Workspaces installs `@plannotator/ui` + `@plannotator/core`.** It never touches `shared` (that's Plannotator's server-side code).
 - **No circular dependencies by construction**: `core` imports nothing, `ui` imports `core`, `shared` imports `core`. One direction only.
-- **The packages ship TypeScript source, not compiled JS.** Workspaces' bundler compiles them (it's an internal consumer, and this keeps source-mapping and tree-shaking clean). That means Workspaces needs a TS/TSX-capable bundler — Vite + React 19 + Tailwind v4, with `moduleResolution: "bundler"`, `allowImportingTsExtensions`, `jsx: "react-jsx"`. Because your `tsc` type-checks the shipped `.ts`/`.tsx` with **your** compiler options (`skipLibCheck` only exempts `.d.ts`), the source is kept clean under `strict: true` — verified by compiling the full supported surface in a standalone Vite consumer.
+- **The packages ship TypeScript source, not compiled JS.** Workspaces' bundler compiles them (it's an internal consumer, and this keeps source-mapping and tree-shaking clean). That means Workspaces needs a TS/TSX-capable bundler — Vite + React 19 + Tailwind v4, with `moduleResolution: "bundler"`, `allowImportingTsExtensions`, `jsx: "react-jsx"`. Because your `tsc` type-checks the shipped `.ts`/`.tsx` with **your** compiler options (`skipLibCheck` only exempts `.d.ts`), the source is kept clean under `strict: true` — **CI-enforced**: `packages/ui/tsconfig.strict-consumer.json` type-checks the supported-import surface under full strict as part of the repo's `typecheck`, mirroring a standalone Vite consumer (which is also how it was originally verified).
 
 ### The seam pattern (how an override works)
 
@@ -183,12 +183,12 @@ We deliberately did **not** restructure the exports map in this PR (move-don't-r
 | Import | Notes |
 |---|---|
 | `configure` (`configurePlannotatorUI`) | The front door. Also re-exports **every seam contract type** (`StorageBackend`, `IdentityProvider`, `UploadTransport`/`UploadResult`, `DraftTransport`, `ExternalAnnotationTransport`/`ExternalAnnotationEvent`, `AITransport`, `FileTreeBackend`/`VaultNode`, `ImageSrcResolver`, `DocPreviewFetcher`/`DocPreviewResult`, `ServerSyncFn`) so host adapters need one import. |
-| `theme` / `styles.css` | Theme tokens + precompiled stylesheet. |
+| `theme` / `styles.css` | Theme tokens + precompiled stylesheet. **Prefer `styles.css`.** The raw `theme` export still `@import`s KaTeX (re-acquiring the fonts `styles.css` deliberately excludes, as separate lazy files) and contains Tailwind v4 `@theme` at-rules, so it's inert without Tailwind processing. |
 | `types` | `Annotation`, `Block`, `AnnotationType`, etc. |
 | `utils/parser` (`parseMarkdownToBlocks`, `exportAnnotations`) | Pure — no backend. |
 | `components/BlockRenderer` + the block components it renders (`TableBlock`, `HtmlBlock`, `Callout`, `MermaidBlock`, `MathBlock`, …) | Pure rendering. |
 | `components/InlineMarkdown` | Code-file hover previews route through the `docPreviewFetcher` seam. |
-| `components/Viewer` | The full annotatable document. **Pass `disableCodePathValidation` unless you implement `/api/doc/exists`** — code-path validation is a prop-level opt-out, not a `configure` seam. |
+| `components/Viewer` | The full annotatable document. Required props: `markdown` and `taterMode` (pass `false`). **Pass `disableCodePathValidation` unless you implement `/api/doc/exists`** — code-path validation is a prop-level opt-out, not a `configure` seam. |
 | `components/MarkdownEditor` | Theme-bridging wrapper over `@plannotator/markdown-editor`. See the Yjs note below. |
 | `components/CommentPopover` | Anchor capture + comment entry. Ask-AI UI renders only if you pass `onAskAI`. |
 | `components/AnnotationPanel` | Renders from your annotation state; no fetches of its own. |
@@ -224,7 +224,7 @@ If Workspaces ever wants one of these surfaces, the path is the same as everythi
 The renderer's `MathBlock` (and inline math) uses KaTeX. **KaTeX's stylesheet and its ~1.1MB of math fonts are deliberately NOT in the published `styles.css`** — bundling them would 9x the CSS for every page load, math or not. This is app-developer setup, done once; end users never touch it. Pick one:
 
 1. **Self-hosted (recommended for production):** copy `katex/dist/katex.min.css` + `katex/dist/fonts/` to your own asset origin and add one `<link rel="stylesheet">`. No third-party dependency in your serving path; fonts download lazily, only on pages that actually render math.
-2. **CDN tag:** `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16/dist/katex.min.css">` in your HTML. Same lazy-font behavior; adds a third-party origin.
+2. **CDN tag:** `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@<version>/dist/katex.min.css">` in your HTML — pin `<version>` to the `katex` version in `@plannotator/ui`'s package.json so CSS and the bundled KaTeX JS stay in step. Same lazy-font behavior; adds a third-party origin.
 3. **Bundler import:** `import 'katex/dist/katex.min.css';` next to your `styles.css` import — your bundler ships the fonts as separate lazy-loaded files. With npm/bun this resolves out of the box (`katex` is a dependency of `@plannotator/ui` and gets hoisted); under pnpm's strict `node_modules`, add `katex` to your own dependencies to import it directly.
 
 If you skip all three and render math, equations appear as broken-looking raw HTML — that's the symptom to recognize. If you never render math, do nothing.
@@ -270,7 +270,7 @@ interface Annotation {
 
 3. **Module-level singletons, not a Provider.** Covered above — safe because Workspaces is client-side, not SSR. Only revisit if SSR is added.
 
-4. **The markdown editor can't take live-collab extensions yet.** Live multi-user editing is a hard requirement for Workspaces (its ADR 0010), and the underlying editor (`@atomic-editor/editor`, CodeMirror 6) supports extensions — but **neither wrapper layer exposes them**: `@plannotator/markdown-editor`'s `MarkdownEditorProps` has no `extensions` prop, and `@plannotator/ui`'s `MarkdownEditor` wrapper therefore can't pass one. So today you cannot thread `y-codemirror.next` (or any CM6 extension) into the editor. **Do not treat live editing as available in this release.** The plan of record: (1) merge this PR; (2) import `@plannotator/markdown-editor` into this monorepo; (3) one atomic PR threading an optional `extensions?` prop through both layers. Single-user editing works today; the first Workspaces UI slice doesn't need live collab.
+4. **The markdown editor can't take live-collab extensions yet.** Live multi-user editing is a hard requirement for Workspaces (its ADR 0010), and the underlying editor (`@atomic-editor/editor`, CodeMirror 6) supports extensions — but **neither wrapper layer exposes them**: `@plannotator/markdown-editor`'s `MarkdownEditorProps` has no `extensions` prop, and `@plannotator/ui`'s `MarkdownEditor` wrapper therefore can't pass one. So today you cannot thread `y-codemirror.next` (or any CM6 extension) into the editor. **Do not treat live editing as available in this release.** The plan of record (updated now that the editor is forked as `github.com/plannotator/atomic-editor`, published as `@plannotator/atomic-editor`): one atomic change threading an optional `extensions?` prop through `@plannotator/atomic-editor` and `@plannotator/markdown-editor`, then a version bump here — no monorepo import needed. Single-user editing works today; the first Workspaces UI slice doesn't need live collab.
 
 None of these block adoption. They're the honest "here's what we'd polish next" list.
 

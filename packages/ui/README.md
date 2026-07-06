@@ -37,7 +37,7 @@ npm install @plannotator/ui @plannotator/core
 ```
 
 1. Call `configurePlannotatorUI({ ... })` once at startup with your backend.
-2. Import the stylesheet: `import "@plannotator/ui/styles.css";` (precompiled — no Tailwind wiring needed; the `@source` glob is the fallback if you'd rather scan source).
+2. Import the stylesheet: `import "@plannotator/ui/styles.css";` (precompiled — no Tailwind wiring needed; if you'd rather run your own Tailwind over the package source, add `@source` globs for `@plannotator/ui`'s `components/`, `hooks/`, and `utils/` dirs in your own CSS — the package doesn't ship its build entry).
 3. **Load the fonts in your app entry** — the stylesheet references `--font-sans` / `--font-mono` but does not ship font binaries (standard for a shared UI package; your app owns font loading). Plannotator uses Inter + Geist Mono:
    ```ts
    import "@fontsource-variable/inter";

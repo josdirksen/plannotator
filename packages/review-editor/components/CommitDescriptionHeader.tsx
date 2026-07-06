@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import type { CommitDiffInfo } from '@plannotator/shared/types';
 import { Avatar } from './Avatar';
-import { MarkdownBody } from './PRSummaryTab';
+import { MarkdownBody } from './MarkdownBody';
 import { formatRelativeTime } from '@plannotator/ui/utils/aiChatFormat';
 
 /**

@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import type { PRContext, PRComment, PRReview, PRReviewThread } from '@plannotator/shared/pr-types';
-import { MarkdownBody } from './PRSummaryTab';
+import { MarkdownBody } from './MarkdownBody';
 import { CopyButton } from './CopyButton';
 import { DiffHunkPreview } from './DiffHunkPreview';
 import { OverlayScrollArea } from '@plannotator/ui/components/OverlayScrollArea';

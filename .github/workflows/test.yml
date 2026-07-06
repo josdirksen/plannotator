@@ -31,8 +31,8 @@ jobs:
       - name: Run tests
         run: bun test
 
-      - name: Run file browser DOM tests
-        run: DOM_TESTS=1 bun test packages/ui/hooks/useFileBrowser.test.tsx
+      - name: Run UI DOM tests (incl. seam contracts)
+        run: DOM_TESTS=1 bun test packages/ui
 
   pi-extension-ai-runtime-windows:
     # Exercises the Pi extension's Node/jiti server mirror on Windows with an

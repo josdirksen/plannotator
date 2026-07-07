@@ -294,7 +294,9 @@ describe("useFileBrowser", () => {
     expect(session.result.current!.dirs[0]?.tree).toEqual(initialTree);
 
     source!.emit({ type: "ready", dirPath });
-    await tick(150);
+    // The reconnect refetch is debounced (120ms). Poll for it rather than
+    // sleeping a fixed margin, so a slow CI runner can't lose the race.
+    for (let i = 0; i < 40 && calls.length < 2; i++) await tick(25);
     expect(calls).toHaveLength(2);
     expect(session.result.current!.dirs[0]?.tree).toEqual(reconnectedTree);
 

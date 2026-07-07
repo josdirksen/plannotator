@@ -96,10 +96,11 @@ export const WorktreePicker: React.FC<WorktreePickerProps> = ({
             initialFocus={() => {
               // Only override the default focus when the search input is
               // actually rendered — otherwise arrow keys would bubble out to
-              // the file-tree nav. For short worktree lists Base UI focuses
-              // the popup's first tabbable itself (returning undefined keeps
-              // the default behavior).
-              return searchRef.current ?? undefined;
+              // the file-tree nav. For short worktree lists, returning null
+              // falls back to Base UI's default focus (the popup's first
+              // tabbable); undefined would mean "do nothing" and leave focus
+              // on the trigger.
+              return searchRef.current;
             }}
           >
           {worktrees.length > 3 && (

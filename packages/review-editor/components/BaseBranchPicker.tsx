@@ -184,7 +184,7 @@ export const BaseBranchPicker: React.FC<BaseBranchPickerProps> = ({
         <Popover.Positioner side="bottom" align="start" sideOffset={4} className="z-50">
           <Popover.Popup
             className="w-80 bg-popover text-popover-foreground border border-border rounded shadow-lg overflow-hidden origin-[var(--transform-origin)] transition-opacity data-starting-style:opacity-0 data-ending-style:opacity-0"
-            initialFocus={() => searchRef.current ?? undefined}
+            initialFocus={() => searchRef.current}
           >
           <div className="p-2 border-b border-border/50">
             <input

@@ -9,9 +9,9 @@ All files: `import * as Popover from '@radix-ui/react-popover'` → `import { Po
 - `components/SemanticFileBadge.tsx` — also: `onOpenAutoFocus={(e) => e.preventDefault()}` → `initialFocus={false}` on Popup; hover open/close timers unchanged (kept manual timers rather than Base UI's `openOnHover` to preserve exact behavior); `index.css:480` trigger selector `.semantic-file-badge[data-state="open"]` → `[data-popup-open]`.
 - `components/EvoLogPicker.tsx` — plain transform, no focus handling.
 - `components/DiffOptionsPopover.tsx` — trigger classes `data-[state=open]:*` → `data-popup-open:*` (Base UI trigger presence attribute).
-- `components/WorktreePicker.tsx` — conditional `onOpenAutoFocus` (focus search input only when rendered) → `initialFocus={() => searchRef.current ?? undefined}` (function form verified against PopoverPopup.d.ts:47; returning undefined keeps default focus).
+- `components/WorktreePicker.tsx` — conditional `onOpenAutoFocus` (focus search input only when rendered) → `initialFocus={() => searchRef.current}` (function form: returning an element focuses it; returning null falls back to Base UI's default focus. NOT `?? undefined` — undefined means "do nothing", which would strand focus on the trigger for short lists. Semantics per PopoverPopup.d.ts:44-47 JSDoc, caught in self-review).
 - `components/StackedPRLabel.tsx` — plain transform; trigger chevron rotation driven by controlled `open` state, untouched.
-- `components/BaseBranchPicker.tsx` — unconditional `onOpenAutoFocus` + manual focus → `initialFocus={() => searchRef.current ?? undefined}`.
+- `components/BaseBranchPicker.tsx` — unconditional `onOpenAutoFocus` + manual focus → `initialFocus={() => searchRef.current}` (same null-fallback semantics as WorktreePicker).
 - `components/PRCommentsTab.tsx` — trigger `data-[state=open]:*` → `data-popup-open:*`; popup transform as above.
 
 Leftover scan: `grep -rn "radix-ui|@radix-ui" <all 7 files>` → clean. `--radix-*` CSS vars: none remain in these files.

@@ -294,22 +294,12 @@ describe("useFileBrowser", () => {
     expect(session.result.current!.dirs[0]?.tree).toEqual(initialTree);
 
     source!.emit({ type: "ready", dirPath });
-    // The reconnect refetch is debounced (120ms) AND its result commits to
-    // state a tick after the fetch call is counted. Poll on the end state (the
-    // committed tree), not the call count, so a slow CI runner can't lose either
-    // race — waiting on calls===2 alone exits before setState commits.
-    const reconnected = () =>
-      JSON.stringify(session.result.current!.dirs[0]?.tree) ===
-      JSON.stringify(reconnectedTree);
-    // Poll up to ~10s: a contended CI runner was measured at 6x normal speed,
-    // blowing through a 1.5s ceiling on the 120ms debounce. The explicit test
-    // timeout below keeps the poll from being killed at bun's 5s default.
-    for (let i = 0; i < 400 && !reconnected(); i++) await tick(25);
+    await tick(150);
     expect(calls).toHaveLength(2);
     expect(session.result.current!.dirs[0]?.tree).toEqual(reconnectedTree);
 
     await session.unmount();
-  }, 20000);
+  });
 
   test.skipIf(!hasDom)("waits for the first tree snapshot before opening the live stream", async () => {
     installMockEventSource();

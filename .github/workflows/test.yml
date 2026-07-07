@@ -31,8 +31,29 @@ jobs:
       - name: Run tests
         run: bun test
 
-      - name: Run UI DOM tests (incl. seam contracts)
-        run: DOM_TESTS=1 bun test packages/ui
+      # The file-browser watcher test is timing-sensitive (a 120ms SSE debounce
+      # asserted with real timers). Run it in its own process — matching the
+      # historical config — so it isn't destabilized by sharing a process with
+      # the rest of the ui suite (heavy load intermittently starves the debounce
+      # timer and the reconnect refetch is missed). See useFileBrowser.test.tsx.
+      - name: Run file-browser DOM test (isolated)
+        run: DOM_TESTS=1 bun test packages/ui/hooks/useFileBrowser.test.tsx
+
+      # Seam contracts + the remaining DOM-gated tests. Scoped to the DOM files
+      # (not the whole ui suite) to keep this process light.
+      - name: Run UI seam-contract + DOM tests
+        run: >-
+          DOM_TESTS=1 bun test
+          packages/ui/markdownEditorFidelity.test.tsx
+          packages/ui/annotationDraftPersistence.test.tsx
+          packages/ui/codeAnnotationDraftPersistence.test.tsx
+          packages/ui/components/InlineMarkdown.seam.test.tsx
+          packages/ui/components/ImageThumbnail.seam.test.tsx
+          packages/ui/hooks/useAnnotationHighlighter.test.tsx
+          packages/ui/hooks/useAnnotationDraft.seam.test.tsx
+          packages/ui/hooks/useExternalAnnotations.seam.test.tsx
+          packages/ui/hooks/useAIChat.seam.test.tsx
+          packages/ui/hooks/useFileBrowser.seam.test.tsx
 
   pi-extension-ai-runtime-windows:
     # Exercises the Pi extension's Node/jiti server mirror on Windows with an

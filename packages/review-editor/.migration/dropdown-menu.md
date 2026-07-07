@@ -21,8 +21,8 @@
 
 ## Verify by hand
 
-1. Open the diff-type dropdown (review header). Arrow keys walk options; past-the-end wraps (new).
-2. Type the first letters of an option — typeahead highlights it.
-3. Enter/click selects, menu closes, diff reloads.
-4. Hover the ⓘ icon — tooltip shows without closing the menu; clicking ⓘ does not select the item.
-5. Escape closes and returns focus to the trigger; menu min-width still matches the trigger width.
+1. Open the diff-type dropdown (review header). Arrow keys walk options; past-the-end wraps (new). Not testable via automated QA in either the demo (2026-07-07) or a real `bun apps/review/server/index.ts main` session (2026-07-07): `apps/review/server/index.ts` never constructs or passes a `gitContext`/`agentCwd` to `startReviewServer` (packages/server/review.ts:211 `hasLocalAccess = !!gitContext` stays `false` for that entrypoint), so `App.tsx`'s `gitContext` state is never populated and `FileTree.tsx:409-410`'s render guard `(worktrees?.length>0)||(diffOptions?.length>0)` is false — the whole DiffTypePicker/WorktreePicker/BaseBranchPicker row never mounts. Confirmed empirically against a real session with 88 real worktrees on disk: no matching trigger in the DOM. (`apps/hook/server/index.ts` does wire `gitContext` via `prepareLocalReviewDiff` — a different entrypoint from the one this QA pass was asked to exercise.)
+2. Type the first letters of an option — typeahead highlights it. Not testable, same reason as #1.
+3. Enter/click selects, menu closes, diff reloads. Not testable, same reason as #1.
+4. Hover the ⓘ icon — tooltip shows without closing the menu; clicking ⓘ does not select the item. Not testable, same reason as #1.
+5. Escape closes and returns focus to the trigger; menu min-width still matches the trigger width. Not testable, same reason as #1.

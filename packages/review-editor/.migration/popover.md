@@ -33,7 +33,7 @@ Leftover scan: `grep -rn "radix-ui|@radix-ui" <all 7 files>` → clean. `--radix
 1. File header "sem · N" badge: hover opens the semantic popover, moving into the popover keeps it open, leaving both closes after ~140ms; clicking a row navigates and closes; badge highlights while open.
 2. Worktree picker (review header): open with >3 worktrees → search input is focused; with ≤3 → first row focused; arrow keys don't leak to the file tree; Escape closes and returns focus to the trigger.
 3. Base branch picker: open → search focused immediately; type a SHA → Enter selects; Escape closes.
-4. Diff options gear: opens aligned right, no layout jump; trigger stays highlighted while open.
+4. Diff options gear: opens aligned right, no layout jump; trigger stays highlighted while open. ✓ (automated QA 2026-07-07: click opens `[role="dialog"]`; trigger carries `data-popup-open` while open; clicking outside closes it. "no layout jump" not measured — feel-level.)
 5. Stacked-PR label: popover opens under the label; chevron rotates; switching scope closes it.
 6. PR comments Filters button: opens; toggling switches doesn't close the popover; button shows active state while open.
 7. All of the above near the bottom/right edge of the window — verify flip/shift feels right (collision defaults changed).

@@ -21,9 +21,9 @@
 
 ## Verify by hand
 
-1. Right-click a file row → menu opens at the pointer.
-2. "Copy path" / "Copy filename" / (with a local repo) "Copy full path" put the right strings on the clipboard and close the menu.
-3. Left-click still selects the file; double-click still opens it; right-click does NOT select the file.
-4. Arrow keys navigate the menu; Enter activates; Escape closes and the file tree keeps keyboard focus.
+1. Right-click a file row → menu opens at the pointer. ✓ (automated QA 2026-07-07: right-click opened `[role="menu"]`; trigger row carries `data-popup-open` while open.)
+2. "Copy path" / "Copy filename" / (with a local repo) "Copy full path" put the right strings on the clipboard and close the menu. ✓ (automated QA 2026-07-07: "Copy path" → clipboard read back `src/components/Button.tsx`, menu closed; "Copy filename" → clipboard read back `Button.tsx`. "Copy full path" doesn't render in the demo session — no repoRoot without a local worktree — not exercised.)
+3. Left-click still selects the file; double-click still opens it; right-click does NOT select the file. ✓ (automated QA 2026-07-07: left-click on a second row made it `.active` with no menu open; right-click left the previously-active file unchanged. Double-click not exercised by automation.)
+4. Arrow keys navigate the menu; Enter activates; Escape closes and the file tree keeps keyboard focus. ✓ (automated QA 2026-07-07: Escape closed the menu — confirmed. Arrow-key navigation / Enter-to-activate inside this menu not exercised by automation.)
 5. Right-click near the window bottom — menu flips above the pointer.
 6. Open menu, left-click elsewhere — menu closes without selecting that row.

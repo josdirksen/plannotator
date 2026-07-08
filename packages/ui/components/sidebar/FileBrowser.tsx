@@ -6,6 +6,7 @@
  */
 
 import React from "react";
+import { Search, X } from "lucide-react";
 import type { VaultNode } from "../../types";
 import type { DirState } from "../../hooks/useFileBrowser";
 import { CountBadge } from "./CountBadge";
@@ -40,6 +41,40 @@ interface AggregateWorkspaceChange {
   additions: number;
   deletions: number;
   files: number;
+}
+
+const FILE_EXTENSION_RE = /\.(mdx?|txt|html?)$/i;
+
+function normalizeFilterText(value: string): string {
+  return value.replace(/\\/g, "/").toLowerCase();
+}
+
+export function getFileTreeFilterTokens(query: string): string[] {
+  return normalizeFilterText(query)
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function nodeMatchesFilter(node: VaultNode, tokens: string[]): boolean {
+  if (tokens.length === 0) return true;
+  const displayName = node.name.replace(FILE_EXTENSION_RE, "");
+  const haystack = normalizeFilterText(`${node.name} ${displayName} ${node.path}`);
+  return tokens.every((token) => haystack.includes(token));
+}
+
+export function filterFileTree(nodes: VaultNode[], tokens: string[]): VaultNode[] {
+  if (tokens.length === 0) return nodes;
+
+  return nodes.flatMap((node) => {
+    if (node.type === "file") return nodeMatchesFilter(node, tokens) ? [node] : [];
+
+    if (nodeMatchesFilter(node, tokens)) return [node];
+
+    const children = filterFileTree(node.children ?? [], tokens);
+    if (children.length === 0) return [];
+    return [{ ...node, children }];
+  });
 }
 
 export function normalizePathForLookup(path: string): string {
@@ -207,10 +242,11 @@ const TreeNode: React.FC<{
   highlightedFiles?: Set<string>;
   editStatuses?: Map<string, FileEditStatus>;
   workspaceStatus?: WorkspaceStatusPayload;
-}> = ({ node, depth, dirPath, expandedFolders, onToggleFolder, onSelectFile, activeFile, annotationCounts, highlightedFiles, editStatuses, workspaceStatus }) => {
+  forceExpandFolders?: boolean;
+}> = ({ node, depth, dirPath, expandedFolders, onToggleFolder, onSelectFile, activeFile, annotationCounts, highlightedFiles, editStatuses, workspaceStatus, forceExpandFolders = false }) => {
   const folderKey = `${dirPath}:${node.path}`;
   const absolutePath = `${dirPath}/${node.path}`;
-  const isExpanded = expandedFolders.has(folderKey);
+  const isExpanded = forceExpandFolders || expandedFolders.has(folderKey);
   const isActive = node.type === "file" && absolutePath === activeFile;
   const paddingLeft = 8 + depth * 14;
 
@@ -261,6 +297,7 @@ const TreeNode: React.FC<{
             highlightedFiles={highlightedFiles}
             editStatuses={editStatuses}
             workspaceStatus={workspaceStatus}
+            forceExpandFolders={forceExpandFolders}
           />
         ))}
       </>
@@ -348,7 +385,8 @@ const DirSection: React.FC<{
   annotationCounts?: Map<string, number>;
   highlightedFiles?: Set<string>;
   editStatuses?: Map<string, FileEditStatus>;
-}> = ({ dir, expandedFolders, onToggleFolder, onSelectFile, activeFile, onRetry, annotationCounts, highlightedFiles, editStatuses }) => {
+  forceExpandFolders?: boolean;
+}> = ({ dir, expandedFolders, onToggleFolder, onSelectFile, activeFile, onRetry, annotationCounts, highlightedFiles, editStatuses, forceExpandFolders = false }) => {
   const workspaceStatus = React.useMemo(() => normalizeWorkspaceStatus(dir.workspaceStatus), [dir.workspaceStatus]);
 
   if (dir.isLoading) {
@@ -397,6 +435,7 @@ const DirSection: React.FC<{
           highlightedFiles={highlightedFiles}
           editStatuses={editStatuses}
           workspaceStatus={workspaceStatus}
+          forceExpandFolders={forceExpandFolders}
         />
       ))}
     </div>
@@ -417,6 +456,25 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
   highlightedFiles,
   editStatuses,
 }) => {
+  const [isFilterOpen, setIsFilterOpen] = React.useState(false);
+  const [filterQuery, setFilterQuery] = React.useState("");
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const deferredFilterQuery = React.useDeferredValue(filterQuery);
+  const filterTokens = React.useMemo(() => getFileTreeFilterTokens(deferredFilterQuery), [deferredFilterQuery]);
+  const isFiltering = filterTokens.length > 0;
+  const showFilterInput = isFilterOpen || filterQuery.trim().length > 0;
+  const visibleDirs = React.useMemo(() => {
+    if (!isFiltering) return dirs;
+    return dirs
+      .map((dir) => ({ ...dir, tree: filterFileTree(dir.tree, filterTokens) }))
+      .filter((dir) => dir.isLoading || dir.error || dir.tree.length > 0);
+  }, [dirs, filterTokens, isFiltering]);
+
+  React.useEffect(() => {
+    if (!showFilterInput) return;
+    inputRef.current?.focus();
+  }, [showFilterInput]);
+
   if (dirs.length === 0) {
     return (
       <div className="p-3 text-[11px] text-muted-foreground">
@@ -454,8 +512,63 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
           {workspaceTotals.deletions > 0 && <span className={`deletions ${workspaceTotals.additions > 0 ? "" : "ml-auto"}`}>-{workspaceTotals.deletions}</span>}
         </div>
       )}
-      {dirs.map((dir) => {
-        const isCollapsed = collapsedDirs.has(dir.path);
+      <div className="border-b border-border/30 px-2 py-2">
+        {showFilterInput ? (
+          <div className="flex min-h-9 items-center gap-2 rounded-md border border-border/40 bg-surface-1/40 px-2.5 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/30">
+            <Search size={13} className="shrink-0 text-muted-foreground/50" aria-hidden="true" />
+            <input
+              ref={inputRef}
+              type="search"
+              value={filterQuery}
+              onChange={(event) => setFilterQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") return;
+                if (filterQuery) setFilterQuery("");
+                else setIsFilterOpen(false);
+              }}
+              placeholder="Filter files"
+              aria-label="Filter files"
+              autoComplete="off"
+              spellCheck={false}
+              data-lpignore="true"
+              data-1p-ignore
+              className="min-w-0 flex-1 bg-transparent text-[16px] leading-5 text-foreground outline-none placeholder:text-muted-foreground/45"
+            />
+            {(filterQuery || isFilterOpen) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterQuery("");
+                  setIsFilterOpen(false);
+                }}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/55 hover:bg-muted hover:text-foreground"
+                aria-label="Clear file filter"
+                title="Clear file filter"
+              >
+                <X size={13} aria-hidden="true" />
+              </button>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setIsFilterOpen(true)}
+            className="flex min-h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-[11px] text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            aria-label="Filter files"
+            title="Filter files"
+          >
+            <Search size={13} className="shrink-0 text-muted-foreground/55" aria-hidden="true" />
+            <span className="truncate">Filter files</span>
+          </button>
+        )}
+      </div>
+      {isFiltering && visibleDirs.length === 0 && (
+        <div className="px-3 py-8 text-center text-[11px] text-muted-foreground">
+          No files match "{deferredFilterQuery.trim()}"
+        </div>
+      )}
+      {visibleDirs.map((dir) => {
+        const isCollapsed = !isFiltering && collapsedDirs.has(dir.path);
         return (
           <div key={dir.path}>
             <button
@@ -488,6 +601,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                 annotationCounts={annotationCounts}
                 highlightedFiles={highlightedFiles}
                 editStatuses={editStatuses}
+                forceExpandFolders={isFiltering}
               />
             )}
           </div>

@@ -13,6 +13,9 @@
     "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "strict": true,
+    "verbatimModuleSyntax": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "noEmit": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
@@ -32,11 +35,17 @@
     "components/ThemeProvider.tsx",
     "components/ImageThumbnail.tsx",
     "components/AttachmentsButton.tsx",
+    "components/TableOfContents.tsx",
+    "components/ResizeHandle.tsx",
     "hooks/useAnnotationHighlighter.ts",
     "hooks/useAnnotationDraft.ts",
     "hooks/useCodeAnnotationDraft.ts",
     "hooks/useExternalAnnotations.ts",
     "hooks/useFileBrowser.ts",
+    "hooks/useResizablePanel.ts",
+    "hooks/useActiveSection.ts",
+    "hooks/useScrollViewport.ts",
+    "utils/annotationHelpers.ts",
     "config/index.ts"
   ]
 }

@@ -2,9 +2,19 @@
 
 When visual-explainer's workflow says to pick a palette and font pairing, use these Plannotator tokens instead. Everything else — layout, structure, components, anti-slop rules — stays as visual-explainer prescribes.
 
+## Host theme opt-in (required)
+
+Plannotator's HTML viewer renders arbitrary documents untouched — it never injects bare theme tokens into a document unless the document asks for them. For the generated file to follow the active Plannotator theme when embedded in raw HTML annotation mode, it MUST declare the opt-in in its `<head>`:
+
+```html
+<meta name="plannotator-theme" content="host">
+```
+
+With this tag present, the viewer overrides the document's bare tokens (`--background`, `--muted`, …) with the host theme's values and mirrors the host's light/dark mode. Without it, the `:root` defaults below are all the document ever sees.
+
 ## CSS Custom Properties
 
-Replace visual-explainer's `--bg`, `--surface`, `--border`, `--text`, `--accent` variables with Plannotator's semantic tokens. Include these as `:root` defaults so the file works standalone. When embedded in Plannotator's raw HTML annotation mode, these get overridden by the active theme.
+Replace visual-explainer's `--bg`, `--surface`, `--border`, `--text`, `--accent` variables with Plannotator's semantic tokens. Include these as `:root` defaults so the file works standalone. When embedded in Plannotator's raw HTML annotation mode (with the meta opt-in above), these get overridden by the active theme.
 
 ```css
 :root {
@@ -91,7 +101,7 @@ mermaid.initialize({
 
 ## Dark mode
 
-Plannotator handles dark/light via theme classes, not `prefers-color-scheme`. The standalone defaults above are the light theme. When embedded in raw HTML annotation mode, the active theme's tokens override automatically — no media query needed in the generated HTML.
+Plannotator handles dark/light via theme classes, not `prefers-color-scheme`. The standalone defaults above are the light theme. When embedded in raw HTML annotation mode (with the `plannotator-theme` meta opt-in), the active theme's tokens override automatically — no media query needed in the generated HTML.
 
 For standalone viewing, you may optionally add a `prefers-color-scheme: dark` block with the Plannotator dark theme values:
 

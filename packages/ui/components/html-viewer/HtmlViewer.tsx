@@ -17,38 +17,15 @@ import { CommentPopover, type CommentAskAIHandler } from "../CommentPopover";
 import { FloatingQuickLabelPicker } from "../FloatingQuickLabelPicker";
 import type { ViewerHandle } from "../Viewer";
 import { useHtmlAnnotation } from "./useHtmlAnnotation";
-import { ANNOTATION_HIGHLIGHT_CSS, BRIDGE_SCRIPT } from "./bridge-script";
+import {
+  THEME_TOKENS,
+  buildSrcdocInjection,
+  buildThemeTokenPayload,
+  hasHostThemeOptIn,
+  injectIntoHead,
+} from "./srcdoc";
 
 const PREFIX = "plannotator-bridge-";
-
-const THEME_TOKENS = [
-  "--background",
-  "--foreground",
-  "--card",
-  "--card-foreground",
-  "--primary",
-  "--primary-foreground",
-  "--secondary",
-  "--secondary-foreground",
-  "--muted",
-  "--muted-foreground",
-  "--accent",
-  "--accent-foreground",
-  "--destructive",
-  "--destructive-foreground",
-  "--success",
-  "--success-foreground",
-  "--warning",
-  "--warning-foreground",
-  "--border",
-  "--input",
-  "--ring",
-  "--code-bg",
-  "--focus-highlight",
-  "--font-sans",
-  "--font-mono",
-  "--radius",
-] as const;
 
 function readThemeTokens(): Record<string, string> {
   const style = getComputedStyle(document.documentElement);
@@ -124,26 +101,19 @@ export const HtmlViewer = forwardRef<ViewerHandle, HtmlViewerProps>(
       contextText: string;
     } | null>(null);
 
-    const srcdoc = useMemo(() => {
-      const tokens = readThemeTokens();
-      let themeCSS = ":root {\n";
-      for (const [key, val] of Object.entries(tokens)) {
-        themeCSS += `  ${key}: ${val};\n`;
-      }
-      themeCSS += "}\n";
-      if (isLightTheme()) themeCSS += ":root { color-scheme: light; }\n:root.light, :root { }\n";
+    // Host theming is opt-in per document (Plannotator-generated artifacts tag
+    // themselves); arbitrary HTML renders untouched, like a standalone tab.
+    const hostTheme = useMemo(() => hasHostThemeOptIn(rawHtml), [rawHtml]);
 
-      // Version-diff highlights: htmlDiff wraps changed text in <ins>/<del>.
-      const diffCSS =
-        "ins{background:#e6ffec;color:#0a7d33;text-decoration:none;border-radius:2px;box-shadow:0 0 0 1px #abf2bc inset}" +
-        "del{background:#ffebe9;color:#b31d28;text-decoration:line-through;border-radius:2px;box-shadow:0 0 0 1px #ffc1bc inset}";
-      const injection = `<style>${themeCSS}${ANNOTATION_HIGHLIGHT_CSS}${diffCSS}</style><script>${BRIDGE_SCRIPT}</script>`;
-      const headClose = rawHtml.indexOf("</head>");
-      if (headClose !== -1) {
-        return rawHtml.slice(0, headClose) + injection + rawHtml.slice(headClose);
-      }
-      return injection + rawHtml;
-    }, [rawHtml]);
+    const srcdoc = useMemo(() => {
+      const injection = buildSrcdocInjection({
+        tokens: readThemeTokens(),
+        isLight: isLightTheme(),
+        hostTheme,
+        diffActive: !!diffActive,
+      });
+      return injectIntoHead(rawHtml, injection);
+    }, [rawHtml, hostTheme, diffActive]);
 
     const handleResize = useCallback((height: number) => {
       setIframeHeight(height);
@@ -189,9 +159,13 @@ export const HtmlViewer = forwardRef<ViewerHandle, HtmlViewerProps>(
     useEffect(() => {
       if (!iframeReady) return;
       function sendTheme() {
-        const tokens = readThemeTokens();
         iframeRef.current?.contentWindow?.postMessage(
-          { type: `${PREFIX}theme`, tokens, isLight: isLightTheme() },
+          {
+            type: `${PREFIX}theme`,
+            tokens: buildThemeTokenPayload(readThemeTokens(), hostTheme),
+            isLight: isLightTheme(),
+            hostTheme,
+          },
           "*",
         );
       }
@@ -202,7 +176,7 @@ export const HtmlViewer = forwardRef<ViewerHandle, HtmlViewerProps>(
         attributeFilter: ["class", "style"],
       });
       return () => observer.disconnect();
-    }, [iframeReady]);
+    }, [iframeReady, hostTheme]);
 
     useImperativeHandle(ref, () => ({
       removeHighlight: hook.removeHighlight,

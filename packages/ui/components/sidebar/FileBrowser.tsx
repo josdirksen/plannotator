@@ -253,11 +253,15 @@ const TreeNode: React.FC<{
   if (node.type === "folder") {
     const aggregateCount = annotationCounts ? getAggregateCount(node, dirPath, annotationCounts, workspaceStatus) : 0;
     const aggregateChange = getAggregateWorkspaceChange(node, dirPath, workspaceStatus);
+    const folderButtonClassName = forceExpandFolders
+      ? "file-tree-folder w-full flex items-center gap-1.5 py-1 px-2 text-[11px] text-muted-foreground transition-colors rounded-sm cursor-default disabled:opacity-100"
+      : "file-tree-folder w-full flex items-center gap-1.5 py-1 px-2 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors rounded-sm";
     return (
       <>
         <button
+          disabled={forceExpandFolders}
           onClick={() => onToggleFolder(folderKey)}
-          className="file-tree-folder w-full flex items-center gap-1.5 py-1 px-2 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors rounded-sm"
+          className={folderButtonClassName}
           style={{ paddingLeft }}
         >
           <svg

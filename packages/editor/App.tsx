@@ -453,6 +453,8 @@ const App: React.FC = () => {
     storageKey: 'plannotator-panel-width',
     // Drag the right panel skinny → snap it shut (matches the contents sidebar).
     onSnapClose: () => setIsPanelOpen(false),
+    // Single click on the handle (no drag) collapses it.
+    onClick: () => setIsPanelOpen(false),
     // Render-free drag: write the live width to a :root var the panel reads,
     // so dragging never re-renders this (heavy) App.
     apply: (w) => document.documentElement.style.setProperty('--rpanel-w', `${w}px`),
@@ -462,6 +464,8 @@ const App: React.FC = () => {
     defaultWidth: 240, minWidth: 160, maxWidth: 400, side: 'left',
     // Drag the contents panel skinny → snap it shut (prototype behavior).
     onSnapClose: sidebar.close,
+    // Single click on the handle (no drag) collapses it.
+    onClick: sidebar.close,
     // Render-free drag: write the live width to a :root var the panel reads.
     apply: (w) => document.documentElement.style.setProperty('--toc-w', `${w}px`),
   });
@@ -472,6 +476,8 @@ const App: React.FC = () => {
     maxWidth: 640,
     side: 'left',
     onSnapClose: () => setIsAgentTerminalOpen(false),
+    // Single click on the handle (no drag) collapses it.
+    onClick: () => hideAgentTerminal(),
     apply: (w) => document.documentElement.style.setProperty('--agent-terminal-w', `${w}px`),
   });
   const isResizing = panelResize.isDragging || tocResize.isDragging || agentTerminalResize.isDragging;
@@ -3962,6 +3968,8 @@ const App: React.FC = () => {
                   {...agentTerminalResize.handleProps}
                   className="hidden lg:block z-[55]"
                   side="left"
+                  hideHoverTrack
+                  tooltip="Click to close · Drag to resize"
                   onCollapse={hideAgentTerminal}
                 />
               )}
@@ -4060,7 +4068,7 @@ const App: React.FC = () => {
                 onSelectMessage={handleSelectMessage}
                 messageAnnotationCounts={activeMessageAnnotationCounts}
               />
-              <ResizeHandle {...tocResize.handleProps} className="hidden lg:block z-[55]" side="left" onCollapse={sidebar.close} />
+              <ResizeHandle {...tocResize.handleProps} className="hidden lg:block z-[55]" side="left" hideHoverTrack tooltip="Click to close · Drag to resize" onCollapse={sidebar.close} />
             </div>
           )}
 
@@ -4395,7 +4403,7 @@ const App: React.FC = () => {
               ancestor (`contents` = no layout box). */}
           <div className="contents group/sidebar">
           {/* Resize Handle */}
-          {isPanelOpen && wideModeType === null && !goalSetupMode && (rightSidebarTab === 'annotations' || canUseAskAI) && <ResizeHandle {...panelResize.handleProps} className="hidden md:block z-[55]" side="right" onCollapse={() => setIsPanelOpen(false)} />}
+          {isPanelOpen && wideModeType === null && !goalSetupMode && (rightSidebarTab === 'annotations' || canUseAskAI) && <ResizeHandle {...panelResize.handleProps} className="hidden md:block z-[55]" side="right" hideHoverTrack tooltip="Click to close · Drag to resize" onCollapse={() => setIsPanelOpen(false)} />}
 
           {/* Annotation Panel */}
           <AnnotationPanel

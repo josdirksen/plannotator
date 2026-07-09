@@ -250,6 +250,9 @@ const feedbackLossDescription = (annotationCount: number, hasDirectEdits: boolea
 
 type SourceFileEditWarningAction = 'send-feedback' | 'approve' | 'close';
 
+/** Hint shown following the cursor while hovering a sidebar/panel resize handle. */
+const RESIZE_HANDLE_TOOLTIP = 'Click to close · Drag to resize';
+
 const App: React.FC = () => {
   const [markdown, setMarkdown] = useState(DEMO_PLAN_CONTENT);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
@@ -3969,7 +3972,7 @@ const App: React.FC = () => {
                   className="hidden lg:block z-[55]"
                   side="left"
                   hideHoverTrack
-                  tooltip="Click to close · Drag to resize"
+                  tooltip={RESIZE_HANDLE_TOOLTIP}
                   onCollapse={hideAgentTerminal}
                 />
               )}
@@ -4068,7 +4071,7 @@ const App: React.FC = () => {
                 onSelectMessage={handleSelectMessage}
                 messageAnnotationCounts={activeMessageAnnotationCounts}
               />
-              <ResizeHandle {...tocResize.handleProps} className="hidden lg:block z-[55]" side="left" hideHoverTrack tooltip="Click to close · Drag to resize" onCollapse={sidebar.close} />
+              <ResizeHandle {...tocResize.handleProps} className="hidden lg:block z-[55]" side="left" hideHoverTrack tooltip={RESIZE_HANDLE_TOOLTIP} onCollapse={sidebar.close} />
             </div>
           )}
 
@@ -4403,7 +4406,7 @@ const App: React.FC = () => {
               ancestor (`contents` = no layout box). */}
           <div className="contents group/sidebar">
           {/* Resize Handle */}
-          {isPanelOpen && wideModeType === null && !goalSetupMode && (rightSidebarTab === 'annotations' || canUseAskAI) && <ResizeHandle {...panelResize.handleProps} className="hidden md:block z-[55]" side="right" hideHoverTrack tooltip="Click to close · Drag to resize" onCollapse={() => setIsPanelOpen(false)} />}
+          {isPanelOpen && wideModeType === null && !goalSetupMode && (rightSidebarTab === 'annotations' || canUseAskAI) && <ResizeHandle {...panelResize.handleProps} className="hidden md:block z-[55]" side="right" hideHoverTrack tooltip={RESIZE_HANDLE_TOOLTIP} onCollapse={() => setIsPanelOpen(false)} />}
 
           {/* Annotation Panel */}
           <AnnotationPanel

@@ -82,7 +82,7 @@ export const ResizeHandle: React.FC<Props> = ({
         style={style}
         onPointerDown={onPointerDown}
         onDoubleClick={onDoubleClick}
-        onPointerMove={tooltip != null ? (e) => setTip({ x: e.clientX, y: e.clientY }) : undefined}
+        onPointerMove={tooltip != null && !isDragging ? (e) => setTip({ x: e.clientX, y: e.clientY }) : undefined}
         onPointerLeave={tooltip != null ? () => setTip(null) : undefined}
       />
       {/* Cursor-following hint. pointer-events-none so it never blocks the drag;

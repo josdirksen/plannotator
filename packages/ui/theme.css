@@ -410,6 +410,22 @@ html:not(.transitions-ready) * {
   outline-offset: 2px;
 }
 
+.file-browser-filter-input {
+  appearance: none;
+}
+
+.file-browser-filter-input:focus-visible {
+  outline: none;
+}
+
+.file-browser-filter-input::-webkit-search-decoration,
+.file-browser-filter-input::-webkit-search-cancel-button,
+.file-browser-filter-input::-webkit-search-results-button,
+.file-browser-filter-input::-webkit-search-results-decoration {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
 /* Flash highlight for annotated files in sidebar */
 .file-annotation-flash {
   animation: file-flash 1.2s ease-out;

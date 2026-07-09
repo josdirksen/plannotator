@@ -469,6 +469,11 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
       .map((dir) => ({ ...dir, tree: filterFileTree(dir.tree, filterTokens) }))
       .filter((dir) => dir.isLoading || dir.error || dir.tree.length > 0);
   }, [dirs, filterTokens, isFiltering]);
+  const handleFilterBlur = React.useCallback((event: React.FocusEvent<HTMLDivElement>) => {
+    if (filterQuery.trim()) return;
+    if (event.currentTarget.contains(event.relatedTarget)) return;
+    setIsFilterOpen(false);
+  }, [filterQuery]);
 
   React.useEffect(() => {
     if (!showFilterInput) return;
@@ -512,10 +517,13 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
           {workspaceTotals.deletions > 0 && <span className={`deletions ${workspaceTotals.additions > 0 ? "" : "ml-auto"}`}>-{workspaceTotals.deletions}</span>}
         </div>
       )}
-      <div className="border-b border-border/30 px-2 py-2">
+      <div className="border-b border-border/20 px-2 py-0.5">
         {showFilterInput ? (
-          <div className="flex min-h-9 items-center gap-2 rounded-md border border-border/40 bg-surface-1/40 px-2.5 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/30">
-            <Search size={13} className="shrink-0 text-muted-foreground/50" aria-hidden="true" />
+          <div
+            onBlur={handleFilterBlur}
+            className="flex h-6 items-center gap-1.5 rounded-sm bg-muted/25 px-1.5 text-muted-foreground focus-within:bg-muted/40"
+          >
+            <Search size={12} className="shrink-0 text-muted-foreground/55" aria-hidden="true" />
             <input
               ref={inputRef}
               type="search"
@@ -526,26 +534,26 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                 if (filterQuery) setFilterQuery("");
                 else setIsFilterOpen(false);
               }}
-              placeholder="Filter files"
+              placeholder="Filter"
               aria-label="Filter files"
               autoComplete="off"
               spellCheck={false}
               data-lpignore="true"
               data-1p-ignore
-              className="min-w-0 flex-1 bg-transparent text-[16px] leading-5 text-foreground outline-none placeholder:text-muted-foreground/45"
+              className="file-browser-filter-input h-full min-w-0 flex-1 bg-transparent p-0 text-[16px] leading-4 text-foreground outline-none placeholder:text-muted-foreground/45 sm:text-[11px]"
             />
-            {(filterQuery || isFilterOpen) && (
+            {filterQuery && (
               <button
                 type="button"
                 onClick={() => {
                   setFilterQuery("");
-                  setIsFilterOpen(false);
+                  inputRef.current?.focus();
                 }}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/55 hover:bg-muted hover:text-foreground"
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground/55 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:bg-muted"
                 aria-label="Clear file filter"
                 title="Clear file filter"
               >
-                <X size={13} aria-hidden="true" />
+                <X size={12} aria-hidden="true" />
               </button>
             )}
           </div>
@@ -553,12 +561,12 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
           <button
             type="button"
             onClick={() => setIsFilterOpen(true)}
-            className="flex min-h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-[11px] text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            className="flex h-6 w-full items-center gap-1.5 rounded-sm px-1.5 text-left text-[10px] text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:bg-muted/50 focus-visible:text-foreground"
             aria-label="Filter files"
             title="Filter files"
           >
-            <Search size={13} className="shrink-0 text-muted-foreground/55" aria-hidden="true" />
-            <span className="truncate">Filter files</span>
+            <Search size={12} className="shrink-0 text-muted-foreground/55" aria-hidden="true" />
+            <span className="truncate">Filter</span>
           </button>
         )}
       </div>

@@ -23,6 +23,17 @@ export type {
   WikiLinkStatus,
 } from '@plannotator/atomic-editor';
 
+/* The engine's other opt-in UI extensions, re-exported for the same reason:
+   slashCommands() is a Notion-style insert menu on `/` at the start of a
+   line; selectionToolbar() is a floating bold/italic/strike/code/link bar
+   over selected text (multi-line and table-cell aware). Both compose
+   through the `extensions` prop and theme via the --atomic-editor-menu-*
+   CSS variables. */
+export { defaultSlashCommands, slashCommandSource, slashCommands } from '@plannotator/atomic-editor';
+export type { SlashCommandItem, SlashCommandsConfig } from '@plannotator/atomic-editor';
+export { selectionToolbar } from '@plannotator/atomic-editor';
+export type { SelectionToolbarConfig, InlineFormat } from '@plannotator/atomic-editor';
+
 /* Grid-mode card utilities stay here (not in the package): they're Plannotator
    design-system Tailwind classes, and this file is @source-scanned. */
 const GRID_CARD_CLASSES = 'px-5 md:px-8 lg:px-10 xl:px-12 shadow-xl border border-border/50';

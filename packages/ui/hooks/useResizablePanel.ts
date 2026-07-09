@@ -147,7 +147,11 @@ export function useResizablePanel({
         window.removeEventListener('pointerup', onUp);
         window.removeEventListener('pointercancel', onUp);
       };
-      function onUp() {
+      function onUp(e: PointerEvent) {
+        // pointercancel = the browser aborted the gesture (palm rejection, a
+        // system gesture, focus loss). It is NOT a completed click — only clean
+        // up drag state, never treat it as a click-to-collapse.
+        const cancelled = e?.type === 'pointercancel';
         const wasSnapped = snappedRef.current;
         draggingRef.current = false;
         snappedRef.current = false;
@@ -157,7 +161,7 @@ export function useResizablePanel({
         }
         setIsDragging(false);
         if (!wasSnapped) {
-          if (onClickRef.current && !movedRef.current) {
+          if (onClickRef.current && !movedRef.current && !cancelled) {
             // A pointerdown+up that never crossed the threshold is a click, not
             // a resize — fire onClick and leave the width untouched. Only when a
             // host opts in via onClick; otherwise commit exactly as before.

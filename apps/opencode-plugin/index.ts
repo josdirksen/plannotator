@@ -191,6 +191,16 @@ function logPlannotatorReady(client: any, label: string, url: string): void {
   } catch {
     // OpenCode logging is best-effort.
   }
+  // app.log only reaches OpenCode's server log file — never the TUI. Toast the
+  // URL too so remote users (no auto-opened browser) actually see it.
+  // Best-effort: older hosts without /tui/show-toast just no-op.
+  try {
+    void client.tui?.showToast?.({
+      body: { title: "Plannotator", message: `Open ${label}: ${url}`, variant: "info" },
+    });
+  } catch {
+    // Toast delivery is best-effort.
+  }
 }
 
 type EmbeddedRuntimeModule = {

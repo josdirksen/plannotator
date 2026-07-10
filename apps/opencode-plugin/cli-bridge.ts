@@ -99,6 +99,28 @@ function getPlannotatorBin(): string {
   return process.env.PLANNOTATOR_BIN?.trim() || "plannotator";
 }
 
+const TOAST_URL_RE = /https?:\/\/\S+/;
+
+// client.app.log only reaches OpenCode's server log file — it is never shown
+// in the TUI. Remote users (no auto-opened browser) therefore never saw the
+// session URL. Any URL-bearing message must ALSO go through tui.showToast,
+// which is the SDK's visible surface. Best-effort: older hosts without the
+// /tui/show-toast endpoint just no-op. `toastedUrls` dedupes across the two
+// delivery paths (stderr forwarder + ready-file poller) so one session never
+// stacks two toasts for the same URL.
+function toastPlannotatorUrl(client: OpenCodeClient, message: string, toastedUrls: Set<string>): void {
+  const url = TOAST_URL_RE.exec(message)?.[0];
+  if (!url || toastedUrls.has(url)) return;
+  toastedUrls.add(url);
+  try {
+    void (client as any).tui?.showToast?.({
+      body: { title: "Plannotator", message, variant: "info" },
+    });
+  } catch {
+    // Toast delivery is best-effort.
+  }
+}
+
 function getWindowsPathCandidates(bin: string, env: NodeJS.ProcessEnv): string[] {
   if (path.extname(bin)) return [bin];
 
@@ -197,12 +219,16 @@ export function formatUserFacingCliStderrLine(line: string): string | undefined 
   const trimmed = line.trim();
   if (!trimmed) return undefined;
   if (/^Open this link on your local machine to\b/.test(trimmed)) return trimmed;
+  // Current binary phrasing ("Plannotator session ready — open on your local
+  // machine (forward port N if needed):"); the older "Open this link" match is
+  // kept for users running an older plannotator binary.
+  if (/^Plannotator session ready\b/.test(trimmed)) return trimmed;
   if (/^https?:\/\/\S+/.test(trimmed)) return trimmed;
   if (/^\(.+annotations added in browser\)$/.test(trimmed)) return trimmed;
   return undefined;
 }
 
-function createCliStderrForwarder(client: OpenCodeClient) {
+function createCliStderrForwarder(client: OpenCodeClient, toastedUrls: Set<string>) {
   let pending = "";
   const forwarded = new Set<string>();
 
@@ -211,6 +237,7 @@ function createCliStderrForwarder(client: OpenCodeClient) {
     if (!message || forwarded.has(message)) return;
     forwarded.add(message);
     log(client, "info", `[Plannotator] ${message}`);
+    toastPlannotatorUrl(client, message, toastedUrls);
   };
 
   return {
@@ -228,7 +255,7 @@ function createCliStderrForwarder(client: OpenCodeClient) {
   };
 }
 
-function logReadyFile(client: OpenCodeClient, readyFile: string, readyLabel: string, loggedUrls: Set<string>): void {
+function logReadyFile(client: OpenCodeClient, readyFile: string, readyLabel: string, loggedUrls: Set<string>, toastedUrls: Set<string>): void {
   if (!existsSync(readyFile)) return;
 
   const contents = readFileSync(readyFile, "utf-8");
@@ -239,6 +266,7 @@ function logReadyFile(client: OpenCodeClient, readyFile: string, readyLabel: str
       if (!metadata.url || loggedUrls.has(metadata.url)) continue;
       loggedUrls.add(metadata.url);
       log(client, "info", `[Plannotator] Open ${readyLabel}: ${metadata.url}`);
+      toastPlannotatorUrl(client, `Open ${readyLabel}: ${metadata.url}`, toastedUrls);
     } catch {
       // Ignore partial lines while the child process is writing.
     }
@@ -251,6 +279,7 @@ async function runPlannotatorCli(options: RunCliOptions): Promise<RunCliResult> 
     `plannotator-opencode-${process.pid}-${Date.now()}-${randomUUID()}.jsonl`,
   );
   const loggedUrls = new Set<string>();
+  const toastedUrls = new Set<string>();
   const cwd = options.cwd || process.cwd();
   const env = {
     ...process.env,
@@ -276,9 +305,9 @@ async function runPlannotatorCli(options: RunCliOptions): Promise<RunCliResult> 
 
     let stdout = "";
     let stderr = "";
-    const stderrForwarder = createCliStderrForwarder(options.client);
+    const stderrForwarder = createCliStderrForwarder(options.client, toastedUrls);
     const interval = setInterval(
-      () => logReadyFile(options.client, readyFile, options.readyLabel, loggedUrls),
+      () => logReadyFile(options.client, readyFile, options.readyLabel, loggedUrls, toastedUrls),
       250,
     );
 
@@ -301,7 +330,7 @@ async function runPlannotatorCli(options: RunCliOptions): Promise<RunCliResult> 
     child.on("error", (error: NodeJS.ErrnoException) => {
       clearInterval(interval);
       stderrForwarder.flush();
-      logReadyFile(options.client, readyFile, options.readyLabel, loggedUrls);
+      logReadyFile(options.client, readyFile, options.readyLabel, loggedUrls, toastedUrls);
       rmSync(readyFile, { force: true });
       if (error.code === "ENOENT") {
         reject(new Error("Could not find the plannotator CLI. Install it with: curl -fsSL https://plannotator.ai/install.sh | bash"));
@@ -312,7 +341,7 @@ async function runPlannotatorCli(options: RunCliOptions): Promise<RunCliResult> 
     child.on("close", (exitCode) => {
       clearInterval(interval);
       stderrForwarder.flush();
-      logReadyFile(options.client, readyFile, options.readyLabel, loggedUrls);
+      logReadyFile(options.client, readyFile, options.readyLabel, loggedUrls, toastedUrls);
       rmSync(readyFile, { force: true });
       resolve({ stdout, stderr, exitCode });
     });

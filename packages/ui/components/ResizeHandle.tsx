@@ -89,6 +89,7 @@ export const ResizeHandle: React.FC<Props> = ({
           portaled to body so the zero-width parent doesn't clip it. */}
       {showTip && typeof document !== 'undefined' && createPortal(
         <div
+          data-print-hide
           style={{ position: 'fixed', left: tip.x + 14, top: tip.y + 16, zIndex: 100 }}
           className="pointer-events-none whitespace-nowrap rounded-md bg-surface-1 px-2 py-1 text-xs text-foreground shadow-md ring-1 ring-border/60"
         >

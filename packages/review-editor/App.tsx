@@ -60,7 +60,13 @@ import { useAnnotationFactory } from './hooks/useAnnotationFactory';
 import { DEMO_DIFF } from './demoData';
 import { exportReviewFeedback, buildProseFeedback, commitShaFromMode } from './utils/exportFeedback';
 import { parseDiffToFiles } from './utils/diffParser';
-import { ReviewSubmissionDialog, buildReviewSubmission, type ReviewSubmission, type SubmissionTarget } from './components/ReviewSubmissionDialog';
+import {
+  ReviewSubmissionDialog,
+  buildPlatformReviewBody,
+  buildReviewSubmission,
+  type ReviewSubmission,
+  type SubmissionTarget,
+} from './components/ReviewSubmissionDialog';
 import { ReviewStateProvider, type ReviewState } from './dock/ReviewStateContext';
 import { JobLogsProvider } from './dock/JobLogsContext';
 import { reviewPanelComponents } from './dock/reviewPanelComponents';
@@ -2458,13 +2464,14 @@ const ReviewApp: React.FC = () => {
     setPlatformActionError(null);
 
     try {
-      const bodyForTarget = (target: SubmissionTarget) => {
-        const parts: string[] = [];
-        if (generalComment) parts.push(generalComment);
-        parts.push('Review from Plannotator');
-        if (target.fileScopedBody) parts.push(target.fileScopedBody);
-        return parts.join('\n\n');
-      };
+      if (!prMetadata) throw new Error('PR metadata unavailable');
+
+      const bodyForTarget = (target: SubmissionTarget) => buildPlatformReviewBody(
+        action,
+        prMetadata.platform,
+        generalComment,
+        target,
+      );
 
       // For approve, only post to the currently viewed PR.
       // For comment with no targets but a general comment, create a minimal target.

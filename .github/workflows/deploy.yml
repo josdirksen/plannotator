@@ -6,10 +6,13 @@ on:
       - main
     paths:
       - 'apps/marketing/**'
+      - 'apps/review/**'
       - 'apps/portal/**'
       - 'apps/paste-service/**'
       - 'apps/waitlist-service/**'
       - 'packages/**'
+      - 'package.json'
+      - 'bun.lock'
   workflow_dispatch:
     inputs:
       target:
@@ -66,7 +69,7 @@ jobs:
             # For push events, check what changed
             git fetch origin ${{ github.event.before }} --depth=1 2>/dev/null || true
 
-            MARKETING_CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} 2>/dev/null | grep -E '^(apps/marketing/|packages/)' || true)
+            MARKETING_CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} 2>/dev/null | grep -E '^(apps/marketing/|apps/review/|packages/|package\.json$|bun\.lock$)' || true)
             PORTAL_CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} 2>/dev/null | grep -E '^(apps/portal/|packages/)' || true)
             PASTE_CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} 2>/dev/null | grep -E '^apps/paste-service/' || true)
             WAITLIST_CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} 2>/dev/null | grep -E '^apps/waitlist-service/' || true)
@@ -126,7 +129,15 @@ jobs:
           aws-region: us-east-1
 
       - name: Deploy to S3
-        run: aws s3 sync apps/marketing/dist/ s3://plannotator-marketing/ --delete
+        run: |
+          # Keep versioned viewer assets out of the destructive site sync so
+          # previously exported HTML continues to load its original contract.
+          aws s3 sync apps/marketing/dist/ s3://plannotator-marketing/ \
+            --delete \
+            --exclude "assets/guided-review-viewer/*"
+          aws s3 sync \
+            apps/marketing/dist/assets/guided-review-viewer/ \
+            s3://plannotator-marketing/assets/guided-review-viewer/
 
       - name: Invalidate CloudFront
         run: |

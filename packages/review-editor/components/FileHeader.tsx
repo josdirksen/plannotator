@@ -11,6 +11,8 @@ interface FileHeaderProps {
   status?: DiffFileStatus;
   /** Previous path for renames — rendered as "old → new" (diffshub treatment). */
   oldPath?: string;
+  /** Whether local editor/file-manager actions are available for this file. */
+  canOpenFile?: boolean;
   isViewed?: boolean;
   onToggleViewed?: () => void;
   isStaged?: boolean;
@@ -93,6 +95,7 @@ export const FileHeader: React.FC<FileHeaderProps> = ({
   patch,
   status,
   oldPath,
+  canOpenFile = true,
   isViewed = false,
   onToggleViewed,
   isStaged = false,
@@ -270,7 +273,7 @@ export const FileHeader: React.FC<FileHeaderProps> = ({
           filePath={filePath}
           base={state?.agentCwd ?? null}
           diffText={patch}
-          canOpen={!(state?.prMetadata && !state?.agentCwd) && status !== 'deleted'}
+          canOpen={canOpenFile && !(state?.prMetadata && !state?.agentCwd) && status !== 'deleted'}
         />
       </div>
     </div>

@@ -4,7 +4,7 @@ import { getSingularPatch, processFile } from '@pierre/diffs';
 import { CodeAnnotation, CodeAnnotationType, SelectedLineRange, DiffAnnotationMetadata, TokenAnnotationMeta, ConventionalLabel, ConventionalDecoration } from '@plannotator/ui/types';
 import type { DiffTokenEventBaseProps } from '@pierre/diffs';
 import { usePierreTheme } from '../hooks/usePierreTheme';
-import { useWorkerPoolThemeSync } from '../workerPool';
+import { useWorkerPoolThemeSync } from '../workerPoolRuntime';
 import { CommentPopover } from '@plannotator/ui/components/CommentPopover';
 import { storage } from '@plannotator/ui/utils/storage';
 import { detectLanguage } from '../utils/detectLanguage';
@@ -141,6 +141,10 @@ interface DiffViewerProps {
   status?: import('../types').DiffFileStatus;
   /** Base branch override used for file-content lookups (branch / merge-base modes only). */
   reviewBase?: string;
+  /** Disable server-backed full-file expansion for portable/offline snapshots. */
+  fileContentFetchEnabled?: boolean;
+  /** Disable local editor/file-manager actions when the viewer has no local server context. */
+  canOpenFile?: boolean;
   /** Current PR url + diff scope — used to namespace file-comment drafts so they don't leak across in-place PR switches. */
   prUrl?: string;
   prDiffScope?: string;
@@ -194,6 +198,8 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   oldPath,
   status,
   reviewBase,
+  fileContentFetchEnabled = true,
+  canOpenFile = true,
   prUrl,
   prDiffScope,
   isFocused = false,
@@ -310,8 +316,9 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   const [fileContents, setFileContents] = useState<{ forPath: string; old: string | null; new: string | null } | null>(null);
 
   useEffect(() => {
-    const controller = new AbortController();
     setFileContents(null);
+    if (!fileContentFetchEnabled) return;
+    const controller = new AbortController();
     const params = new URLSearchParams({ path: filePath });
     if (oldPath) params.set('oldPath', oldPath);
     if (reviewBase) params.set('base', reviewBase);
@@ -324,7 +331,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       })
       .catch(() => {}); // Silent fallback — no expansion in demo mode
     return () => controller.abort();
-  }, [filePath, oldPath, reviewBase]);
+  }, [filePath, oldPath, reviewBase, fileContentFetchEnabled]);
 
   // Re-parse the patch with full file contents so hunk indices are computed
   // against the complete file (isPartial: false), enabling expansion.
@@ -662,6 +669,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         patch={patch}
         status={status}
         oldPath={oldPath}
+        canOpenFile={canOpenFile}
         isViewed={isViewed}
         onToggleViewed={onToggleViewed}
         isStaged={isStaged}

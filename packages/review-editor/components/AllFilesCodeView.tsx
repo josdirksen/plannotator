@@ -23,7 +23,7 @@ import type {
 } from '@plannotator/ui/types';
 import { CommentPopover } from '@plannotator/ui/components/CommentPopover';
 import { usePierreTheme } from '../hooks/usePierreTheme';
-import { useIsWorkerPoolReadyOrDisabled, useWorkerPoolThemeSync } from '../workerPool';
+import { useIsWorkerPoolReadyOrDisabled, useWorkerPoolThemeSync } from '../workerPoolRuntime';
 import type { DiffFile, AnnotationScrollTarget } from '../types';
 import { buildFileTree, getVisualFileOrder } from '../utils/buildFileTree';
 import { buildCodeNavRequest } from '../utils/buildCodeNavRequest';

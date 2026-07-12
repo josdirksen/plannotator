@@ -11,6 +11,7 @@ import { GuideEmptyState } from './GuideEmptyState';
 import { GuideGenerating } from './GuideGenerating';
 import { GuideSectionSkeleton } from './GuideSkeleton';
 import { GuideView } from './GuideView';
+import type { CodeGuideData } from '@plannotator/shared/guide';
 
 interface GuideScreenProps {
   /** Latest completed guide job id (or the demo guide id in standalone mode).
@@ -26,6 +27,12 @@ interface GuideScreenProps {
    *  panel successfully submits a manually-fixed output (POST .../submit →
    *  200). Wired to the same handler ReviewSidebar's onOpenGuide uses. */
   onOpenFixedGuide?: (jobId: string) => void;
+  /** Parsed guide bundled into a portable HTML snapshot. Bypasses all guide APIs. */
+  embeddedGuide?: CodeGuideData;
+  /** Generator label retained in a portable snapshot when no live job exists. */
+  embeddedEngineLabel?: string;
+  /** Live sessions can download the current guide; portable snapshots cannot recursively export themselves. */
+  htmlExportEnabled?: boolean;
 }
 
 /**
@@ -46,6 +53,9 @@ export const GuideScreen: React.FC<GuideScreenProps> = ({
   killJob,
   onClose,
   onOpenFixedGuide,
+  embeddedGuide,
+  embeddedEngineLabel,
+  htmlExportEnabled = false,
 }) => {
   const [cancelling, setCancelling] = useState(false);
   // GuideScreen renders inside ReviewStateProvider (ActiveGuide below already
@@ -153,6 +163,9 @@ export const GuideScreen: React.FC<GuideScreenProps> = ({
         capabilities={capabilities}
         launchJob={launchJob}
         onOpenFixedGuide={onOpenFixedGuide}
+        embeddedGuide={embeddedGuide}
+        embeddedEngineLabel={embeddedEngineLabel}
+        htmlExportEnabled={htmlExportEnabled}
       />
     );
   }
@@ -196,6 +209,9 @@ function ActiveGuide({
   capabilities,
   launchJob,
   onOpenFixedGuide,
+  embeddedGuide,
+  embeddedEngineLabel,
+  htmlExportEnabled,
 }: {
   jobId: string;
   jobs: AgentJobInfo[];
@@ -206,8 +222,13 @@ function ActiveGuide({
   capabilities: AgentCapabilities | null;
   launchJob: (params: AgentLaunchParams) => Promise<AgentJobInfo | null>;
   onOpenFixedGuide?: (jobId: string) => void;
+  embeddedGuide?: CodeGuideData;
+  embeddedEngineLabel?: string;
+  htmlExportEnabled: boolean;
 }) {
-  const { guide, loading, error, reviewed, toggleReviewed, retry } = useGuideData(jobId);
+  const { guide, loading, error, reviewed, toggleReviewed, retry } = useGuideData(
+    embeddedGuide ? { kind: 'embedded', guide: embeddedGuide } : { kind: 'job', jobId },
+  );
   const [focusedFile, setFocusedFile] = useState<string | null>(null);
   const state = useReviewState();
 
@@ -344,6 +365,13 @@ function ActiveGuide({
   }
 
   const engine = jobs.find((j) => j.id === jobId)?.engine;
+  const embeddedGeneratorLabel = embeddedEngineLabel
+    ? REVIEW_ENGINE_LABEL[embeddedEngineLabel as ReviewEngine] ?? embeddedEngineLabel
+    : undefined;
+  // Repaired guides can be successfully submitted under a job whose process
+  // status remains `failed`. Reaching this branch means the guide endpoint
+  // returned usable data, so the export endpoint is the source of truth too.
+  const exportJobId = htmlExportEnabled && jobId !== DEMO_GUIDE_ID ? jobId : undefined;
 
   return (
     <div className="w-full">
@@ -352,9 +380,10 @@ function ActiveGuide({
         guide={guide}
         reviewed={reviewed}
         onToggleReviewed={toggleReviewed}
-        engineLabel={engine ? REVIEW_ENGINE_LABEL[engine as ReviewEngine] ?? engine : undefined}
+        engineLabel={embeddedGeneratorLabel ?? (engine ? REVIEW_ENGINE_LABEL[engine as ReviewEngine] ?? engine : undefined)}
         focusedFile={focusedFile}
         onFocusFile={setFocusedFile}
+        exportJobId={exportJobId}
       />
     </div>
   );

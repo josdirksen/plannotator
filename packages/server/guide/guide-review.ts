@@ -18,6 +18,7 @@ import {
   type MarkerEngineId,
 } from "../marker-review";
 import type {
+  CodeGuideData,
   CodeGuideOutput,
   GuideDiffRef,
   GuideSection,
@@ -850,6 +851,12 @@ export async function parseGuideFileOutput(outputPath: string): Promise<CodeGuid
 }
 
 export interface GuideSessionBuildCommandOptions {
+  /** Agent-job id allocated before command construction. It keys the exact
+   * review snapshot retained for later portable export. */
+  jobId: string;
+  /** Exact review context captured in the same synchronous launch snapshot as
+   * `patch`; never reconstructed from mutable server state after generation. */
+  launchSnapshot: GuideLaunchSnapshot;
   cwd: string;
   patch: string;
   diffType: DiffType;
@@ -898,6 +905,22 @@ export interface GuideSessionJobRef {
   prompt?: string;
 }
 
+/** Exact review state a guide job was generated against. */
+export interface GuideLaunchSnapshot {
+  readonly rawPatch: string;
+  readonly gitRef: string;
+  readonly diffType: string;
+  readonly base?: string;
+  readonly repository?: string;
+  readonly prUrl?: string;
+}
+
+/** Successful guide data paired with the immutable launch snapshot it describes. */
+export interface GuideExportArtifact {
+  readonly guide: CodeGuideData;
+  readonly launchSnapshot: GuideLaunchSnapshot;
+}
+
 export interface GuideSessionOnJobCompleteOptions {
   job: GuideSessionJobRef;
   meta: { outputPath?: string; stdout?: string };
@@ -924,6 +947,8 @@ export interface GuideSession {
    *  section placement against, not whatever patch happens to be on screen
    *  when the reviewer gets around to fixing the JSON. */
   launchChangedFiles: Map<string, string[]>;
+  /** Exact review snapshots keyed by job id for portable HTML export. */
+  launchSnapshots: Map<string, GuideLaunchSnapshot>;
   buildCommand(opts: GuideSessionBuildCommandOptions): Promise<GuideSessionBuildCommandResult>;
   onJobComplete(opts: GuideSessionOnJobCompleteOptions): Promise<{ summary: GuideSessionJobSummary | null }>;
   getGuide(jobId: string): (CodeGuideOutput & { reviewed: boolean[] }) | null;
@@ -935,6 +960,10 @@ export interface GuideSession {
    *  the FAILED job's own recorded set, rather than from whatever diff is on
    *  screen at repair time (see the repairOf branch in buildAgentJob). */
   getLaunchChangedFiles(jobId: string): string[] | null;
+  /** Return the exact launch snapshot for a guide or repair job. */
+  getLaunchSnapshot(jobId: string): GuideLaunchSnapshot | null;
+  /** Return a successful guide paired with the launch snapshot it describes. */
+  getExportArtifact(jobId: string): GuideExportArtifact | null;
   /** Manually submit corrected guide JSON (mechanical repair -> parse ->
    *  validateGuideOutput) for a job whose automatic output failed. Success
    *  stores under the SAME job id the reviewed state is already keyed to.
@@ -1097,14 +1126,17 @@ export function createGuideSession(): GuideSession {
   const guideReviewed = new Map<string, boolean[]>();
   const failedPayloads = new Map<string, string>();
   const launchChangedFiles = new Map<string, string[]>();
+  const launchSnapshots = new Map<string, GuideLaunchSnapshot>();
 
   return {
     guideResults,
     guideReviewed,
     failedPayloads,
     launchChangedFiles,
+    launchSnapshots,
 
-    async buildCommand({ cwd, patch, diffType, options, prMetadata, changedFiles, config, repair }) {
+    async buildCommand({ jobId, launchSnapshot, cwd, patch, diffType, options, prMetadata, changedFiles, config, repair }) {
+      launchSnapshots.set(jobId, launchSnapshot);
       const engine = (typeof config?.engine === "string" ? config.engine : "claude") as "claude" | "codex" | MarkerEngineId;
       const explicitModel = typeof config?.model === "string" && config.model ? config.model : null;
       // "sonnet" is a Claude model, so we must NOT pass it to Codex or the
@@ -1244,6 +1276,23 @@ export function createGuideSession(): GuideSession {
 
     getLaunchChangedFiles(jobId) {
       return launchChangedFiles.get(jobId) ?? null;
+    },
+
+    getLaunchSnapshot(jobId) {
+      return launchSnapshots.get(jobId) ?? null;
+    },
+
+    getExportArtifact(jobId) {
+      const guide = guideResults.get(jobId);
+      const launchSnapshot = launchSnapshots.get(jobId);
+      if (!guide || !launchSnapshot) return null;
+      const persistedReviewed = guideReviewed.get(jobId) ?? [];
+      const reviewed = new Array<boolean>(guide.sections.length).fill(false);
+      for (let index = 0; index < reviewed.length; index++) reviewed[index] = !!persistedReviewed[index];
+      return {
+        guide: { ...guide, reviewed },
+        launchSnapshot,
+      };
     },
 
     submitManualOutput(jobId, payloadText, fallbackChangedFiles) {

@@ -60,7 +60,9 @@ function isDismissedVersion(latestVersion: string): boolean {
   return cleanLatest === cleanDismissed;
 }
 
-export function useUpdateCheck(): UpdateInfo | null {
+/** Check GitHub for a newer Plannotator release unless the current surface is offline-only. */
+export function useUpdateCheck(options?: { readonly enabled?: boolean }): UpdateInfo | null {
+  const enabled = options?.enabled ?? true;
   const [checkResult, setCheckResult] = useState<VersionCheckResult | null>(null);
   const [dismissed, setDismissed] = useState(false);
 
@@ -72,6 +74,7 @@ export function useUpdateCheck(): UpdateInfo | null {
   }, [checkResult?.latestVersion]);
 
   useEffect(() => {
+    if (!enabled) return;
     const checkForUpdates = async () => {
       try {
         const currentVersion = typeof __APP_VERSION__ !== 'undefined'
@@ -119,7 +122,7 @@ export function useUpdateCheck(): UpdateInfo | null {
     };
 
     checkForUpdates();
-  }, []);
+  }, [enabled]);
 
   if (!checkResult) return null;
 

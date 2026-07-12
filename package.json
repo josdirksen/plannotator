@@ -24,7 +24,7 @@
     "dev:review": "bun run --cwd apps/review dev",
     "build:hook": "bun run --cwd apps/hook build",
     "build:portal": "bun run --cwd apps/portal build",
-    "build:marketing": "bun run --cwd apps/marketing build",
+    "build:marketing": "bun run --cwd apps/marketing build && bun run --cwd apps/review build:portable",
     "build:opencode": "bun run --cwd apps/opencode-plugin build",
     "build:review": "bun run --cwd apps/review build",
     "build:pi": "bun run build:review && bun run build:hook && bun run --cwd apps/pi-extension build",

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { repairGuideJsonText, validateGuideOutput, parseGuideStreamOutput } from "./guide-review";
+import { createGuideSession, repairGuideJsonText, validateGuideOutput, parseGuideStreamOutput } from "./guide-review";
 
 // Pins the behaviors the PR-993 review rounds fixed. This module previously
 // had NO direct coverage — the repair ladder and validation are pure logic
@@ -148,5 +148,52 @@ describe("parseGuideStreamOutput", () => {
 
   it("returns null on empty stdout", () => {
     expect(parseGuideStreamOutput("")).toBeNull();
+  });
+});
+
+describe("guide export artifact", () => {
+  it("pairs a completed guide with the exact launch-time review snapshot", async () => {
+    const session = createGuideSession();
+    const launchSnapshot = {
+      rawPatch: "diff --git a/src/a.ts b/src/a.ts\n+const next = true;",
+      gitRef: "main...HEAD",
+      diffType: "since-base",
+      base: "main",
+      repository: "backnotprop/plannotator",
+    };
+    await session.buildCommand({
+      jobId: "guide-job",
+      launchSnapshot,
+      cwd: process.cwd(),
+      patch: launchSnapshot.rawPatch,
+      diffType: "since-base",
+      changedFiles: [{ path: "src/a.ts", additions: 1, deletions: 0 }],
+    });
+
+    const output = {
+      title: "Export guide",
+      intent: "Keep the generated guide and patch together.",
+      sections: [
+        {
+          title: "Snapshot",
+          overview: "Retains the exact diff used for generation.",
+          diffs: [{ file: "src/a.ts", summary: "Adds the export path." }],
+        },
+      ],
+      unplacedFiles: [],
+    };
+    const stdout = JSON.stringify({ type: "result", structured_output: output });
+    const completion = await session.onJobComplete({
+      job: { id: "guide-job", engine: "claude" },
+      meta: { stdout },
+      changedFiles: ["src/a.ts"],
+    });
+    expect(completion.summary?.correctness).toBe("Guide Generated");
+
+    session.saveReviewed("guide-job", [true]);
+    expect(session.getExportArtifact("guide-job")).toEqual({
+      guide: { ...output, unplacedFiles: undefined, reviewed: [true] },
+      launchSnapshot,
+    });
   });
 });

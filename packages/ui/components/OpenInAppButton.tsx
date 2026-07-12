@@ -89,6 +89,11 @@ export const OpenInAppButton: React.FC<OpenInAppButtonProps> = ({
   const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    if (!canOpen) {
+      setAvailable(false);
+      setApps([]);
+      return;
+    }
     let cancelled = false;
     loadOpenInApps().then((data) => {
       if (cancelled) return;
@@ -98,7 +103,7 @@ export const OpenInAppButton: React.FC<OpenInAppButtonProps> = ({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [canOpen]);
 
   useEffect(() => {
     return () => {

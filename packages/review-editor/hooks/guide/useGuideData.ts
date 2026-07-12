@@ -13,6 +13,11 @@ export interface UseGuideDataReturn {
   retry: () => void;
 }
 
+/** Source of guide data: a live server job or an already-parsed embedded snapshot. */
+export type GuideDataSource =
+  | { readonly kind: 'job'; readonly jobId: string }
+  | { readonly kind: 'embedded'; readonly guide: CodeGuideData };
+
 /** Pad/truncate a persisted reviewed array to the current section count — a
  *  regenerated guide (new jobId) starts fresh, but a stale array shorter or
  *  longer than `sections.length` (server restart, schema drift) shouldn't crash. */
@@ -23,7 +28,9 @@ function normalizeReviewed(reviewed: boolean[] | undefined, sectionCount: number
   return next;
 }
 
-export function useGuideData(jobId: string): UseGuideDataReturn {
+export function useGuideData(source: GuideDataSource): UseGuideDataReturn {
+  const jobId = source.kind === 'job' ? source.jobId : null;
+  const embeddedGuide = source.kind === 'embedded' ? source.guide : null;
   const [guide, setGuide] = useState<CodeGuideData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,9 +56,17 @@ export function useGuideData(jobId: string): UseGuideDataReturn {
   const [refreshNonce, setRefreshNonce] = useState(0);
 
   const fetchGuide = useCallback((): (() => void) | void => {
-    if (!jobId) return;
     setLoading(true);
     setError(null);
+
+    if (embeddedGuide) {
+      skipNextSaveRef.current = true;
+      setGuide(embeddedGuide);
+      setReviewed(normalizeReviewed(embeddedGuide.reviewed, embeddedGuide.sections.length));
+      setLoading(false);
+      return;
+    }
+    if (!jobId) return;
 
     // Dev short-circuit: render the demo guide without a backend.
     if (jobId === DEMO_GUIDE_ID) {
@@ -90,7 +105,7 @@ export function useGuideData(jobId: string): UseGuideDataReturn {
     return () => {
       cancelled = true;
     };
-  }, [jobId]);
+  }, [embeddedGuide, jobId]);
 
   useEffect(() => {
     return fetchGuide();
@@ -102,6 +117,7 @@ export function useGuideData(jobId: string): UseGuideDataReturn {
 
   const saveReviewed = useCallback(
     (next: boolean[]) => {
+      if (embeddedGuide || !jobId) return;
       if (jobId === DEMO_GUIDE_ID) return;
       pendingReviewedRef.current = next;
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -117,7 +133,7 @@ export function useGuideData(jobId: string): UseGuideDataReturn {
         }).catch(() => {});
       }, 500);
     },
-    [jobId],
+    [embeddedGuide, jobId],
   );
 
   // Pure functional updater — safe under React StrictMode's dev-only
@@ -148,7 +164,7 @@ export function useGuideData(jobId: string): UseGuideDataReturn {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       const payload = pendingReviewedRef.current;
       pendingReviewedRef.current = null;
-      if (!payload || jobId === DEMO_GUIDE_ID) return;
+      if (!payload || !jobId || embeddedGuide || jobId === DEMO_GUIDE_ID) return;
       // keepalive lets the request survive if this unmount is part of a tab close.
       fetch(`/api/guide/${jobId}/reviewed`, {
         method: 'PUT',
@@ -157,7 +173,7 @@ export function useGuideData(jobId: string): UseGuideDataReturn {
         keepalive: true,
       }).catch(() => {});
     };
-  }, [jobId]);
+  }, [embeddedGuide, jobId]);
 
   const retry = useCallback(() => setRefreshNonce((n) => n + 1), []);
 

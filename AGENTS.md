@@ -136,6 +136,7 @@ claude --plugin-dir ./apps/hook
 | `PLANNOTATOR_SHARE` | Set to `disabled` to turn off URL sharing entirely. Default: enabled. Can also be set via `~/.plannotator/config.json` (`{ "share": "disabled" }`); the env var takes precedence. |
 | `PLANNOTATOR_SHARE_URL` | Custom base URL for share links (self-hosted portal). Default: `https://share.plannotator.ai`. |
 | `PLANNOTATOR_PASTE_URL` | Base URL of the paste service API for short URL sharing. Default: `https://plannotator-paste.plannotator.workers.dev`. |
+| `PLANNOTATOR_GUIDED_REVIEW_ASSET_URL` | Base URL for the versioned production Guided Review viewer assets used by downloaded HTML exports. Default: `https://plannotator.ai/assets/guided-review-viewer/v1/`. Primarily useful for local viewer development or self-hosting. |
 | `PLANNOTATOR_ORIGIN` | Explicit agent-origin override at the top of the detection chain. Valid values: `claude-code`, `amp`, `droid`, `opencode`, `codex`, `copilot-cli`, `gemini-cli`, `kiro-cli`, `pi`. Invalid values silently fall through to env-based detection. Unset by default. |
 | `PLANNOTATOR_JINA` | Set to `0` / `false` to disable Jina Reader for URL annotation, or `1` / `true` to enable. Default: enabled. Can also be set via `~/.plannotator/config.json` (`{ "jina": false }`) or per-invocation via `--no-jina`. |
 | `PLANNOTATOR_ANNOTATE_HISTORY` | Set to `0` / `false` to disable per-file version history in annotate mode (no copies of annotated files are written to the data dir; the annotate version diff is unavailable). Default: enabled. Can also be set via `~/.plannotator/config.json` (`{ "annotateHistory": false }`); the env var takes precedence. |
@@ -350,6 +351,8 @@ During normal plan review, an Archive sidebar tab provides the same browsing via
 | `/api/tour/:jobId/checklist` | PUT | Persist checklist item state for a Code Tour |
 | `/api/guide/:jobId` | GET | Fetch Guided Review result (ordered sections with overviews + file refs) for a completed guide job |
 | `/api/guide/:jobId/reviewed` | PUT | Persist per-section reviewed state for a guide |
+| `/api/guide/:jobId/export-info` | GET | Preflight both HTML download sizes and list file patches that require an include/exclude choice |
+| `/api/guide/:jobId/export` | GET | Download a completed guide as HTML (`?format=small\|offline`; small uses the versioned production viewer assets, offline embeds the bundled app; `largeFiles=include\|exclude` is required when preflight reports large patches) |
 | `/api/guide/:jobId/output` | GET | Fetch a failed guide job's captured raw output for manual repair (404 if none captured) |
 | `/api/guide/:jobId/submit` | POST | Manually submit corrected guide JSON for a failed job (body: `{ payload }`) |
 | `/api/code-nav/resolve` | POST | Search for symbol definitions and references via ripgrep (body: `{ symbol, filePath, line, charStart, side, language? }`) |

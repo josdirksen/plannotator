@@ -46,6 +46,10 @@ export interface ReviewState {
   /** Agent working directory — base for resolving repo-relative diff paths to
    *  absolute (e.g. for the Open-in-app control). */
   agentCwd?: string | null;
+  /** False for portable snapshots, which have no server endpoint for full-file expansion. */
+  fileContentFetchEnabled?: boolean;
+  /** False for portable snapshots, where local editor/file-manager launches are unavailable. */
+  canOpenFiles?: boolean;
 
   // Annotations
   allAnnotations: CodeAnnotation[];

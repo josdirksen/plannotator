@@ -77,6 +77,22 @@ import {
 import { createTourSession, TOUR_EMPTY_OUTPUT_ERROR } from "./tour/tour-review";
 import { createGuideSession, GUIDE_EMPTY_OUTPUT_ERROR } from "./guide/guide-review";
 import {
+  PORTABLE_GUIDED_REVIEW_KIND,
+  PORTABLE_GUIDED_REVIEW_ASSET_BASE_URL,
+  PORTABLE_GUIDED_REVIEW_EXPORT_FORMATS,
+  PORTABLE_GUIDED_REVIEW_LARGE_FILE_CHOICES,
+  PORTABLE_GUIDED_REVIEW_VERSION,
+  createPortableGuidedReviewFilename,
+  createPortableGuidedReviewHtml,
+  createSelfContainedGuidedReviewHtml,
+  estimatePortableGuidedReviewExportBytes,
+  getPortableGuidedReviewExportInfo,
+  parsePortableGuidedReviewExportFormat,
+  parsePortableGuidedReviewLargeFileChoice,
+  type PortableGuidedReviewExportPreflight,
+  type PortableGuidedReviewSnapshotV1,
+} from "@plannotator/shared/guide-export";
+import {
   MARKER_ENGINES,
   composeMarkerReviewPrompt,
   buildMarkerCommand,
@@ -736,12 +752,13 @@ export async function startReviewServer(
     getServerUrl: () => serverUrl,
     getCwd: resolveAgentCwd,
 
-    async buildCommand(provider, config) {
+    async buildCommand(provider, config, { jobId }) {
       // Snapshot ALL launch-relevant state before any await: waiting out the
       // checkout warmup below yields to other requests (e.g. pr-switch), and
       // the job's cwd, prompt, and PR attribution must describe the same PR.
       const launchMetadata = prMetadata;
       const launchPatch = currentPatch;
+      const launchGitRef = currentGitRef;
       const launchDiffType = currentDiffType;
       const launchBase = currentBase;
       const launchScope = currentPRDiffScope;
@@ -920,7 +937,25 @@ export async function startReviewServer(
           guideConfig = { ...config, engine: repairEngine };
         }
 
+        const currentLaunchSnapshot = {
+          rawPatch: launchPatch,
+          gitRef: launchGitRef,
+          diffType: String(launchDiffType),
+          ...(launchBase && { base: launchBase }),
+          ...(launchMetadata
+            ? { repository: getDisplayRepo(launchMetadata), prUrl: launchMetadata.url }
+            : workspace
+              ? { repository: basename(workspace.root) }
+              : gitContext?.repository?.displayFallback
+                ? { repository: gitContext.repository.displayFallback }
+                : {}),
+        };
+        const guideLaunchSnapshot = repairOf
+          ? guide.getLaunchSnapshot(repairOf) ?? currentLaunchSnapshot
+          : currentLaunchSnapshot;
         const built = await guide.buildCommand({
+          jobId,
+          launchSnapshot: guideLaunchSnapshot,
           cwd,
           patch: launchPatch,
           diffType: launchDiffType as DiffType,
@@ -1314,6 +1349,91 @@ export async function startReviewServer(
             } catch {
               return Response.json({ error: "Invalid JSON" }, { status: 400 });
             }
+          }
+
+          // API: Preflight or download a successful guide as portable HTML.
+          const guideExportMatch = url.pathname.match(/^\/api\/guide\/([^/]+)\/(export|export-info)$/);
+          if (guideExportMatch && req.method === "GET") {
+            const jobId = guideExportMatch[1];
+            const artifact = guide.getExportArtifact(jobId);
+            if (!artifact) return Response.json({ error: "Guide not found" }, { status: 404 });
+            const job = agentJobs.getJob(jobId);
+            const { launchSnapshot } = artifact;
+            const snapshot: PortableGuidedReviewSnapshotV1 = {
+              kind: PORTABLE_GUIDED_REVIEW_KIND,
+              version: PORTABLE_GUIDED_REVIEW_VERSION,
+              exportedAt: new Date().toISOString(),
+              guide: artifact.guide,
+              review: {
+                rawPatch: launchSnapshot.rawPatch,
+                gitRef: launchSnapshot.gitRef,
+                diffType: launchSnapshot.diffType,
+                ...(launchSnapshot.base && { base: launchSnapshot.base }),
+              },
+              ...((launchSnapshot.repository || launchSnapshot.prUrl) && {
+                metadata: {
+                  ...(launchSnapshot.repository && { repository: launchSnapshot.repository }),
+                  ...(launchSnapshot.prUrl && { prUrl: launchSnapshot.prUrl }),
+                },
+              }),
+              ...((job?.engine || job?.model) && {
+                generator: {
+                  ...(job.engine && { engine: job.engine }),
+                  ...(job.model && { model: job.model }),
+                },
+              }),
+            };
+            const exportInfo = getPortableGuidedReviewExportInfo(snapshot);
+            const assetBaseUrl =
+              process.env.PLANNOTATOR_GUIDED_REVIEW_ASSET_URL ??
+              PORTABLE_GUIDED_REVIEW_ASSET_BASE_URL;
+            if (guideExportMatch[2] === "export-info") {
+              const preflight = {
+                ...exportInfo,
+                estimatedBytes: estimatePortableGuidedReviewExportBytes(snapshot, {
+                  assetBaseUrl,
+                  applicationHtml: htmlContent,
+                }),
+              } satisfies PortableGuidedReviewExportPreflight;
+              return Response.json(preflight);
+            }
+            const requestedFormat = url.searchParams.get("format");
+            const exportFormat = parsePortableGuidedReviewExportFormat(requestedFormat);
+            if (exportFormat === null) {
+              return Response.json(
+                { error: "Unsupported export format", supportedFormats: PORTABLE_GUIDED_REVIEW_EXPORT_FORMATS },
+                { status: 400 },
+              );
+            }
+            const requestedLargeFileChoice = url.searchParams.get("largeFiles");
+            const largeFileChoice = parsePortableGuidedReviewLargeFileChoice(requestedLargeFileChoice);
+            if (requestedLargeFileChoice !== null && largeFileChoice === null) {
+              return Response.json(
+                { error: "Unsupported large-file choice", supportedChoices: PORTABLE_GUIDED_REVIEW_LARGE_FILE_CHOICES },
+                { status: 400 },
+              );
+            }
+            if (
+              exportInfo.largeFiles.length > 0 &&
+              largeFileChoice === null
+            ) {
+              return Response.json(
+                { error: "Large-file choice required", ...exportInfo },
+                { status: 409 },
+              );
+            }
+            const includeLargeFiles = exportInfo.largeFiles.length === 0 || largeFileChoice === "include";
+            const html = exportFormat === "offline"
+              ? createSelfContainedGuidedReviewHtml(snapshot, { includeLargeFiles, applicationHtml: htmlContent })
+              : createPortableGuidedReviewHtml(snapshot, { includeLargeFiles, assetBaseUrl });
+            const filename = createPortableGuidedReviewFilename(artifact.guide.title);
+            return new Response(html, {
+              headers: {
+                "Content-Type": "text/html; charset=utf-8",
+                "Content-Disposition": `attachment; filename="guided-review.html"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+                "Cache-Control": "no-store",
+              },
+            });
           }
 
           // API: Get guide result

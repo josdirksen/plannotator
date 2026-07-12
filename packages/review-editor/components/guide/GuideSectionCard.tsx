@@ -27,13 +27,13 @@ function FileChip({
   file,
   additions,
   deletions,
-  missing,
+  missingLabel,
   onClick,
 }: {
   file: string;
   additions?: number;
   deletions?: number;
-  missing: boolean;
+  missingLabel?: 'outdated' | 'omitted';
   onClick: () => void;
 }) {
   const slash = file.lastIndexOf('/');
@@ -48,8 +48,10 @@ function FileChip({
     >
       <span className="truncate font-mono text-[11px] font-medium text-foreground">{name}</span>
       {dir && <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground/60">{dir}</span>}
-      {missing ? (
-        <span className="flex-shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/50">outdated</span>
+      {missingLabel ? (
+        <span className="flex-shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/50">
+          {missingLabel}
+        </span>
       ) : (
         <span className="ml-auto flex-shrink-0 font-mono text-[10px]">
           {additions !== undefined && additions > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{additions}</span>}
@@ -225,13 +227,16 @@ export const GuideSectionCard: React.FC<GuideSectionCardProps> = ({
             <div className="mt-5 space-y-1.5 md:min-h-[84px] md:overflow-y-auto md:overflow-x-hidden">
               {section.diffs.map((ref) => {
                 const file = state.files.find((f) => f.path === ref.file);
+                const missingLabel = file
+                  ? undefined
+                  : state.fileContentFetchEnabled === false ? 'omitted' : 'outdated';
                 return (
                   <FileChip
                     key={ref.file}
                     file={ref.file}
                     additions={file?.additions}
                     deletions={file?.deletions}
-                    missing={!file}
+                    missingLabel={missingLabel}
                     onClick={() => {
                       // Retarget the guide's focus arbiter too: scrolling under
                       // a stationary pointer fires no pointerenter, so without

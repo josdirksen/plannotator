@@ -65,16 +65,28 @@ export const GuideDiffSection: React.FC<GuideDiffSectionProps> = ({ diffRef, isF
   const diffHeight = useMemo(() => (file ? estimateDiffHeight(file.patch) : 0), [file?.patch]);
 
   if (!file) {
+    const isPortableExport = state.fileContentFetchEnabled === false;
     return (
-      <div
-        className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-dashed border-border/50 bg-muted/10 text-xs text-muted-foreground"
-        title="This file no longer appears in the current diff — the guide may be out of date."
-      >
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" className="flex-shrink-0 text-muted-foreground/60">
-          <path d="M8 5v3.5M8 11h.007M14.5 8A6.5 6.5 0 1 1 1.5 8a6.5 6.5 0 0 1 13 0Z" stroke="currentColor" strokeWidth="1.2" />
-        </svg>
-        <span className="font-mono truncate flex-1">{diffRef.file}</span>
-        <span className="flex-shrink-0 uppercase tracking-wider text-[10px]">no longer in the current diff</span>
+      <div>
+        {diffRef.summary && (
+          <p className="mb-1.5 px-1 text-xs leading-relaxed text-muted-foreground">
+            {renderInlineMarkdown(diffRef.summary)}
+          </p>
+        )}
+        <div
+          className="flex items-center gap-2 rounded-lg border border-dashed border-border/50 bg-muted/10 px-3 py-2.5 text-xs text-muted-foreground"
+          title={isPortableExport
+            ? 'This file\'s diff content was omitted from the portable export.'
+            : 'This file no longer appears in the current diff — the guide may be out of date.'}
+        >
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" className="flex-shrink-0 text-muted-foreground/60">
+            <path d="M8 5v3.5M8 11h.007M14.5 8A6.5 6.5 0 1 1 1.5 8a6.5 6.5 0 0 1 13 0Z" stroke="currentColor" strokeWidth="1.2" />
+          </svg>
+          <span className="min-w-0 flex-1 truncate font-mono">{diffRef.file}</span>
+          <span className="flex-shrink-0 text-[10px] uppercase tracking-wider">
+            {isPortableExport ? 'diff omitted from this export' : 'no longer in the current diff'}
+          </span>
+        </div>
       </div>
     );
   }
@@ -102,6 +114,8 @@ export const GuideDiffSection: React.FC<GuideDiffSectionProps> = ({ diffRef, isF
           oldPath={file.oldPath}
           status={file.status}
           reviewBase={state.reviewBase}
+          fileContentFetchEnabled={state.fileContentFetchEnabled}
+          canOpenFile={state.canOpenFiles !== false}
           prUrl={state.prMetadata?.url}
           prDiffScope={state.prDiffScope}
           isFocused={isFocused}

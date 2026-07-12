@@ -1,8 +1,9 @@
 /**
- * Launch-plumbing tests for the custom-reviews `reviewProfileId` field.
+ * Launch-plumbing tests for server-built review jobs.
  *
  * These exercise the Bun POST /api/agents/jobs handler contract that the Pi
  * mirror must match byte-for-byte:
+ *  - The allocated public job id is available while buildCommand snapshots state.
  *  - `reviewProfileId` is parsed from the body and forwarded into buildCommand.
  *  - Unknown fields are rejected (fail loud, not silently ignored).
  *  - An absent id forwards no `reviewProfileId` (review.ts resolves that to
@@ -41,6 +42,26 @@ function post(body: unknown): Request {
 const JOBS_URL = new URL("http://localhost/api/agents/jobs");
 
 describe("POST /api/agents/jobs — reviewProfileId launch plumbing", () => {
+  test("allocates the public job id before buildCommand captures launch state", async () => {
+    let capturedJobId: string | undefined;
+    const handler = createAgentJobHandler({
+      mode: "review",
+      getServerUrl: () => "http://localhost:1234",
+      getCwd: () => "/tmp",
+      async buildCommand(_provider, _config, context) {
+        capturedJobId = context.jobId;
+        return { command: ["true"] };
+      },
+    });
+
+    const res = await handler.handle(post({ provider: "codex" }), JOBS_URL);
+
+    expect(res?.status).toBe(201);
+    const { job } = await res!.json();
+    expect(capturedJobId).toBe(job.id);
+    handler.killAll();
+  });
+
   test("forwards reviewProfileId into buildCommand config", async () => {
     let seenConfig: Record<string, unknown> | undefined;
     const handler = createAgentJobHandler({

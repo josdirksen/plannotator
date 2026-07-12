@@ -104,6 +104,7 @@ import { TourDialog } from './components/tour/TourDialog';
 import { DEMO_TOUR_ID } from './demoTour';
 import { GuideScreen } from './components/guide/GuideScreen';
 import { DEMO_GUIDE_ID } from './demoGuide';
+import { readEmbeddedPortableGuidedReview } from './portableGuideSnapshot';
 
 declare const __APP_VERSION__: string;
 
@@ -158,8 +159,13 @@ function orderFilesBySections(files: DiffFile[], sections?: SinceBaseSections | 
 
 /** Hint shown following the cursor while hovering a sidebar/panel resize handle. */
 const RESIZE_HANDLE_TOOLTIP = 'Click to close · Drag to resize';
+const PORTABLE_GUIDE_JOB_ID = 'portable-guided-review';
 
 const ReviewApp: React.FC = () => {
+  const embeddedPortableGuide = useMemo(() => readEmbeddedPortableGuidedReview(document), []);
+  const portableSnapshot = embeddedPortableGuide.kind === 'loaded' ? embeddedPortableGuide.snapshot : null;
+  const isPortableDocument = embeddedPortableGuide.kind !== 'absent';
+  const isPortableGuide = portableSnapshot !== null;
   const { resolvedMode } = useTheme();
   const [diffData, setDiffData] = useState<DiffData | null>(null);
   const [files, setFiles] = useState<DiffFile[]>([]);
@@ -242,9 +248,11 @@ const ReviewApp: React.FC = () => {
   const [isFileTreeOpen, setIsFileTreeOpen] = useState(true);
   // Guided Review screen takeover — file tree + center dock hidden (dock stays
   // mounted, just CSS-hidden; see the dock wrapper below), right sidebar untouched.
-  const [guideOpen, setGuideOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(isPortableGuide);
   // Latest completed `guide` job id (or DEMO_GUIDE_ID in standalone/demo mode).
-  const [activeGuideJobId, setActiveGuideJobId] = useState<string | null>(null);
+  const [activeGuideJobId, setActiveGuideJobId] = useState<string | null>(
+    isPortableGuide ? PORTABLE_GUIDE_JOB_ID : null,
+  );
   // Guide-mode reveal channel (see ReviewStateContext.guideRevealFile): sidebar
   // jumps while the guide is open route here instead of mutating the hidden
   // dock. Cleared on guide close below so reopening doesn't replay the reveal.
@@ -323,8 +331,12 @@ const ReviewApp: React.FC = () => {
   const [repoInfo, setRepoInfo] = useState<{ display: string; branch?: string } | null>(null);
 
   useEffect(() => {
+    if (portableSnapshot) {
+      document.title = `${portableSnapshot.guide.title} · Guided Review`;
+      return;
+    }
     document.title = repoInfo ? `${repoInfo.display} · Code Review` : "Code Review";
-  }, [repoInfo]);
+  }, [portableSnapshot, repoInfo]);
 
   const { prMetadata, prStackInfo, prStackTree, prDiffScope, prDiffScopeOptions, prPatchIncomplete, prPatchUpgradeAvailable, updatePRSession } = usePRSession();
 
@@ -353,7 +365,7 @@ const ReviewApp: React.FC = () => {
   // switcher. Renders only after the first-run dialog chain (guide intro →
   // look-and-feel → review setup) has fully cleared.
   const destToggleRef = useRef<HTMLButtonElement | null>(null);
-  const [showDestSpotlight, setShowDestSpotlight] = useState(needsDestinationSpotlight);
+  const [showDestSpotlight, setShowDestSpotlight] = useState(() => !isPortableDocument && needsDestinationSpotlight());
   const dismissDestSpotlight = useCallback(() => {
     markDestinationSpotlightSeen();
     setShowDestSpotlight(false);
@@ -385,7 +397,7 @@ const ReviewApp: React.FC = () => {
   const mrNumberLabel = prMetadata ? getMRNumberLabel(prMetadata) : '';
   const displayRepo = prMetadata ? getDisplayRepo(prMetadata) : '';
   const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
-  const updateInfo = useUpdateCheck();
+  const updateInfo = useUpdateCheck({ enabled: !isPortableDocument });
   const updateToastShown = useRef(false);
   useEffect(() => {
     if (updateInfo?.updateAvailable && !updateInfo.dismissed && !updateToastShown.current) {
@@ -594,7 +606,7 @@ const ReviewApp: React.FC = () => {
   // The 0.20.0 release / look-and-feel announcement also runs in code review.
   // Seen-state is a shared cookie (host-scoped), so dismissing it in either app
   // suppresses it in the other — it appears once across both.
-  const [showLookAndFeel, setShowLookAndFeel] = useState(needsLookAndFeelAnnouncement);
+  const [showLookAndFeel, setShowLookAndFeel] = useState(() => !isPortableDocument && needsLookAndFeelAnnouncement());
   const dismissLookAndFeel = useCallback(() => {
     markLookAndFeelAnnouncementSeen();
     setShowLookAndFeel(false);
@@ -602,8 +614,8 @@ const ReviewApp: React.FC = () => {
   // One-time guided-review intro dialog + header Guide-button hint. The hint
   // (shimmer + dot) is independent of the dialog: it runs until the first
   // Guide click, even for users who dismissed the dialog without reading.
-  const [showGuideIntro, setShowGuideIntro] = useState(needsGuideIntro);
-  const [guideHintActive, setGuideHintActive] = useState(needsGuideHint);
+  const [showGuideIntro, setShowGuideIntro] = useState(() => !isPortableDocument && needsGuideIntro());
+  const [guideHintActive, setGuideHintActive] = useState(() => !isPortableDocument && needsGuideHint());
   // FIRST in the dialog chain (guide intro → look-and-feel → review setup).
   // The intro only shows when a Guide button exists to point at
   // (hasSearchableFiles) — on an empty diff it is skipped WITHOUT consuming
@@ -689,6 +701,7 @@ const ReviewApp: React.FC = () => {
 
   // Check AI capabilities on mount
   useEffect(() => {
+    if (isPortableDocument) return;
     fetch('/api/ai/capabilities')
       .then(r => r.ok ? r.json() : null)
       .then(data => {
@@ -700,7 +713,7 @@ const ReviewApp: React.FC = () => {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [isPortableDocument]);
 
   // Provider/model/effort selection logic lives in the shared hook above; the
   // app only composes the session reset (the hook can't own it — see the cycle
@@ -1172,6 +1185,35 @@ const ReviewApp: React.FC = () => {
 
   // Load diff content - try API first, fall back to demo
   useEffect(() => {
+    if (embeddedPortableGuide.kind === 'loaded') {
+      const snapshot = embeddedPortableGuide.snapshot;
+      const snapshotFiles = parseDiffToFiles(snapshot.review.rawPatch);
+      setDiffData({
+        files: snapshotFiles,
+        rawPatch: snapshot.review.rawPatch,
+        gitRef: snapshot.review.gitRef,
+        ...(snapshot.review.diffType !== undefined && { diffType: snapshot.review.diffType }),
+        sharingEnabled: false,
+      });
+      setFiles(snapshotFiles);
+      setDiffType(snapshot.review.diffType ?? 'uncommitted');
+      if (snapshot.review.base !== undefined) {
+        setSelectedBase(snapshot.review.base);
+        setCommittedBase(snapshot.review.base);
+      }
+      if (snapshot.metadata?.repository) {
+        setRepoInfo({ display: snapshot.metadata.repository, branch: snapshot.review.gitRef });
+      }
+      setSharingEnabled(false);
+      setSemanticDiffAvailable(false);
+      setIsLoading(false);
+      return;
+    }
+    if (embeddedPortableGuide.kind === 'invalid') {
+      setIsLoading(false);
+      return;
+    }
+
     fetch('/api/diff')
       .then(res => {
         if (!res.ok) throw new Error('Not in API mode');
@@ -1301,7 +1343,7 @@ const ReviewApp: React.FC = () => {
         setSemanticDiffAvailable(false);
       })
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [embeddedPortableGuide]);
 
   // Handle line selection from diff viewer
   const handleLineSelection = useCallback((range: SelectedLineRange | null) => {
@@ -2218,6 +2260,8 @@ const ReviewApp: React.FC = () => {
     prReviewScope: prReviewScopeLabel,
     prDiffScope,
     agentCwd,
+    fileContentFetchEnabled: !isPortableDocument,
+    canOpenFiles: !isPortableDocument,
     allAnnotations,
     externalAnnotations,
     selectedAnnotationId,
@@ -2302,7 +2346,7 @@ const ReviewApp: React.FC = () => {
   }), [
     files, diffData?.rawPatch, activeFileIndex, guideOpen, diffStyle, diffOverflow, diffIndicators,
     diffLineDiffType, diffShowLineNumbers, diffShowBackground,
-    diffExpandUnchanged, diffFontFamily, diffFontSize, activeDiffBase, committedBase, feedbackDiffContext, prReviewScopeLabel, prDiffScope, agentCwd,
+    diffExpandUnchanged, diffFontFamily, diffFontSize, activeDiffBase, committedBase, feedbackDiffContext, prReviewScopeLabel, prDiffScope, agentCwd, isPortableDocument,
     allAnnotations, externalAnnotations,
     visibleDescriptionAnnotations, selectedDescriptionAnnotationId, handleAddDescriptionAnnotation,
     handleSelectDescriptionAnnotation, handleDeleteDescriptionAnnotation, handleAskAIForDescription,
@@ -2665,6 +2709,19 @@ const ReviewApp: React.FC = () => {
     origin, platformMode, platformLabel, platformUser, prMetadata, totalAnnotationCount, openPlatformDialog,
     handleApprove, handleSendFeedback, handlePlatformAction
   ]);
+
+  if (embeddedPortableGuide.kind === 'invalid') {
+    return (
+      <ThemeProvider defaultTheme="dark">
+        <div className="flex h-screen items-center justify-center bg-background px-6">
+          <div className="max-w-lg rounded-xl border border-destructive/20 bg-card p-6 text-center shadow-xl">
+            <h1 className="text-lg font-semibold text-foreground">This guided review could not be opened</h1>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{embeddedPortableGuide.message}</p>
+          </div>
+        </div>
+      </ThemeProvider>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -3287,6 +3344,9 @@ const ReviewApp: React.FC = () => {
                 killJob={agentJobs.killJob}
                 onClose={() => setGuideOpen(false)}
                 onOpenFixedGuide={handleOpenGuide}
+                embeddedGuide={portableSnapshot?.guide}
+                embeddedEngineLabel={portableSnapshot?.generator?.engine}
+                htmlExportEnabled={!isPortableDocument}
               />
             </div>
           )}

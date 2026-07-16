@@ -115,12 +115,96 @@ export interface GitCommandResult {
   exitCode: number;
 }
 
+/** Per-command execution policy understood by every review Git runtime. */
+export interface GitCommandOptions {
+  cwd?: string;
+  timeoutMs?: number;
+  /** Whether the command may ask the user for credentials. Defaults to `"allow"`. */
+  interaction?: "allow" | "forbid";
+}
+
+/** Runtime-neutral Git arguments and subprocess policy produced at the process boundary. */
+export interface PreparedGitCommand {
+  /** Arguments passed after the `git` executable. */
+  args: string[];
+  /** Per-process environment. Omitted when the inherited environment is unchanged. */
+  env?: Record<string, string | undefined>;
+  /** Whether the runtime must put the command in its own killable process group. */
+  isolateProcessGroup: boolean;
+}
+
 export interface ReviewGitRuntime {
   runGit: (
     args: string[],
-    options?: { cwd?: string; timeoutMs?: number },
+    options?: GitCommandOptions,
   ) => Promise<GitCommandResult>;
   readTextFile: (path: string) => Promise<string | null>;
+}
+
+function quoteGitSshPath(path: string): string {
+  return `"${path.replace(/["\\$`]/g, "\\$&")}"`;
+}
+
+function inheritedSshCommand(environment: Readonly<Record<string, string | undefined>>): string {
+  const command = environment.GIT_SSH_COMMAND?.trim();
+  if (command) return command;
+  const executable = environment.GIT_SSH?.trim();
+  return executable ? quoteGitSshPath(executable) : "ssh";
+}
+
+function usesPlink(
+  environment: Readonly<Record<string, string | undefined>>,
+  sshCommand: string,
+): boolean {
+  const variant = environment.GIT_SSH_VARIANT?.trim().toLowerCase();
+  if (variant === "plink" || variant === "tortoiseplink") return true;
+  if (variant === "ssh" || variant === "simple") return false;
+  return /(?:^|[\\/])(?:tortoise)?plink(?:\.exe)?(?:[\s"']|$)/i.test(sshCommand);
+}
+
+/**
+ * Prepare one Git subprocess without mutating the parent environment.
+ *
+ * Commands that forbid interaction disable Git credential prompts, request SSH
+ * batch mode (including PuTTY/plink), and request process-group isolation so
+ * the runtime can terminate transport children on timeout. Interactive Git
+ * commands retain the caller's exact authentication behavior.
+ */
+export function prepareGitCommand(
+  args: string[],
+  options: GitCommandOptions | undefined,
+  environment: Readonly<Record<string, string | undefined>>,
+): PreparedGitCommand {
+  const interaction = options?.interaction ?? "allow";
+  if (interaction === "allow") {
+    return {
+      args: ["-c", "core.quotePath=false", ...args],
+      isolateProcessGroup: false,
+    };
+  }
+
+  const sshCommand = inheritedSshCommand(environment);
+  const connectTimeoutSeconds = Math.max(1, Math.ceil((options?.timeoutMs ?? 5_000) / 1_000));
+  const sshBatchOptions = usesPlink(environment, sshCommand)
+    ? "-batch"
+    : `-o BatchMode=yes -o ConnectTimeout=${connectTimeoutSeconds}`;
+
+  return {
+    args: [
+      "-c",
+      "core.quotePath=false",
+      "-c",
+      "credential.interactive=false",
+      ...args,
+    ],
+    env: {
+      ...environment,
+      GIT_TERMINAL_PROMPT: "0",
+      GIT_SSH_COMMAND: `${sshCommand} ${sshBatchOptions}`,
+      SSH_ASKPASS_REQUIRE: "never",
+    },
+    isolateProcessGroup: true,
+  };
 }
 
 export interface GitDiffOptions {
@@ -237,8 +321,9 @@ export interface RemoteDefaultInfo {
  * background at server startup — the caller fires it with `.then()` and uses
  * the result if/when it arrives.
  *
- * Timeout-guarded: if the network is slow or absent, the promise resolves
- * (with `null`) once the timeout fires. Never throws.
+ * Noninteractive and timeout-guarded: credential/SSH prompts are forbidden,
+ * and a slow or absent network resolves with `null` once the timeout fires.
+ * Never throws.
  */
 export async function detectRemoteDefaultInfo(
   runtime: ReviewGitRuntime,
@@ -247,7 +332,7 @@ export async function detectRemoteDefaultInfo(
   try {
     const lsRemote = await runtime.runGit(
       ["ls-remote", "--symref", "origin", "HEAD"],
-      { cwd, timeoutMs: 5000 },
+      { cwd, timeoutMs: 5000, interaction: "forbid" },
     );
     if (lsRemote.exitCode !== 0) return null;
     const match = lsRemote.stdout.match(/^ref:\s+refs\/heads\/(\S+)\s+HEAD/m);

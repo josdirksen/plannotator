@@ -204,7 +204,7 @@ function collectWorkspaceRepos(
 }
 
 /**
- * Discovers the first Git or JJ repository below each workspace path.
+ * Discovers the first Git, GitButler, or JJ repository below each workspace path.
  *
  * Directory symlinks and junctions are followed while their logical paths are
  * retained for labels and file routing. Each canonical directory is traversed

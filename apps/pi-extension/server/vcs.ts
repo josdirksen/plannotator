@@ -17,7 +17,11 @@ import {
 	type ReviewJjRuntime,
 } from "../generated/jj-core.js";
 import {
+	type ReviewGitButlerRuntime,
+} from "../generated/gitbutler-core.js";
+import {
 	type VcsSelection,
+	createGitButlerProvider,
 	createGitProvider,
 	createJjProvider,
 	createVcsApi,
@@ -30,12 +34,14 @@ function runCommand(
 	notFoundMessage: string,
 	options?: GitCommandOptions,
 	preparedGitCommand?: PreparedGitCommand,
+	commandEnvironment?: NodeJS.ProcessEnv,
+	isolateProcessGroup = preparedGitCommand?.isolateProcessGroup ?? false,
 ): Promise<GitCommandResult> {
 	return new Promise((resolve) => {
 		const proc = spawn(command, args, {
 			cwd: options?.cwd,
-			detached: preparedGitCommand?.isolateProcessGroup ?? false,
-			env: preparedGitCommand?.env,
+			detached: isolateProcessGroup,
+			env: preparedGitCommand?.env ?? commandEnvironment,
 			stdio: ["ignore", "pipe", "pipe"],
 			windowsHide: true,
 		});
@@ -43,7 +49,7 @@ function runCommand(
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		if (options?.timeoutMs) {
 			timer = setTimeout(() => {
-				if (preparedGitCommand?.isolateProcessGroup && proc.pid && process.platform !== "win32") {
+				if (isolateProcessGroup && proc.pid && process.platform !== "win32") {
 					try {
 						process.kill(-proc.pid, "SIGKILL");
 						return;
@@ -51,7 +57,7 @@ function runCommand(
 						// Fall through when the process exited between the timer and signal.
 					}
 				}
-				if (preparedGitCommand?.isolateProcessGroup && proc.pid && process.platform === "win32") {
+				if (isolateProcessGroup && proc.pid && process.platform === "win32") {
 					const killed = spawnSync(
 						"taskkill.exe",
 						["/pid", String(proc.pid), "/t", "/f"],
@@ -111,14 +117,35 @@ export const jjRuntime: ReviewJjRuntime = {
 	},
 };
 
+/** Node Git + GitButler runtime used by the Pi review server. */
+export const gitButlerRuntime: ReviewGitButlerRuntime = {
+	...reviewRuntime,
+	runBut(
+		args: string[],
+		options?: GitCommandOptions,
+	): Promise<GitCommandResult> {
+		return runCommand(
+			"but",
+			args,
+			"but not found",
+			options,
+			undefined,
+			{ ...process.env, NO_BG_TASKS: "1" },
+			true,
+		);
+	},
+};
+
 const api = createVcsApi([
 	createJjProvider(jjRuntime),
+	createGitButlerProvider(gitButlerRuntime),
 	createGitProvider(reviewRuntime),
 ]);
 
 export const {
 	detectVcs,
 	detectManagedVcs,
+	vcsOwnsDiffType,
 	getVcsContext,
 	detectRemoteDefaultCompareTarget,
 	prepareLocalReviewDiff,

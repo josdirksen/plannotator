@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import {
   chmodSync,
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -107,6 +108,35 @@ function makeMockSem(dir: string, options: {
   return semPath;
 }
 
+function makeBlockingSem(dir: string): { semPath: string; startedPath: string; releasePath: string } {
+  const semPath = join(dir, "sem-blocking");
+  const startedPath = join(dir, "started");
+  const releasePath = join(dir, "release");
+  writeFileSync(semPath, [
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    'if [ "${1:-}" = "--version" ]; then',
+    `  : > ${JSON.stringify(startedPath)}`,
+    `  while [ ! -f ${JSON.stringify(releasePath)} ]; do sleep 0.02; done`,
+    '  echo "sem 0.8.0"',
+    "  exit 0",
+    "fi",
+    "cat >/dev/null",
+    "echo '{}'",
+    "",
+  ].join("\n"), "utf-8");
+  chmodSync(semPath, 0o755);
+  return { semPath, startedPath, releasePath };
+}
+
+async function waitForFile(path: string): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (existsSync(path)) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(`Timed out waiting for ${path}`);
+}
+
 afterEach(() => {
   if (originalSemPath === undefined) {
     delete process.env.PLANNOTATOR_SEM_PATH;
@@ -181,6 +211,56 @@ describe("review-workspace", () => {
         server.stop();
       }
     });
+
+    it.skipIf(process.platform === "win32")("does not partially commit a valid switch superseded by an invalid request", async () => {
+      const repoDir = makeTempDir("plannotator-switch-atomic-");
+      const semDir = makeTempDir("plannotator-switch-atomic-sem-");
+      initRepo(repoDir);
+      writeFileSync(join(repoDir, "README.md"), "# Dirty\n", "utf-8");
+      const gitContext = await getVcsContext(repoDir, "git");
+      const blocker = makeBlockingSem(semDir);
+      process.env.PLANNOTATOR_SEM_PATH = blocker.semPath;
+      const initialPatch = "diff --git a/initial.txt b/initial.txt\n";
+      const server = await startReviewServer({
+        rawPatch: initialPatch,
+        gitRef: "Initial snapshot",
+        diffType: "uncommitted",
+        gitContext,
+        origin: "claude-code",
+        htmlContent: "<!doctype html><html><body>review</body></html>",
+      });
+
+      try {
+        const validSwitch = fetch(`${server.url}/api/diff/switch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ diffType: "last-commit" }),
+        });
+        await waitForFile(blocker.startedPath);
+        const invalid = await fetch(`${server.url}/api/diff/switch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        expect(invalid.status).toBe(400);
+        writeFileSync(blocker.releasePath, "release\n", "utf-8");
+        await expect(validSwitch.then((response) => response.json())).resolves.toEqual({ superseded: true });
+
+        const current = await fetch(`${server.url}/api/diff`).then((response) => response.json()) as {
+          rawPatch: string;
+          diffType: string;
+          gitRef: string;
+        };
+        expect(current).toMatchObject({
+          rawPatch: initialPatch,
+          diffType: "uncommitted",
+          gitRef: "Initial snapshot",
+        });
+      } finally {
+        if (!existsSync(blocker.releasePath)) writeFileSync(blocker.releasePath, "release\n", "utf-8");
+        server.stop();
+      }
+    }, 10_000);
 
     it("runs semantic diff from the local agent cwd when one is available", async () => {
       const dir = makeTempDir("plannotator-sem-agent-");
@@ -902,6 +982,61 @@ describe("review-workspace", () => {
       );
     });
 
+    it("limits mixed GitButler workspaces to the safe aggregate-current mode", async () => {
+      const root = makeTempDir("plannotator-workspace-gitbutler-");
+      const gitRepo = join(root, "api");
+      const gitButlerRepo = join(root, "web");
+      mkdirSync(join(gitRepo, ".git"), { recursive: true });
+      mkdirSync(join(gitButlerRepo, ".git"), { recursive: true });
+      const calls: Array<{ cwd?: string; diffType: DiffType }> = [];
+
+      const runtime = {
+        async getVcsContext(cwd?: string): Promise<GitContext> {
+          const isGitButler = cwd === gitButlerRepo;
+          return {
+            vcsType: isGitButler ? "gitbutler" : "git",
+            currentBranch: isGitButler ? "GitButler Workspace" : "main",
+            defaultBranch: "abc1234",
+            cwd: cwd ?? root,
+            worktrees: [],
+            availableBranches: { local: [], remote: [] },
+            diffOptions: isGitButler
+              ? [{ id: "gitbutler:workspace", label: "Workspace (all applied changes)" }]
+              : [{ id: "uncommitted", label: "Uncommitted changes" }],
+          };
+        },
+        async runVcsDiff(diffType: DiffType, _defaultBranch?: string, cwd?: string) {
+          calls.push({ cwd, diffType });
+          return {
+            patch: "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n",
+            label: diffType,
+          };
+        },
+        async getVcsFileContentsForDiff() {
+          return { oldContent: null, newContent: null };
+        },
+        async canStageFiles() {
+          return false;
+        },
+        async stageFile() {},
+        async unstageFile() {},
+      };
+
+      const workspace = await WorkspaceReviewSession.create(runtime, root, {
+        requestedDiffType: "last-commit",
+      });
+
+      expect(workspace.diffType).toBe("workspace-current");
+      expect(workspace.diffOptions.map((option) => option.id)).toEqual(["workspace-current"]);
+      expect(calls).toEqual(expect.arrayContaining([
+        { cwd: gitRepo, diffType: "uncommitted" },
+        { cwd: gitButlerRepo, diffType: "gitbutler:workspace" },
+      ]));
+      await expect(workspace.rebuild({ diffType: "workspace-last" })).rejects.toThrow(
+        "Workspace diff mode is not available",
+      );
+    });
+
     it("normalizes agent annotation paths to workspace-prefixed paths", async () => {
       const root = makeTempDir("plannotator-workspace-agent-path-");
       const api = join(root, "api");
@@ -1004,6 +1139,59 @@ describe("review-workspace", () => {
         expect.objectContaining({ label: "api", changed: true }),
         expect.objectContaining({ label: "broken", changed: false, error: "broken repo" }),
       ]);
+    });
+
+    it("preserves a failed GitButler child's identity and never falls back to Git operations", async () => {
+      const root = makeTempDir("plannotator-workspace-failed-gitbutler-");
+      const api = join(root, "api");
+      const broken = join(root, "broken");
+      mkdirSync(join(api, ".git"), { recursive: true });
+      mkdirSync(join(broken, ".git"), { recursive: true });
+      const fileContentDiffTypes: DiffType[] = [];
+      const stagingDiffTypes: string[] = [];
+
+      const runtime = {
+        async detectVcsType(cwd?: string) {
+          return cwd === broken ? "gitbutler" : "git";
+        },
+        async getVcsContext(cwd?: string): Promise<GitContext> {
+          if (cwd === broken) throw new Error("GitButler CLI missing");
+          return {
+            vcsType: "git",
+            currentBranch: "main",
+            defaultBranch: "main",
+            cwd: cwd ?? api,
+            worktrees: [],
+            availableBranches: { local: [], remote: [] },
+            diffOptions: [{ id: "uncommitted", label: "Uncommitted changes" }],
+          };
+        },
+        async runVcsDiff() {
+          return { patch: "", label: "No changes" };
+        },
+        async getVcsFileContentsForDiff(diffType: DiffType) {
+          fileContentDiffTypes.push(diffType);
+          return { oldContent: null, newContent: null };
+        },
+        async canStageFiles(diffType: string) {
+          stagingDiffTypes.push(diffType);
+          return false;
+        },
+        async stageFile() {},
+        async unstageFile() {},
+      };
+
+      const workspace = await WorkspaceReviewSession.create(runtime, root, {
+        requestedDiffType: "staged",
+      });
+
+      expect(workspace.diffType).toBe("workspace-current");
+      expect(workspace.diffOptions.map((option) => option.id)).toEqual(["workspace-current"]);
+      expect(workspace.error).toContain("GitButler CLI missing");
+      await workspace.getFileContents("broken/file.txt");
+      await expect(workspace.stageFile("broken/file.txt")).rejects.toThrow("Staging not available");
+      expect(fileContentDiffTypes).toEqual(["gitbutler:workspace"]);
+      expect(stagingDiffTypes).toEqual(["gitbutler:workspace"]);
     });
 
     it("passes hide-whitespace through child repo diffs", async () => {
@@ -1112,8 +1300,11 @@ describe("review-workspace", () => {
           body: JSON.stringify({ diffType: "workspace-current", hideWhitespace: false }),
         });
         expect(currentResponse.status).toBe(200);
+        const currentPayload = await currentResponse.json() as { snapshotId: string };
 
-        const fileContentResponse = await fetch(`${server.url}/api/file-content?path=api/tracked.txt`);
+        const fileContentResponse = await fetch(
+          `${server.url}/api/file-content?path=api/tracked.txt&snapshot=${encodeURIComponent(currentPayload.snapshotId)}`,
+        );
         expect(fileContentResponse.status).toBe(200);
         const fileContent = await fileContentResponse.json() as {
           oldContent: string | null;
@@ -1121,6 +1312,10 @@ describe("review-workspace", () => {
         };
         expect(fileContent.oldContent).toBe("before\n");
         expect(fileContent.newContent).toBe("after\n");
+        const staleContentResponse = await fetch(
+          `${server.url}/api/file-content?path=api/tracked.txt&snapshot=stale-snapshot`,
+        );
+        expect(staleContentResponse.status).toBe(409);
 
         const stageResponse = await fetch(`${server.url}/api/git-add`, {
           method: "POST",

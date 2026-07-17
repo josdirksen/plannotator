@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -28,6 +29,7 @@ import {
   unstageFile,
 } from "./server";
 import { WorkspaceReviewSession } from "./generated/review-workspace.js";
+import { parseReviewArgs } from "./generated/review-args.js";
 import { warmFileListCache } from "./generated/resolve-file.js";
 
 const tempDirs: string[] = [];
@@ -38,6 +40,7 @@ const originalPort = process.env.PLANNOTATOR_PORT;
 const originalSemPath = process.env.PLANNOTATOR_SEM_PATH;
 const originalDataDir = process.env.PLANNOTATOR_DATA_DIR;
 const originalFileBrowserLimit = process.env.PLANNOTATOR_FILE_BROWSER_MAX_FILES;
+const originalPath = process.env.PATH;
 
 function makeTempDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -150,6 +153,35 @@ function makeMockSem(dir: string, options: {
   return semPath;
 }
 
+function makeBlockingSem(dir: string): { semPath: string; startedPath: string; releasePath: string } {
+  const semPath = join(dir, "sem-blocking");
+  const startedPath = join(dir, "started");
+  const releasePath = join(dir, "release");
+  writeFileSync(semPath, [
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    'if [ "${1:-}" = "--version" ]; then',
+    `  : > ${JSON.stringify(startedPath)}`,
+    `  while [ ! -f ${JSON.stringify(releasePath)} ]; do sleep 0.02; done`,
+    '  echo "sem 0.8.0"',
+    "  exit 0",
+    "fi",
+    "cat >/dev/null",
+    "echo '{}'",
+    "",
+  ].join("\n"), "utf-8");
+  chmodSync(semPath, 0o755);
+  return { semPath, startedPath, releasePath };
+}
+
+async function waitForFile(path: string): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (existsSync(path)) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(`Timed out waiting for ${path}`);
+}
+
 function initJjRepo(): string {
   const repoDir = initRepo();
   writeFileSync(join(repoDir, "spacey.ts"), "const x = 1;\n", "utf-8");
@@ -228,6 +260,11 @@ afterEach(() => {
   } else {
     process.env.PLANNOTATOR_FILE_BROWSER_MAX_FILES = originalFileBrowserLimit;
   }
+  if (originalPath === undefined) {
+    delete process.env.PATH;
+  } else {
+    process.env.PATH = originalPath;
+  }
 
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
@@ -289,6 +326,7 @@ describe("pi startup file-cache warm", () => {
 
 describe("pi review server", () => {
   const testIfJj = hasJj() ? test : test.skip;
+  const testIfUnix = process.platform === "win32" ? test.skip : test;
   const semanticRawPatch = [
     "diff --git a/src/app.ts b/src/app.ts",
     "new file mode 100644",
@@ -301,6 +339,279 @@ describe("pi review server", () => {
     "+}",
     "",
   ].join("\n");
+
+  testIfUnix("parses and serves an explicitly forced GitButler review through Pi", async () => {
+    expect(parseReviewArgs("--gitbutler")).toMatchObject({ vcsType: "gitbutler" });
+
+    const repoDir = initRepo();
+    const mergeBase = git(repoDir, ["rev-parse", "HEAD"]);
+    git(repoDir, ["checkout", "-b", "feature-a"]);
+    writeFileSync(join(repoDir, "feature.txt"), "feature\n", "utf-8");
+    git(repoDir, ["add", "feature.txt"]);
+    git(repoDir, ["commit", "-m", "feature"]);
+    const tip = git(repoDir, ["rev-parse", "HEAD"]);
+    git(repoDir, ["checkout", "-b", "gitbutler/workspace"]);
+
+    const binDir = makeTempDir("plannotator-pi-but-bin-");
+    const butPath = join(binDir, "but");
+    const status = JSON.stringify({
+      uncommittedChanges: [],
+      stacks: [{
+        cliId: "i0",
+        assignedChanges: [],
+        branches: [{
+          cliId: "g0",
+          name: "feature-a",
+          commits: [{ commitId: tip }],
+          upstreamCommits: [],
+        }],
+      }],
+      mergeBase: { commitId: mergeBase },
+    });
+    const statusPath = join(binDir, "status.json");
+    writeFileSync(statusPath, status, "utf-8");
+    writeFileSync(butPath, [
+      "#!/bin/sh",
+      'if [ "${1:-}" = "--version" ]; then',
+      '  echo "but 0.21.0"',
+      "  exit 0",
+      "fi",
+      `cat ${JSON.stringify(statusPath)}`,
+      "",
+    ].join("\n"), "utf-8");
+    chmodSync(butPath, 0o755);
+    process.env.PATH = `${binDir}:${originalPath ?? ""}`;
+
+    const prepared = await prepareLocalReviewDiff({
+      cwd: repoDir,
+      vcsType: "gitbutler",
+      configuredDiffType: "since-base",
+    });
+    expect(prepared).toMatchObject({
+      diffType: "gitbutler:workspace",
+      base: mergeBase,
+      gitContext: { vcsType: "gitbutler" },
+    });
+    expect(prepared.rawPatch).toContain("diff --git a/feature.txt b/feature.txt");
+
+    process.env.PLANNOTATOR_PORT = String(await reservePort());
+    const server = await startReviewServer({
+      rawPatch: prepared.rawPatch,
+      gitRef: prepared.gitRef,
+      error: prepared.error,
+      diffType: prepared.diffType,
+      gitContext: prepared.gitContext,
+      initialBase: prepared.base,
+      initialFingerprint: prepared.fingerprint,
+      origin: "pi",
+      htmlContent: "<!doctype html><html><body>review</body></html>",
+    });
+    try {
+      const initial = await fetch(`${server.url}/api/diff`).then((response) => response.json()) as {
+        rawPatch: string;
+        snapshotId: string;
+        diffType: string;
+        gitContext?: { vcsType?: string; diffOptions: Array<{ id: string }> };
+      };
+      expect(initial.diffType).toBe("gitbutler:workspace");
+      expect(initial.gitContext?.vcsType).toBe("gitbutler");
+      expect(initial.gitContext?.diffOptions.map((option) => option.id)).toContain(
+        "gitbutler:branch:feature-a",
+      );
+      expect((await fetch(`${server.url}/api/editor-annotation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filePath: "feature.txt",
+          selectedText: "feature",
+          lineStart: 1,
+          lineEnd: 1,
+        }),
+      })).status).toBe(200);
+
+      const updatedStatus = JSON.parse(status) as {
+        mergeBase: { commitId: string };
+        stacks: Array<{ branches: Array<Record<string, unknown>> }>;
+      };
+      updatedStatus.stacks[0]?.branches.unshift({
+        cliId: "h0",
+        name: "empty-new-top",
+        commits: [],
+        upstreamCommits: [],
+      });
+      writeFileSync(statusPath, JSON.stringify(updatedStatus), "utf-8");
+      await Bun.sleep(1_050);
+
+      const refreshedResponse = await fetch(`${server.url}/api/diff/switch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ diffType: "gitbutler:workspace" }),
+      });
+      expect(refreshedResponse.status).toBe(200);
+      const refreshed = await refreshedResponse.json() as {
+        rawPatch: string;
+        snapshotId: string;
+        gitContext?: { diffOptions: Array<{ id: string }> };
+      };
+      expect(refreshed.rawPatch).toBe(initial.rawPatch);
+      expect(refreshed.snapshotId).not.toBe(initial.snapshotId);
+      expect(refreshed.gitContext?.diffOptions.map((option) => option.id)).toContain(
+        "gitbutler:stack:feature-a",
+      );
+      const refreshedSnapshotProbe = await fetch(
+        `${server.url}/api/diff/fresh?snapshot=${encodeURIComponent(refreshed.snapshotId)}`,
+      ).then((response) => response.json()) as { fresh: boolean };
+      expect(refreshedSnapshotProbe.fresh).toBe(true);
+      const oldSnapshotProbe = await fetch(
+        `${server.url}/api/diff/fresh?snapshot=${encodeURIComponent(initial.snapshotId)}`,
+      ).then((response) => response.json()) as { fresh: boolean };
+      expect(oldSnapshotProbe.fresh).toBe(false);
+      const reloaded = await fetch(`${server.url}/api/diff`).then((response) => response.json()) as {
+        snapshotId: string;
+        gitContext?: { diffOptions: Array<{ id: string }> };
+      };
+      expect(reloaded.snapshotId).toBe(refreshed.snapshotId);
+      expect(reloaded.gitContext?.diffOptions.map((option) => option.id)).toContain(
+        "gitbutler:stack:feature-a",
+      );
+
+      const crossProviderSwitch = await fetch(`${server.url}/api/diff/switch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ diffType: "uncommitted" }),
+      });
+      expect(crossProviderSwitch.status).toBe(400);
+      const stageAttempt = await fetch(`${server.url}/api/git-add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filePath: "feature.txt" }),
+      });
+      expect(stageAttempt.status).toBe(400);
+
+      const switchedResponse = await fetch(`${server.url}/api/diff/switch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ diffType: "gitbutler:branch:feature-a" }),
+      });
+      expect(switchedResponse.status).toBe(200);
+      const switched = await switchedResponse.json() as {
+        diffType: string;
+        rawPatch: string;
+        semanticDiff?: { available: boolean };
+      };
+      expect(switched.diffType).toBe("gitbutler:branch:feature-a");
+      expect(switched.rawPatch).toContain("feature.txt");
+      expect(switched.semanticDiff).toEqual({ available: false });
+      await expect(fetch(`${server.url}/api/semantic-diff`).then((response) => response.json())).resolves.toMatchObject({
+        status: "unavailable",
+        reason: "gitbutler-committed-view",
+      });
+      await expect(fetch(`${server.url}/api/editor-annotations`).then((response) => response.json())).resolves.toEqual({
+        annotations: [],
+      });
+      expect((await fetch(`${server.url}/api/editor-annotation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filePath: "feature.txt",
+          selectedText: "feature",
+          lineStart: 1,
+          lineEnd: 1,
+        }),
+      })).status).toBe(400);
+      expect((await fetch(`${server.url}/api/open-in`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filePath: "feature.txt" }),
+      })).status).toBe(400);
+      expect((await fetch(`${server.url}/api/code-nav/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbol: "feature",
+          filePath: "feature.txt",
+          line: 1,
+          column: 1,
+        }),
+      })).status).toBe(400);
+      expect((await fetch(
+        `${server.url}/api/code-nav/file?path=${encodeURIComponent("feature.txt")}`,
+      )).status).toBe(400);
+
+      updatedStatus.mergeBase.commitId = tip;
+      writeFileSync(statusPath, JSON.stringify(updatedStatus), "utf-8");
+      await Bun.sleep(1_050);
+      const rebasedResponse = await fetch(`${server.url}/api/diff/switch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ diffType: "gitbutler:workspace" }),
+      });
+      expect(rebasedResponse.status).toBe(200);
+      const rebased = await rebasedResponse.json() as {
+        base: string;
+        rawPatch: string;
+        gitContext?: { defaultBranch: string };
+      };
+      expect(rebased.base).toBe(tip);
+      expect(rebased.gitContext?.defaultBranch).toBe(tip);
+      expect(rebased.rawPatch).toBe("");
+      const restoredEditorAnnotations = await fetch(`${server.url}/api/editor-annotations`)
+        .then((response) => response.json()) as { annotations: unknown[] };
+      expect(restoredEditorAnnotations.annotations).toHaveLength(1);
+    } finally {
+      server.stop();
+    }
+  }, 15_000);
+
+  testIfUnix("does not partially commit a valid switch superseded by an invalid request", async () => {
+    const repoDir = initRepo();
+    writeFileSync(join(repoDir, "tracked.txt"), "dirty\n", "utf-8");
+    const gitContext = await getVcsContext(repoDir, "git");
+    const semDir = makeTempDir("plannotator-pi-switch-atomic-sem-");
+    const blocker = makeBlockingSem(semDir);
+    process.env.PLANNOTATOR_SEM_PATH = blocker.semPath;
+    process.env.PLANNOTATOR_PORT = String(await reservePort());
+    const initialPatch = "diff --git a/initial.txt b/initial.txt\n";
+    const server = await startReviewServer({
+      rawPatch: initialPatch,
+      gitRef: "Initial snapshot",
+      diffType: "uncommitted",
+      gitContext,
+      origin: "pi",
+      htmlContent: "<!doctype html><html><body>review</body></html>",
+    });
+
+    try {
+      const validSwitch = fetch(`${server.url}/api/diff/switch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ diffType: "last-commit" }),
+      });
+      await waitForFile(blocker.startedPath);
+      const invalid = await fetch(`${server.url}/api/diff/switch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      expect(invalid.status).toBe(400);
+      writeFileSync(blocker.releasePath, "release\n", "utf-8");
+      await expect(validSwitch.then((response) => response.json())).resolves.toEqual({ superseded: true });
+
+      const current = await fetch(`${server.url}/api/diff`).then((response) => response.json()) as {
+        rawPatch: string;
+        diffType: string;
+        gitRef: string;
+      };
+      expect(current).toMatchObject({
+        rawPatch: initialPatch,
+        diffType: "uncommitted",
+        gitRef: "Initial snapshot",
+      });
+    } finally {
+      if (!existsSync(blocker.releasePath)) writeFileSync(blocker.releasePath, "release\n", "utf-8");
+      server.stop();
+    }
+  }, 10_000);
 
   test("advertises semantic diff availability and serves parsed sem output", async () => {
     const dir = makeTempDir("plannotator-pi-sem-server-");
@@ -460,6 +771,7 @@ describe("pi review server", () => {
       expect(diffResponse.status).toBe(200);
       const diffPayload = await diffResponse.json() as {
         rawPatch: string;
+        snapshotId: string;
         gitContext?: { diffOptions: Array<{ id: string }> };
         origin?: string;
         repoInfo?: { display: string };
@@ -471,13 +783,19 @@ describe("pi review server", () => {
       );
       expect(diffPayload.repoInfo?.display).toBeTruthy();
 
-      const fileContentResponse = await fetch(`${server.url}/api/file-content?path=tracked.txt`);
+      const fileContentResponse = await fetch(
+        `${server.url}/api/file-content?path=tracked.txt&snapshot=${encodeURIComponent(diffPayload.snapshotId)}`,
+      );
       const fileContent = await fileContentResponse.json() as {
         oldContent: string | null;
         newContent: string | null;
       };
       expect(fileContent.oldContent).toBe("before\n");
       expect(fileContent.newContent).toBe("after\n");
+      const staleContentResponse = await fetch(
+        `${server.url}/api/file-content?path=tracked.txt&snapshot=stale-snapshot`,
+      );
+      expect(staleContentResponse.status).toBe(409);
 
       const draftBody = { annotations: [{ id: "draft-1" }] };
       const draftSave = await fetch(`${server.url}/api/draft`, {

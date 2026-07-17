@@ -26,6 +26,7 @@ export type DiffType =
   | "all"
   | `commit:${string}`
   | `worktree:${string}`
+  | `gitbutler:${string}`
   | "p4-default"
   | `p4-changelist:${string}`;
 
@@ -96,7 +97,9 @@ export interface GitContext {
   compareTarget?: CompareTargetConfig;
   repository?: RepositoryContext;
   cwd?: string;
-  vcsType?: "git" | "jj" | "p4";
+  vcsType?: "git" | "gitbutler" | "jj" | "p4";
+  /** Hash of the exact GitButler branch/commit topology used for this context. */
+  gitButlerRevision?: string;
   /** Evolution log entries for the current jj change (jj only). */
   jjEvologs?: JjEvoLogEntry[];
   /** HEAD ancestry, newest first. Powers the commit-based baseline picker (#709). */
@@ -107,6 +110,14 @@ export interface DiffResult {
   patch: string;
   label: string;
   error?: string;
+  /**
+   * Provider context captured from the same source revision as `patch`.
+   * Providers whose topology can change independently of Git refs use this
+   * to let the server publish one atomic review snapshot.
+   */
+  gitContext?: GitContext;
+  /** Freshness baseline captured from the same source revision as `patch`. */
+  fingerprint?: string;
 }
 
 export interface GitCommandResult {
@@ -692,7 +703,7 @@ async function getUntrackedFileDiffs(
     ["ls-files", "--others", "--exclude-standard"],
     { cwd: rootCwd },
   );
-  if (lsResult.exitCode !== 0) return { diff: "", paths: [] };
+  assertGitSuccess(lsResult, ["ls-files", "--others", "--exclude-standard"]);
 
   // ls-files C-quotes unusual paths (unicode, control chars — NOT plain
   // spaces). The quoted form breaks everything downstream: the --no-index
@@ -722,11 +733,47 @@ async function getUntrackedFileDiffs(
         ],
         { cwd: rootCwd },
       );
+      // `git diff --no-index` uses 1 for a normal difference. Anything above
+      // 1 is a real read/command failure and must not silently omit the file.
+      if (diffResult.exitCode !== 0 && diffResult.exitCode !== 1) {
+        const stderr = diffResult.stderr.trim();
+        throw new Error(
+          stderr
+            ? `git diff --no-index failed for ${JSON.stringify(file)}: ${stderr}`
+            : `git diff --no-index failed for ${JSON.stringify(file)} with exit code ${diffResult.exitCode}`,
+        );
+      }
       return diffResult.stdout;
     }),
   );
 
   return { diff: diffs.join(""), paths: files };
+}
+
+/**
+ * Diff one already-resolved Git object directly against the working tree,
+ * including untracked files. Unlike `since-base`, this never discovers or
+ * substitutes another base; callers that receive an authoritative base from
+ * another VCS can therefore fail closed instead of silently degrading.
+ */
+export async function getWorkingTreeDiffFromBase(
+  runtime: ReviewGitRuntime,
+  base: string,
+  cwd?: string,
+  options?: GitDiffOptions,
+): Promise<string> {
+  const args = [
+    "diff",
+    "--no-ext-diff",
+    ...(options?.hideWhitespace ? ["-w"] : []),
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+    "--end-of-options",
+    base,
+  ];
+  const trackedPatch = assertGitSuccess(await runtime.runGit(args, { cwd }), args).stdout;
+  const untracked = await getUntrackedFileDiffs(runtime, "a/", "b/", cwd, options);
+  return removeTrackedDeletions(trackedPatch, new Set(untracked.paths)) + untracked.diff;
 }
 
 /**
@@ -739,11 +786,11 @@ function displayRef(ref: string): string {
 
 /** Resolve the empty-tree object id (hash-object honors repo hash algorithm;
  * the SHA-1 constant is the fallback for the degenerate no-repo case). */
-async function getEmptyTreeSha(
+export async function getEmptyTreeSha(
   runtime: ReviewGitRuntime,
   cwd?: string,
 ): Promise<string> {
-  const result = await runtime.runGit(["hash-object", "-t", "tree", "/dev/null"], { cwd });
+  const result = await runtime.runGit(["hash-object", "-t", "tree", "--stdin"], { cwd });
   return result.exitCode === 0
     ? result.stdout.trim()
     : "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -924,22 +971,14 @@ export async function runGitDiff(
           const mergeBase = mergeBaseResult.exitCode === 0
             ? mergeBaseResult.stdout.trim()
             : "HEAD";
-          const sinceBaseDiffArgs = [
-            "diff",
-            "--no-ext-diff",
-            ...wFlag,
-            "--src-prefix=a/",
-            "--dst-prefix=b/",
-            "--end-of-options",
-            mergeBase,
-          ];
-          trackedPatch = assertGitSuccess(
-            await runtime.runGit(sinceBaseDiffArgs, { cwd }),
-            sinceBaseDiffArgs,
-          ).stdout;
+          trackedPatch = await getWorkingTreeDiffFromBase(runtime, mergeBase, cwd, options);
         }
-        const untracked = await getUntrackedFileDiffs(runtime, "a/", "b/", cwd, options);
-        patch = removeTrackedDeletions(trackedPatch, new Set(untracked.paths)) + untracked.diff;
+        if (hasHead) {
+          patch = trackedPatch;
+        } else {
+          const untracked = await getUntrackedFileDiffs(runtime, "a/", "b/", cwd, options);
+          patch = untracked.diff;
+        }
         label = `All changes since ${displayRef(defaultBranch)}`;
         break;
       }
@@ -1170,6 +1209,58 @@ const MAX_UNTRACKED_FINGERPRINT_FILES = 20;
 const UNTRACKED_STATUS_OUTPUT_CAP = 2 * 1024 * 1024;
 const collapsedUntrackedCwds = new Set<string>();
 
+type ReadOnlyGitRunner = (args: string[]) => Promise<GitCommandResult>;
+
+async function appendDiffFingerprint(
+  runReadOnlyGit: ReadOnlyGitRunner,
+  parts: string[],
+  whitespaceArgs: string[],
+  args: string[],
+): Promise<boolean> {
+  const result = await runReadOnlyGit(["diff", "--no-ext-diff", ...whitespaceArgs, ...args]);
+  if (result.exitCode !== 0) return false;
+  parts.push(hashFingerprintPart(result.stdout));
+  return true;
+}
+
+async function appendUntrackedFingerprint(
+  runtime: ReviewGitRuntime,
+  runReadOnlyGit: ReadOnlyGitRunner,
+  parts: string[],
+  cwd?: string,
+): Promise<boolean> {
+  // -uall: without it, an untracked directory collapses to a single `?? dir/`
+  // line, so edits to files inside it never change the fingerprint and the
+  // "Diff out of date" banner never fires — even though the patch enumerates
+  // individual files. Permanently collapse a pathological repo after its
+  // output crosses the circuit-breaker cap.
+  const cwdKey = cwd ?? "";
+  const collapsed = collapsedUntrackedCwds.has(cwdKey);
+  const status = await runReadOnlyGit([
+    "status",
+    "--porcelain",
+    collapsed ? "-unormal" : "-uall",
+  ]);
+  if (status.exitCode !== 0) return false;
+  if (!collapsed && status.stdout.length > UNTRACKED_STATUS_OUTPUT_CAP) {
+    collapsedUntrackedCwds.add(cwdKey);
+  }
+  parts.push(hashFingerprintPart(status.stdout));
+  const untracked = status.stdout
+    .split("\n")
+    .filter((line) => line.startsWith("?? "))
+    .map((line) => unquoteGitPath(line.slice(3).trim()))
+    .slice(0, MAX_UNTRACKED_FINGERPRINT_FILES);
+  if (untracked.length > 0) {
+    const baseDir = await resolveRepoToplevel(runtime, cwd);
+    for (const path of untracked) {
+      const content = await runtime.readTextFile(baseDir ? resolvePath(baseDir, path) : path);
+      parts.push(content != null ? hashFingerprintPart(content) : "unreadable");
+    }
+  }
+  return true;
+}
+
 export async function getGitDiffFingerprint(
   runtime: ReviewGitRuntime,
   diffType: DiffType,
@@ -1215,58 +1306,15 @@ export async function getGitDiffFingerprint(
     const headSha = head.exitCode === 0 ? head.stdout.trim() : "no-head";
     const parts = ["git", effectiveDiffType, headSha];
 
-    const hashDiffOutput = async (args: string[]): Promise<boolean> => {
-      const result = await runReadOnlyGit(["diff", "--no-ext-diff", ...wFlag, ...args]);
-      if (result.exitCode !== 0) return false;
-      parts.push(hashFingerprintPart(result.stdout));
-      return true;
-    };
+    const hashDiffOutput = (args: string[]): Promise<boolean> =>
+      appendDiffFingerprint(runReadOnlyGit, parts, wFlag, args);
 
     // Untracked files: porcelain `??` lines capture existence; hash their
     // contents too so editing a freshly-created (untracked) file is detected.
     // Capped — a pathological number of untracked files degrades to
     // existence-only detection rather than unbounded reads.
-    const hashUntracked = async (): Promise<boolean> => {
-      // -uall: without it, an untracked directory collapses to a single `?? dir/`
-      // line, so edits to files inside it never change the fingerprint and the
-      // "Diff out of date" banner never fires — even though the patch (which
-      // enumerates individual untracked files) includes them. Match that here —
-      // unless this cwd already tripped the output cap (see
-      // UNTRACKED_STATUS_OUTPUT_CAP), in which case stay collapsed.
-      const cwdKey = cwd ?? "";
-      const collapsed = collapsedUntrackedCwds.has(cwdKey);
-      const status = await runReadOnlyGit([
-        "status",
-        "--porcelain",
-        collapsed ? "-unormal" : "-uall",
-      ]);
-      if (status.exitCode !== 0) return false;
-      if (!collapsed && status.stdout.length > UNTRACKED_STATUS_OUTPUT_CAP) {
-        collapsedUntrackedCwds.add(cwdKey);
-      }
-      parts.push(hashFingerprintPart(status.stdout));
-      const untracked = status.stdout
-        .split("\n")
-        .filter((line) => line.startsWith("?? "))
-        // Unquote — porcelain double-quotes any path with a space/unicode
-        // regardless of core.quotePath, and a raw quoted string never resolves
-        // on disk (so the fingerprint would go blind to edits on those files).
-        .map((line) => unquoteGitPath(line.slice(3).trim()))
-        .slice(0, MAX_UNTRACKED_FINGERPRINT_FILES);
-      if (untracked.length > 0) {
-        // Porcelain paths are repo-root-relative, NOT cwd-relative. Resolve them
-        // against the git toplevel so a review launched from a subdirectory can
-        // still read (and hash edits to) untracked files — resolving against cwd
-        // double-prefixes the path, readTextFile returns null, and the untracked
-        // half of the fingerprint goes permanently blind.
-        const baseDir = await resolveRepoToplevel(runtime, cwd);
-        for (const path of untracked) {
-          const content = await runtime.readTextFile(baseDir ? resolvePath(baseDir, path) : path);
-          parts.push(content != null ? hashFingerprintPart(content) : "unreadable");
-        }
-      }
-      return true;
-    };
+    const hashUntracked = (): Promise<boolean> =>
+      appendUntrackedFingerprint(runtime, runReadOnlyGit, parts, cwd);
 
     switch (effectiveDiffType) {
       case "since-base": {

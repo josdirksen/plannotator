@@ -56,6 +56,7 @@
     "./goal-setup": "./goal-setup.ts",
     "./semantic-diff": "./semantic-diff.ts",
     "./semantic-diff-types": "./semantic-diff-types.ts",
+    "./single-flight": "./single-flight.ts",
     "./source-save": "./source-save.ts",
     "./source-save-node": "./source-save-node.ts",
     "./browser-paths": "./browser-paths.ts",

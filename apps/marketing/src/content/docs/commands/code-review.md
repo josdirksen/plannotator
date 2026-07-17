@@ -99,7 +99,7 @@ In a jj workspace, the diff type picker shows jj-native options instead of git m
 
 ### GitButler diff modes
 
-Plannotator automatically recognizes an active GitButler workspace when the checked-out ref is `gitbutler/workspace` (or the legacy `gitbutler/integration` ref). GitButler CLI **0.21.0 or newer** must be available as `but` on `PATH`. Use `--gitbutler` to require this provider explicitly, or `--git` to inspect the repository through Plannotator's ordinary Git provider instead.
+Plannotator automatically recognizes an active GitButler workspace when the checked-out ref is `gitbutler/workspace` (or the legacy `gitbutler/integration` ref) and the repository has GitButler's local target-ref configuration. GitButler CLI **0.21.0 or newer** must be available as `but` on `PATH`. Use `--gitbutler` to require this provider explicitly, or `--git` to inspect the repository through Plannotator's ordinary Git provider instead.
 
 The picker keeps GitButler's different change models separate:
 

@@ -1232,6 +1232,13 @@ describe("review-workspace", () => {
       writeFileSync(join(web, "new.txt"), "new file\n", "utf-8");
 
       const workspace = await buildLocalWorkspaceReview(root);
+      const getFingerprint = workspace.getFingerprint.bind(workspace);
+      let fingerprintCalls = 0;
+      workspace.getFingerprint = async () => {
+        fingerprintCalls += 1;
+        await Bun.sleep(25);
+        return getFingerprint();
+      };
       const aggregate = aggregateWorkspacePatch(workspace.repos);
       const server = await startReviewServer({
         rawPatch: aggregate.rawPatch,
@@ -1301,6 +1308,16 @@ describe("review-workspace", () => {
         });
         expect(currentResponse.status).toBe(200);
         const currentPayload = await currentResponse.json() as { snapshotId: string };
+        fingerprintCalls = 0;
+
+        const concurrentExpansions = await Promise.all(Array.from({ length: 6 }, () =>
+          fetch(
+            `${server.url}/api/file-content?path=api/tracked.txt&snapshot=${encodeURIComponent(currentPayload.snapshotId)}`,
+          )
+        ));
+        expect(concurrentExpansions.every((response) => response.status === 200)).toBe(true);
+        // All six expansion requests share one probe after the switch capture.
+        expect(fingerprintCalls).toBe(1);
 
         const fileContentResponse = await fetch(
           `${server.url}/api/file-content?path=api/tracked.txt&snapshot=${encodeURIComponent(currentPayload.snapshotId)}`,

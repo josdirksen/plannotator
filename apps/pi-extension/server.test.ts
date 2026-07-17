@@ -18,6 +18,7 @@ import {
   canStageFiles,
   getGitContext,
   getVcsContext,
+  getVcsDiffFingerprint,
   getVcsFileContentsForDiff,
   prepareLocalReviewDiff,
   runGitDiff,
@@ -351,6 +352,7 @@ describe("pi review server", () => {
     git(repoDir, ["commit", "-m", "feature"]);
     const tip = git(repoDir, ["rev-parse", "HEAD"]);
     git(repoDir, ["checkout", "-b", "gitbutler/workspace"]);
+    git(repoDir, ["config", "gitbutler.project.targetref", "refs/remotes/origin/main"]);
 
     const binDir = makeTempDir("plannotator-pi-but-bin-");
     const butPath = join(binDir, "but");
@@ -1019,10 +1021,18 @@ describe("pi review server", () => {
       getVcsContext,
       runVcsDiff,
       getVcsFileContentsForDiff,
+      getVcsDiffFingerprint,
       canStageFiles,
       stageFile,
       unstageFile,
     }, root);
+    const getFingerprint = workspace.getFingerprint.bind(workspace);
+    let fingerprintCalls = 0;
+    workspace.getFingerprint = async () => {
+      fingerprintCalls += 1;
+      await Bun.sleep(25);
+      return getFingerprint();
+    };
 
     const server = await startReviewServer({
       rawPatch: workspace.rawPatch,
@@ -1079,6 +1089,17 @@ describe("pi review server", () => {
         body: JSON.stringify({ diffType: "workspace-current", hideWhitespace: false }),
       });
       expect(currentResponse.status).toBe(200);
+      const currentPayload = await currentResponse.json() as { snapshotId: string };
+      fingerprintCalls = 0;
+
+      const concurrentExpansions = await Promise.all(Array.from({ length: 6 }, () =>
+        fetch(
+          `${server.url}/api/file-content?path=api/tracked.txt&snapshot=${encodeURIComponent(currentPayload.snapshotId)}`,
+        )
+      ));
+      expect(concurrentExpansions.every((response) => response.status === 200)).toBe(true);
+      // All six expansion requests share one probe after the switch capture.
+      expect(fingerprintCalls).toBe(1);
 
       const fileContentResponse = await fetch(`${server.url}/api/file-content?path=api/tracked.txt`);
       expect(fileContentResponse.status).toBe(200);

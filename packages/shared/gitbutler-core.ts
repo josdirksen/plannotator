@@ -287,6 +287,13 @@ async function getActiveWorkspaceRoot(
   if (activeRef.exitCode !== 0 || !GITBUTLER_WORKSPACE_REFS.has(activeRef.stdout.trim())) {
     return null;
   }
+  const targetRef = await runtime.runGit(
+    ["config", "--local", "--get", "gitbutler.project.targetref"],
+    { cwd },
+  );
+  if (targetRef.exitCode !== 0 || !targetRef.stdout.trim().startsWith("refs/")) {
+    return null;
+  }
   const root = await runtime.runGit(["rev-parse", "--show-toplevel"], { cwd });
   return root.exitCode === 0 ? root.stdout.trim() || null : null;
 }
@@ -640,7 +647,13 @@ export async function runGitButlerDiff(
 
     if (parsed.kind === "workspace") {
       await validateWorkspaceMergeBase(runtime, status.mergeBase.commitId, root);
-      const patch = await getWorkingTreeDiffFromBase(runtime, status.mergeBase.commitId, root, options);
+      const patch = await getWorkingTreeDiffFromBase(
+        runtime,
+        status.mergeBase.commitId,
+        root,
+        options,
+        "strict",
+      );
       return snapshotResult(diffType, context, patch, "GitButler workspace (all applied changes)");
     }
 

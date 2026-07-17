@@ -14,6 +14,7 @@ import type { Origin } from "@plannotator/shared/agents";
 import { type DiffType, type GitContext, runVcsDiff, getVcsFileContentsForDiff, getVcsDiffFingerprint, canStageFiles, stageFile, unstageFile, resolveVcsCwd, validateFilePath, getVcsContext, detectRemoteDefaultCompareTarget, vcsOwnsDiffType, gitRuntime } from "./vcs";
 import { basename } from "node:path";
 import { existsSync } from "node:fs";
+import { SingleFlight } from "@plannotator/shared/single-flight";
 import {
   isSameCwdCommitSwitch,
   parseCommitDiffType,
@@ -376,7 +377,9 @@ export async function startReviewServer(
   // fingerprint would make /api/diff/fresh report stale forever.
   let fingerprintGeneration = 0;
   let pendingFingerprintCapture: Promise<string | null> | null = null;
+  const fileContentFingerprintProbes = new SingleFlight<string | null>();
   const captureDiffFingerprint = (knownFingerprint?: string): void => {
+    fileContentFingerprintProbes.clear();
     const generation = ++fingerprintGeneration;
     if (knownFingerprint !== undefined) {
       currentFingerprint = knownFingerprint;
@@ -2174,7 +2177,10 @@ export async function startReviewServer(
                 return Response.json({ error: "Diff snapshot is stale; refresh before expanding context" }, { status: 409 });
               }
               if (baseline != null) {
-                const probe = await computeDiffFingerprint();
+                const probe = await fileContentFingerprintProbes.run(
+                  `${requestedSnapshot}:${baselineGeneration}`,
+                  computeDiffFingerprint,
+                );
                 if (
                   requestedSnapshot !== currentSnapshotId() ||
                   currentFingerprint !== baseline ||

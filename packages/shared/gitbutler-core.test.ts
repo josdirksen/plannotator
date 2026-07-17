@@ -80,6 +80,7 @@ function createRuntime(options: {
   status?: GitCommandResult;
   topParents?: GitCommandResult;
   ancestor?: GitCommandResult;
+  configured?: boolean;
 } = {}): RuntimeFixture {
   const gitCalls: string[][] = [];
   const butCalls: string[][] = [];
@@ -91,6 +92,11 @@ function createRuntime(options: {
       const commandArgs = args[0] === "--no-optional-locks" ? args.slice(1) : args;
       if (commandArgs[0] === "symbolic-ref") {
         return commandResult(`${options.activeRef ?? "refs/heads/gitbutler/workspace"}\n`);
+      }
+      if (commandArgs[0] === "config") {
+        return options.configured === false
+          ? commandResult("", "", 1)
+          : commandResult("refs/remotes/origin/main\n");
       }
       if (commandArgs[0] === "rev-parse" && commandArgs[1] === "--show-toplevel") {
         return commandResult(`${ROOT}\n`);
@@ -198,10 +204,24 @@ describe("GitButler detection and context", () => {
 
     const legacy = createRuntime({ activeRef: "refs/heads/gitbutler/integration" });
     await expect(detectGitButlerWorkspace(legacy.runtime, ROOT)).resolves.toBe(ROOT);
+
+    const reservedOrdinaryBranch = createRuntime({ configured: false });
+    await expect(detectGitButlerWorkspace(reservedOrdinaryBranch.runtime, ROOT)).resolves.toBeNull();
   });
 
   test("ordinary Git selection never invokes the GitButler CLI", async () => {
     const fixture = createRuntime({ activeRef: "refs/heads/main" });
+    const api = createVcsApi([
+      createGitButlerProvider(fixture.runtime),
+      createGitProvider(fixture.runtime),
+    ]);
+
+    await expect(api.detectManagedVcs(ROOT)).resolves.toMatchObject({ id: "git" });
+    expect(fixture.butCalls).toEqual([]);
+  });
+
+  test("an ordinary Git branch named gitbutler/workspace stays on the Git provider", async () => {
+    const fixture = createRuntime({ configured: false });
     const api = createVcsApi([
       createGitButlerProvider(fixture.runtime),
       createGitProvider(fixture.runtime),

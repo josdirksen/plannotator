@@ -235,7 +235,7 @@ describe("review-core", () => {
     expect(result.patch).toContain("+++ b/untracked.txt");
   });
 
-  test("working-tree diffs fail explicitly when an untracked file cannot be read", async () => {
+  test("ordinary working-tree diffs keep tracked changes when an untracked file cannot be read", async () => {
     const runtime: ReviewGitRuntime = {
       async runGit(args) {
         if (args[0] === "rev-parse") {
@@ -248,7 +248,7 @@ describe("review-core", () => {
           return { stdout: "", stderr: "error: Could not access blocked.txt", exitCode: 128 };
         }
         if (args[0] === "diff") {
-          return { stdout: "", stderr: "", exitCode: 0 };
+          return { stdout: "tracked patch\n", stderr: "", exitCode: 0 };
         }
         throw new Error(`Unexpected git command: ${args.join(" ")}`);
       },
@@ -257,9 +257,38 @@ describe("review-core", () => {
       },
     };
 
-    await expect(getWorkingTreeDiffFromBase(runtime, "abc123", "/repo")).rejects.toThrow(
+    await expect(getWorkingTreeDiffFromBase(runtime, "abc123", "/repo")).resolves.toBe(
+      "tracked patch\n",
+    );
+    await expect(getWorkingTreeDiffFromBase(runtime, "abc123", "/repo", undefined, "strict")).rejects.toThrow(
       "Could not access blocked.txt",
     );
+  });
+
+  test("ordinary working-tree diffs keep tracked changes when untracked discovery fails", async () => {
+    const runtime: ReviewGitRuntime = {
+      async runGit(args) {
+        if (args[0] === "rev-parse") {
+          return { stdout: "/repo\n", stderr: "", exitCode: 0 };
+        }
+        if (args[0] === "ls-files") {
+          return { stdout: "", stderr: "fatal: cannot read index", exitCode: 128 };
+        }
+        if (args[0] === "diff") {
+          return { stdout: "tracked patch\n", stderr: "", exitCode: 0 };
+        }
+        throw new Error(`Unexpected git command: ${args.join(" ")}`);
+      },
+      async readTextFile() {
+        return null;
+      },
+    };
+
+    await expect(getWorkingTreeDiffFromBase(runtime, "abc123", "/repo")).resolves.toBe(
+      "tracked patch\n",
+    );
+    await expect(getWorkingTreeDiffFromBase(runtime, "abc123", "/repo", undefined, "strict"))
+      .rejects.toThrow("cannot read index");
   });
 
   test("since-base includes committed, dirty, and untracked changes", async () => {

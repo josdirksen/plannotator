@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import os from "node:os";
 import { basename, resolve as resolvePath } from "node:path";
 
+import { SingleFlight } from "../generated/single-flight.js";
 import { contentHash, deleteDraft } from "../generated/draft.js";
 import { loadConfig, saveConfig, detectGitUser, getServerConfig, resolveSharingEnabled } from "../generated/config.js";
 
@@ -474,7 +475,9 @@ export async function startReviewServer(options: {
 	// fingerprint would make /api/diff/fresh report stale forever.
 	let fingerprintGeneration = 0;
 	let pendingFingerprintCapture: Promise<string | null> | null = null;
+	const fileContentFingerprintProbes = new SingleFlight<string | null>();
 	const captureDiffFingerprint = (knownFingerprint?: string): void => {
+		fileContentFingerprintProbes.clear();
 		const generation = ++fingerprintGeneration;
 		if (knownFingerprint !== undefined) {
 			currentFingerprint = knownFingerprint;
@@ -2149,7 +2152,10 @@ export async function startReviewServer(options: {
 					return;
 				}
 				if (baseline != null) {
-					const probe = await computeDiffFingerprint();
+					const probe = await fileContentFingerprintProbes.run(
+						`${requestedSnapshot}:${baselineGeneration}`,
+						computeDiffFingerprint,
+					);
 					if (
 						requestedSnapshot !== currentSnapshotId() ||
 						currentFingerprint !== baseline ||

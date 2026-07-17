@@ -692,6 +692,7 @@ async function getUntrackedFileDiffs(
   dstPrefix = "b/",
   cwd?: string,
   options?: GitDiffOptions,
+  failurePolicy: UntrackedFailurePolicy = "best-effort",
 ): Promise<{ diff: string; paths: string[] }> {
   // git ls-files scopes to the CWD subtree and returns CWD-relative paths,
   // unlike git diff HEAD which always covers the full repo with root-relative
@@ -703,7 +704,12 @@ async function getUntrackedFileDiffs(
     ["ls-files", "--others", "--exclude-standard"],
     { cwd: rootCwd },
   );
-  assertGitSuccess(lsResult, ["ls-files", "--others", "--exclude-standard"]);
+  if (lsResult.exitCode !== 0) {
+    if (failurePolicy === "strict") {
+      assertGitSuccess(lsResult, ["ls-files", "--others", "--exclude-standard"]);
+    }
+    return { diff: "", paths: [] };
+  }
 
   // ls-files C-quotes unusual paths (unicode, control chars — NOT plain
   // spaces). The quoted form breaks everything downstream: the --no-index
@@ -734,8 +740,10 @@ async function getUntrackedFileDiffs(
         { cwd: rootCwd },
       );
       // `git diff --no-index` uses 1 for a normal difference. Anything above
-      // 1 is a real read/command failure and must not silently omit the file.
+      // 1 is a real read/command failure: ordinary Git stays best-effort, while
+      // authoritative callers fail closed through the strict policy.
       if (diffResult.exitCode !== 0 && diffResult.exitCode !== 1) {
+        if (failurePolicy === "best-effort") return "";
         const stderr = diffResult.stderr.trim();
         throw new Error(
           stderr
@@ -750,17 +758,22 @@ async function getUntrackedFileDiffs(
   return { diff: diffs.join(""), paths: files };
 }
 
+/** How a working-tree diff handles failures while reading untracked files. */
+export type UntrackedFailurePolicy = "best-effort" | "strict";
+
 /**
  * Diff one already-resolved Git object directly against the working tree,
  * including untracked files. Unlike `since-base`, this never discovers or
  * substitutes another base; callers that receive an authoritative base from
- * another VCS can therefore fail closed instead of silently degrading.
+ * another VCS can request the strict policy and fail closed instead of
+ * silently degrading. Ordinary Git uses the best-effort default.
  */
 export async function getWorkingTreeDiffFromBase(
   runtime: ReviewGitRuntime,
   base: string,
   cwd?: string,
   options?: GitDiffOptions,
+  untrackedFailurePolicy: UntrackedFailurePolicy = "best-effort",
 ): Promise<string> {
   const args = [
     "diff",
@@ -772,7 +785,14 @@ export async function getWorkingTreeDiffFromBase(
     base,
   ];
   const trackedPatch = assertGitSuccess(await runtime.runGit(args, { cwd }), args).stdout;
-  const untracked = await getUntrackedFileDiffs(runtime, "a/", "b/", cwd, options);
+  const untracked = await getUntrackedFileDiffs(
+    runtime,
+    "a/",
+    "b/",
+    cwd,
+    options,
+    untrackedFailurePolicy,
+  );
   return removeTrackedDeletions(trackedPatch, new Set(untracked.paths)) + untracked.diff;
 }
 

@@ -166,6 +166,8 @@ interface DiffViewerProps {
   onDeleteAnnotation: (id: string) => void;
   isViewed?: boolean;
   onToggleViewed?: () => void;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
   isStaged?: boolean;
   isStaging?: boolean;
   onStage?: () => void;
@@ -218,6 +220,8 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   onDeleteAnnotation,
   isViewed = false,
   onToggleViewed,
+  collapsed = false,
+  onToggleCollapsed,
   isStaged = false,
   isStaging = false,
   onStage,
@@ -664,6 +668,18 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         oldPath={oldPath}
         isViewed={isViewed}
         onToggleViewed={onToggleViewed}
+        collapseToggle={onToggleCollapsed && (
+          <svg
+            className={`mr-1.5 h-3.5 w-3.5 flex-none text-muted-foreground transition-transform ${collapsed ? '-rotate-90' : 'rotate-0'}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
+          </svg>
+        )}
+        onCollapseToggle={onToggleCollapsed}
         isStaged={isStaged}
         isStaging={isStaging}
         onStage={onStage}
@@ -672,7 +688,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         onFileComment={setFileCommentAnchor}
       />
 
-      <OverlayScrollArea
+      {!collapsed && <OverlayScrollArea
         className={`flex-1 min-h-0 relative ${isDraggingSplit ? 'select-none' : ''}`}
         overflowX="scroll"
         onViewportReady={onViewportReady}
@@ -747,7 +763,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           onClose={() => setFileCommentAnchor(null)}
         />
       )}
-      </OverlayScrollArea>
+      </OverlayScrollArea>}
     </div>
   );
 };

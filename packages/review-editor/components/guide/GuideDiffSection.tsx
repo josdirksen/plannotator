@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { GuideDiffRef } from '@plannotator/shared/guide';
 import { renderInlineMarkdown } from '../../utils/renderInlineMarkdown';
 import { DiffViewer } from '../DiffViewer';
@@ -70,6 +70,19 @@ export const GuideDiffSection: React.FC<GuideDiffSectionProps> = ({ diffRef, isF
     state.onToggleViewed(diffRef.file);
     if (!wasViewed) setCollapsed(true);
   };
+
+  // Reveal channel (state.guideRevealFile): a sidebar jump — annotation click
+  // or AI line citation — targeted THIS file. The viewed-collapse above
+  // unmounts the diff body, so the jump would silently no-op on a collapsed
+  // file; expand it first. GuideSectionCard's companion effect handles the
+  // section-level expand and scroll — this one only reopens the file.
+  const revealTarget = state.guideRevealFile?.path === diffRef.file ? state.guideRevealFile : null;
+  useEffect(() => {
+    if (revealTarget) setCollapsed(false);
+    // Token identifies the reveal event (it increments on every set); path
+    // and handler churn must not re-fire it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealTarget?.token]);
 
   if (!file) {
     return (

@@ -1,5 +1,5 @@
 /**
- * Canonical 64px production favicon from Michael's brand asset library.
+ * Canonical 64px production Totman favicon.
  * Source SHA-256: 8467d50dba314f3b72ab73ba37d406baabd8d74ed72529e853613442a8c65073
  */
 export const FAVICON_PNG_BASE64 = [

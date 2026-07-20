@@ -430,7 +430,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("plannotator-review", {
-		description: "Open interactive code review for current changes or a PR URL; pass --git to force Git in JJ workspaces",
+		description: "Open interactive code review for current changes or a PR URL; pass --git or --gitbutler to force that provider",
 		handler: async (args, ctx) => {
 			if (!hasReviewBrowserHtml()) {
 				ctx.ui.notify(

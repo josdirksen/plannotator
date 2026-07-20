@@ -90,6 +90,9 @@ async function buildLocalWorkspaceReview(
 	options: { requestedDiffType?: DiffType | WorkspaceDiffType; configuredDiffType?: DiffType; hideWhitespace?: boolean } = {},
 ): Promise<WorkspaceReviewSession> {
 	return WorkspaceReviewSession.create({
+		async detectVcsType(cwd?: string) {
+			return (await detectManagedVcs(cwd))?.id;
+		},
 		getVcsContext,
 		runVcsDiff,
 		getVcsFileContentsForDiff,
@@ -249,6 +252,7 @@ export async function startCodeReviewBrowserSession(
 	let diffType: DiffType | WorkspaceDiffType | undefined;
 	let agentCwd: string | undefined;
 	let initialBase: string | undefined;
+	let initialFingerprint: string | undefined;
 	let worktreeCleanup: (() => void | Promise<void>) | undefined;
 	let worktreePool: WorktreePool | undefined;
 	let exitHandler: (() => void) | undefined;
@@ -437,6 +441,7 @@ export async function startCodeReviewBrowserSession(
 			rawPatch = result.rawPatch;
 			gitRef = result.gitRef;
 			diffError = result.error;
+			initialFingerprint = result.fingerprint;
 			// Remember which base the initial diff was computed against so it can
 			// be forwarded to the server below. Only matters when the caller
 			// overrode the detected default; otherwise it matches gitCtx already.
@@ -448,7 +453,7 @@ export async function startCodeReviewBrowserSession(
 				hideWhitespace: config.diffOptions?.hideWhitespace ?? false,
 			});
 			if (workspace.repos.length === 0) {
-				throw new Error("Not in a VCS repo and no nested Git/JJ repositories were found.");
+				throw new Error("Not in a VCS repo and no nested Git/JJ/GitButler repositories were found.");
 			}
 			rawPatch = workspace.rawPatch;
 			gitRef = workspace.gitRef;
@@ -466,6 +471,7 @@ export async function startCodeReviewBrowserSession(
 		diffType,
 		gitContext: gitCtx,
 		initialBase,
+		initialFingerprint,
 		prMetadata,
 		prPatchIncomplete,
 		workspace,

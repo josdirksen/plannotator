@@ -22,6 +22,8 @@ describe("production favicon", () => {
     );
     expect(view.getUint32(16)).toBe(64);
     expect(view.getUint32(20)).toBe(64);
+    expect(view.getUint8(24)).toBe(8);
+    expect(view.getUint8(25)).toBe(6);
   });
 
   test("keeps the SVG export as a wrapper around the canonical PNG", () => {

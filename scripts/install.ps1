@@ -122,7 +122,21 @@ Write-Host "Installing plannotator $latestTag..."
 $verifyAttestationResolved = $false
 
 # Layer 3: config file (lowest precedence of the opt-in sources).
-$configDir = if ($env:PLANNOTATOR_DATA_DIR) { $env:PLANNOTATOR_DATA_DIR.Trim() } else { Join-Path $env:USERPROFILE ".plannotator" }
+# Unset PLANNOTATOR_DATA_DIR: an existing ~/.plannotator (legacy default)
+# always wins; otherwise an explicitly-set absolute XDG_DATA_HOME (rare on
+# Windows but honored the same way as the runtime) places the directory at
+# $XDG_DATA_HOME\plannotator; otherwise ~/.plannotator.
+$configDir = if ($env:PLANNOTATOR_DATA_DIR) { $env:PLANNOTATOR_DATA_DIR.Trim() } else {
+    $legacyDir = Join-Path $env:USERPROFILE ".plannotator"
+    $xdgDataHome = if ($env:XDG_DATA_HOME) { $env:XDG_DATA_HOME.Trim() } else { "" }
+    if (Test-Path $legacyDir) {
+        $legacyDir
+    } elseif ($xdgDataHome -and [System.IO.Path]::IsPathRooted($xdgDataHome)) {
+        Join-Path $xdgDataHome "plannotator"
+    } else {
+        $legacyDir
+    }
+}
 if ($configDir -eq "~") {
     $configDir = $env:USERPROFILE
 } elseif ($configDir.StartsWith("~/") -or $configDir.StartsWith('~\')) {
@@ -341,7 +355,7 @@ if ($verifyAttestationResolved) {
     }
 } else {
     Write-Host "SHA256 verified. For build provenance verification, see"
-    Write-Host "https://plannotator.ai/docs/getting-started/installation/#verifying-your-install"
+    Write-Host "https://docs.plannotator.ai/open-source/start/installation#pin-or-verify-a-release"
 }
 
 Move-Item -Force $tmpFile "$installDir\plannotator.exe"

@@ -246,3 +246,63 @@ describe("bounded file traversal", () => {
 		}
 	});
 });
+
+describe("explicit parent-relative markdown paths (#1085)", () => {
+	test("resolves a ../ path that escapes the project root", () => {
+		const parent = mkdtempSync(join(tmpdir(), "plannotator-md-parent-"));
+		try {
+			mkdirSync(join(parent, "docs", "radio"), { recursive: true });
+			writeFileSync(join(parent, "docs", "radio", "plan.md"), "# Plan\n");
+			const cwd = join(parent, "work");
+			mkdirSync(cwd);
+
+			expect(resolveMarkdownFile("../docs/radio/plan.md", cwd)).toEqual({
+				kind: "found",
+				path: join(parent, "docs", "radio", "plan.md"),
+			});
+		} finally {
+			rmSync(parent, { recursive: true, force: true });
+		}
+	});
+
+	test("resolves a ./ explicit path within the root", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "plannotator-md-dot-"));
+		try {
+			mkdirSync(join(cwd, "sub"));
+			writeFileSync(join(cwd, "sub", "notes.md"), "# Notes\n");
+			expect(resolveMarkdownFile("./sub/notes.md", cwd)).toEqual({
+				kind: "found",
+				path: join(cwd, "sub", "notes.md"),
+			});
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+
+	test("a bare filename does NOT escape into a parent directory", () => {
+		const parent = mkdtempSync(join(tmpdir(), "plannotator-md-bare-esc-"));
+		try {
+			writeFileSync(join(parent, "secret.md"), "# Parent\n");
+			const cwd = join(parent, "work");
+			mkdirSync(cwd);
+			expect(resolveMarkdownFile("secret.md", cwd)).toEqual({
+				kind: "not_found",
+				input: "secret.md",
+			});
+		} finally {
+			rmSync(parent, { recursive: true, force: true });
+		}
+	});
+
+	test("a ../ path to a missing file is still not_found", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "plannotator-md-missing-"));
+		try {
+			expect(resolveMarkdownFile("../nope/absent.md", cwd)).toEqual({
+				kind: "not_found",
+				input: "../nope/absent.md",
+			});
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+});

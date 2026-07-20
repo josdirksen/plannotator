@@ -468,9 +468,16 @@ function resolveMarkdownFileCore(
 		return { kind: "not_found", input };
 	}
 
-	// 2. Exact relative path from project root
+	// 2. Exact relative path from project root. An explicit path the user
+	//    typed (one containing a separator, including `../` that escapes the
+	//    root) is honored when it exists — the same trust already extended to
+	//    absolute paths above. Bare filenames stay restricted to the fuzzy
+	//    in-root search below so a stray `notes.md` can't resolve to a parent.
 	const fromRoot = resolve(projectRoot, searchInput);
-	if (isWithinProjectRoot(fromRoot, projectRoot) && fileExists(fromRoot)) {
+	if (
+		fileExists(fromRoot) &&
+		(isWithinProjectRoot(fromRoot, projectRoot) || searchInput.includes("/"))
+	) {
 		return { kind: "found", path: fromRoot };
 	}
 

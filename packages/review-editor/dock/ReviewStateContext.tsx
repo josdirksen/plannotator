@@ -1,11 +1,12 @@
 import React, { createContext, useContext } from 'react';
-import type { CodeAnnotation, CodeAnnotationType, SelectedLineRange, TokenAnnotationMeta, ConventionalLabel, ConventionalDecoration, Annotation, CommentAnnotation } from '@plannotator/ui/types';
+import type { CodeAnnotation, CodeAnnotationType, SelectedLineRange, TokenAnnotationMeta, ConventionalLabel, ConventionalDecoration, Annotation, CommentAnnotation, ArtifactAnnotationMeta } from '@plannotator/ui/types';
 import type { CommentAskAIHandler } from '@plannotator/ui/components/CommentPopover';
 import type { AgentJobInfo } from '@plannotator/ui/types';
 import type { DiffFile, AnnotationScrollTarget } from '../types';
 import type { AIChatEntry } from '../hooks/useAIChat';
 import type { ReviewSearchMatch } from '../utils/reviewSearch';
 import type { PRMetadata, PRContext } from '@plannotator/shared/pr-types';
+import type { PRArtifact } from '../utils/prArtifacts';
 import type { PRDiffScope } from '@plannotator/shared/pr-stack';
 import type { FeedbackDiffContext } from '../utils/exportFeedback';
 
@@ -46,6 +47,8 @@ export interface ReviewState {
   /** Agent working directory — base for resolving repo-relative diff paths to
    *  absolute (e.g. for the Open-in-app control). */
   agentCwd?: string | null;
+  /** Whether live-working-tree actions match the snapshot currently shown. */
+  canUseLiveWorkspaceActions?: boolean;
 
   // Annotations
   allAnnotations: CodeAnnotation[];
@@ -80,7 +83,13 @@ export interface ReviewState {
   // PR comment annotations (notes attached to a whole comment/review/thread).
   commentAnnotations: CommentAnnotation[];
   selectedCommentAnnotationId: string | null;
-  onAddCommentAnnotation: (commentId: string, commentAuthor: string, commentBody: string, text: string) => void;
+  onAddCommentAnnotation: (
+    commentId: string,
+    commentAuthor: string,
+    commentBody: string,
+    text: string,
+    options?: { id?: string; artifact?: ArtifactAnnotationMeta },
+  ) => void;
   onSelectCommentAnnotation: (id: string | null) => void;
   onDeleteCommentAnnotation: (id: string) => void;
   /** Ask AI about a PR comment (file-less scope ask, comment body as text). */
@@ -147,6 +156,8 @@ export interface ReviewState {
   // PR
   prMetadata: PRMetadata | null;
   prContext: PRContext | null;
+  /** Viewable attachments harvested from the current hosted PR/MR context. */
+  prArtifacts: readonly PRArtifact[];
   isPRContextLoading: boolean;
   prContextError: string | null;
   fetchPRContext: () => void;
